@@ -1,0 +1,3 @@
+[submodule "newton-dynamics"]
+	path = newton-dynamics
+	url = https://github.com/germangb/newton-dynamics

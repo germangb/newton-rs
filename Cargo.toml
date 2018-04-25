@@ -1,0 +1,13 @@
+[package]
+name = "newton-dynamics"
+version = "0.1.0"
+authors = ["germän gômez <germangb42@gmail.com>"]
+
+[dependencies]
+
+[dev-dependencies]
+cgmath = "0.16"
+
+[build-dependencies]
+bindgen = "0.36"
+cmake = "0.1"
