@@ -1,44 +1,50 @@
-extern crate cmake;
 extern crate bindgen;
-
-use cmake::Config;
-use std::env;
-use std::path::PathBuf;
+extern crate cmake;
 
 use bindgen::Builder;
+use cmake::Config;
 
-static NATIVE_LIB_NAME: &str = "Newton_d";
-static HEADER_FILE_PATH: &str = "include/Newton.h";
+use std::{
+    env,
+    path::PathBuf
+};
 
-static BINDINGS_USAGE: &str = r#"
-pub mod bindgen {
-    #![allow(non_snake_case)]
-    #![allow(non_camel_case_types)]
-    #![allow(non_upper_case_globals)]
+mod config {
+    #[cfg(target_pointer_width = "64")]
+    pub static LIB_PATH: &str = "lib64/";
 
-    include!(concat!(env!("OUT_DIR"), "/bindgen.rs"));
-}"#;
+    #[cfg(not(target_pointer_width = "64"))]
+    pub static LIB_PATH: &str = "lib/";
+
+    pub static LIB: &str = "Newton_d";
+    pub static HEADER_PATH: &str = "include/";
+    pub static HEADER: &str = "Newton.h";
+}
 
 fn main() {
     let dst = Config::new("newton-dynamics")
-        .define("NEWTON_DEMOS_SANDBOX", "OFF").build();
+        .define("NEWTON_DEMOS_SANDBOX", "OFF")
+        .build();
 
-    println!("cargo:rustc-link-search={path}/lib64/", path=dst.display());
-    println!("cargo:rustc-link-lib={path}", path=NATIVE_LIB_NAME);
+    println!(
+        "cargo:rustc-link-search={build_path}/{lib_path}",
+        build_path=dst.display(),
+        lib_path=config::LIB_PATH
+    );
+    println!("cargo:rustc-link-lib={}", config::LIB);
 
     let mut header_file = PathBuf::from(env::var("OUT_DIR").unwrap());
-    header_file.push(HEADER_FILE_PATH);
+    header_file.push(config::HEADER_PATH);
+    header_file.push(config::HEADER);
 
     eprintln!("Attempting to generate bindings");
-    eprintln!("OUT_DIR={dir}", dir=env::var("OUT_DIR").unwrap());
-    eprintln!("HEADER={path}", path=header_file.to_str().unwrap());
+    eprintln!("OUT_DIR={dir}", dir = env::var("OUT_DIR").unwrap());
+    eprintln!("HEADER={path}", path = header_file.to_str().unwrap());
 
     let bindings_builder = Builder::default()
         .header(header_file.to_str().unwrap())
         .generate_comments(true)
         .layout_tests(true)
-
-        .header_contents("bool", "#define bool int")
 
         // derives
         .derive_copy(true)
@@ -53,13 +59,9 @@ fn main() {
     let mut output_bindings = PathBuf::from(env::var("OUT_DIR").unwrap());
     output_bindings.push("bindgen.rs");
 
-    bindings_builder.write_to_file(output_bindings.to_str().unwrap())
-        .expect("Bindings were generated but there was an error while writing them to the output file");
-
-    // log useful information
-    eprintln!("Newton bindings generated Successfully!");
-    eprintln!("---------------------------------------");
-
-    eprintln!("In order to include them, use the following macro:");
-    eprintln!("{}", BINDINGS_USAGE);
+    bindings_builder
+        .write_to_file(output_bindings.to_str().unwrap())
+        .expect(
+            "Bindings were generated but there was an error while writing them to the output file",
+        );
 }
