@@ -1,21 +1,20 @@
 extern crate gl;
 
-use std::{
-    ptr,
-
-    ffi::CString,
-};
-
-use ::cgmath::{
+use cgmath::{
     Matrix4,
-    Vector3,
-    Point3,
     PerspectiveFov,
-
+    Point3,
+    Vector3,
+    
     prelude::*,
 };
 
-use ::gl::types::*;
+use gl::types::*;
+
+use std::{
+    ptr,
+    ffi::CString,
+};
 
 mod cube {
     static BLOB: &[u8; 912] = include_bytes!("assets/cube.bin");
@@ -23,10 +22,12 @@ mod cube {
     lazy_static! {
         pub static ref INDEX_DATA: &'static [u8] = &BLOB[..144];
         pub static ref VERTEX_DATA: &'static [u8] = &BLOB[144..];
-    }    
+    }
 }
 
 pub type RenderResult<T> = ::std::result::Result<T, RenderError>;
+
+pub type Color3 = ::cgmath::Vector3<f32>;
 
 #[derive(Debug)]
 pub enum RenderError {
@@ -81,36 +82,74 @@ impl Renderer {
         gl::EnableVertexAttribArray(2);
 
         gl::VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, 3 << 2, 0 as _);
-        gl::VertexAttribPointer(1, 3, gl::FLOAT, gl::FALSE, 3 << 2, ptr::null::<u8>().offset(432 - 144) as _);
-        gl::VertexAttribPointer(2, 2, gl::FLOAT, gl::FALSE, 2 << 2, ptr::null::<u8>().offset(720 - 144) as _);
+        gl::VertexAttribPointer(
+            1,
+            3,
+            gl::FLOAT,
+            gl::FALSE,
+            3 << 2,
+            ptr::null::<u8>().offset(432 - 144) as _,
+        );
+        gl::VertexAttribPointer(
+            2,
+            2,
+            gl::FLOAT,
+            gl::FALSE,
+            2 << 2,
+            ptr::null::<u8>().offset(720 - 144) as _,
+        );
     }
 
     unsafe fn create_shader_program() -> RenderResult<ShaderProgram> {
         gl::GetError();
-        
+
         let mut info_log = vec![0u8; 1024];
         let mut info_log_len = 0;
 
         let vertex_shader = gl::CreateShader(gl::VERTEX_SHADER);
         let vertex_shader_source = include_str!("assets/shader.vert");
 
-        gl::ShaderSource(vertex_shader, 1, [vertex_shader_source.as_ptr()].as_ptr() as *const *const GLchar, [vertex_shader_source.len()].as_ptr() as _);
+        gl::ShaderSource(
+            vertex_shader,
+            1,
+            [vertex_shader_source.as_ptr()].as_ptr() as *const *const GLchar,
+            [vertex_shader_source.len()].as_ptr() as _,
+        );
         gl::CompileShader(vertex_shader);
-        gl::GetShaderInfoLog(vertex_shader, 1024, &mut info_log_len, info_log.as_mut_ptr() as _);
+        gl::GetShaderInfoLog(
+            vertex_shader,
+            1024,
+            &mut info_log_len,
+            info_log.as_mut_ptr() as _,
+        );
 
         if info_log_len > 0 {
-            return Err(RenderError::VertexShaderCompile(String::from_utf8_lossy(&info_log[..info_log_len as usize]).into_owned()));
+            return Err(RenderError::VertexShaderCompile(
+                String::from_utf8_lossy(&info_log[..info_log_len as usize]).into_owned(),
+            ));
         }
 
         let fragment_shader = gl::CreateShader(gl::FRAGMENT_SHADER);
         let fragment_shader_source = include_str!("assets/shader.frag");
 
-        gl::ShaderSource(fragment_shader, 1, [fragment_shader_source.as_ptr()].as_ptr() as *const *const GLchar, [fragment_shader_source.len()].as_ptr() as _);
+        gl::ShaderSource(
+            fragment_shader,
+            1,
+            [fragment_shader_source.as_ptr()].as_ptr() as *const *const GLchar,
+            [fragment_shader_source.len()].as_ptr() as _,
+        );
         gl::CompileShader(fragment_shader);
-        gl::GetShaderInfoLog(fragment_shader, 1024, &mut info_log_len, info_log.as_mut_ptr() as _);
+        gl::GetShaderInfoLog(
+            fragment_shader,
+            1024,
+            &mut info_log_len,
+            info_log.as_mut_ptr() as _,
+        );
 
         if info_log_len > 0 {
-            return Err(RenderError::FragmentShaderCompile(String::from_utf8_lossy(&info_log[..info_log_len as usize]).into_owned()));
+            return Err(RenderError::FragmentShaderCompile(
+                String::from_utf8_lossy(&info_log[..info_log_len as usize]).into_owned(),
+            ));
         }
 
         let program_id = gl::CreateProgram();
@@ -122,7 +161,8 @@ impl Renderer {
         gl::DeleteShader(fragment_shader);
         gl::UseProgram(program_id);
 
-        let view_projection_uniform = gl::GetUniformLocation(program_id, "u_view_projection\0".as_ptr() as _);
+        let view_projection_uniform =
+            gl::GetUniformLocation(program_id, "u_view_projection\0".as_ptr() as _);
         let world_uniform = gl::GetUniformLocation(program_id, "u_world\0".as_ptr() as _);
         let color_uniform = gl::GetUniformLocation(program_id, "u_color\0".as_ptr() as _);
         let light_uniform = gl::GetUniformLocation(program_id, "u_light\0".as_ptr() as _);
@@ -153,8 +193,18 @@ impl Renderer {
         gl::BindBuffer(gl::ARRAY_BUFFER, box_vbo);
         gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, box_ebo);
 
-        gl::BufferData(gl::ARRAY_BUFFER, cube::VERTEX_DATA.len() as _, cube::VERTEX_DATA.as_ptr() as _, gl::STATIC_DRAW);
-        gl::BufferData(gl::ELEMENT_ARRAY_BUFFER, cube::INDEX_DATA.len() as _, cube::INDEX_DATA.as_ptr() as _, gl::STATIC_DRAW);
+        gl::BufferData(
+            gl::ARRAY_BUFFER,
+            cube::VERTEX_DATA.len() as _,
+            cube::VERTEX_DATA.as_ptr() as _,
+            gl::STATIC_DRAW,
+        );
+        gl::BufferData(
+            gl::ELEMENT_ARRAY_BUFFER,
+            cube::INDEX_DATA.len() as _,
+            cube::INDEX_DATA.as_ptr() as _,
+            gl::STATIC_DRAW,
+        );
 
         let error = gl::GetError();
         if error != gl::NO_ERROR {
@@ -173,7 +223,7 @@ impl Renderer {
 
             gl::Enable(gl::DEPTH_TEST);
 
-            Self::check_gl_error()
+            check_gl_error()
         }
     }
 
@@ -181,16 +231,27 @@ impl Renderer {
         unsafe {
             gl::Uniform3f(self.program.light_uniform, dir.x, dir.y, dir.z);
 
-            Self::check_gl_error()
-        } 
+            check_gl_error()
+        }
     }
 
-    pub fn set_camera_transforms(&self, projection: PerspectiveFov<f32>, eye: Point3<f32>, center: Point3<f32>, up: Vector3<f32>) -> RenderResult<()> {
+    pub fn set_camera_transforms(
+        &self,
+        projection: PerspectiveFov<f32>,
+        eye: Point3<f32>,
+        center: Point3<f32>,
+        up: Vector3<f32>,
+    ) -> RenderResult<()> {
         unsafe {
             let view_proj = Matrix4::from(projection) * Matrix4::look_at(eye, center, up);
-            gl::UniformMatrix4fv(self.program.view_projection_uniform, 1, gl::FALSE, view_proj.as_ptr());
+            gl::UniformMatrix4fv(
+                self.program.view_projection_uniform,
+                1,
+                gl::FALSE,
+                view_proj.as_ptr(),
+            );
 
-            Self::check_gl_error()
+            check_gl_error()
         }
     }
 
@@ -201,18 +262,19 @@ impl Renderer {
 
             gl::DrawElements(gl::TRIANGLES, 36, gl::UNSIGNED_INT, ptr::null());
 
-            Self::check_gl_error()
+            check_gl_error()
         }
     }
 
-    #[inline]
-    unsafe fn check_gl_error() -> RenderResult<()> {
-        let error = gl::GetError();
-        if error != gl::NO_ERROR {
-            Err(RenderError::Error(error))
-        } else {
-            Ok(())
-        }
+}
+
+#[inline]
+unsafe fn check_gl_error() -> RenderResult<()> {
+    let error = gl::GetError();
+    if error != gl::NO_ERROR {
+        Err(RenderError::Error(error))
+    } else {
+        Ok(())
     }
 }
 

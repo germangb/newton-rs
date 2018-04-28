@@ -1,10 +1,10 @@
 extern crate newton_dynamics;
 
+extern crate cgmath;
+extern crate gl;
 #[macro_use]
 extern crate lazy_static;
-extern crate cgmath;
 extern crate sdl2;
-extern crate gl;
 
 mod renderer;
 
@@ -12,10 +12,10 @@ use self::newton_dynamics::bindgen as ffi;
 
 use cgmath::{
     Matrix4,
-    Vector3,
-    Point3,
     PerspectiveFov,
+    Point3,
     Rad,
+    Vector3,
 
     prelude::*,
 };
@@ -23,10 +23,11 @@ use cgmath::{
 use sdl2::event::Event;
 
 mod color {
-    pub static RED: ::Vector3<f32>   = ::Vector3 { x: 1.0, y: 0.0, z: 0.0 };
-    pub static BLUE: ::Vector3<f32>  = ::Vector3 { x: 0.0, y: 1.0, z: 0.0 };
-    pub static GREEN: ::Vector3<f32> = ::Vector3 { x: 0.0, y: 0.0, z: 1.0 };
-    pub static PING: ::Vector3<f32>  = ::Vector3 { x: 1.0, y: 0.0, z: 1.0 };
+    use renderer::Color3;
+
+    pub static RED: Color3 = Color3 { x: 1.0, y: 0.0, z: 0.0 };
+    pub static GREEN: Color3 = Color3 { x: 0.0, y: 1.0, z: 0.0 };
+    pub static BLUE: Color3 = Color3 { x: 0.0, y: 1.0, z: 0.0 };
 }
 
 fn main() {
@@ -35,7 +36,8 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
-    let window = video_subsystem.window("Window", 640, 480)
+    let window = video_subsystem
+        .window("Window", 640, 480)
         .opengl()
         .position_centered()
         .build()
@@ -45,24 +47,31 @@ fn main() {
     window.gl_make_current(&gl_context).unwrap();
 
     gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as _);
-    
+
     let mut renderer = renderer::Renderer::new().unwrap();
     println!("renderer={:?}", renderer);
 
     renderer.set_light(Vector3::new(2.0, -3.0, -1.0)).unwrap();
 
-    renderer.set_camera_transforms(
-        PerspectiveFov { fovy: Rad(0.8726), aspect: 4.0 / 3.0, near: 0.01, far: 1000.0 },
-        Point3::new(2.0, 6.0, 8.0),
-        Point3::new(0.0, 0.0, 0.0),
-        Vector3::new(0.0, 1.0, 0.0)
-    ).unwrap();
+    renderer
+        .set_camera_transforms(
+            PerspectiveFov {
+                fovy: Rad(0.8726),
+                aspect: 4.0 / 3.0,
+                near: 0.01,
+                far: 1000.0,
+            },
+            Point3::new(2.0, 6.0, 8.0),
+            Point3::new(0.0, 0.0, 0.0),
+            Vector3::new(0.0, 1.0, 0.0),
+        )
+        .unwrap();
 
     let mut event_pump = sdl_context.event_pump().unwrap();
     'main: loop {
         for event in event_pump.poll_iter() {
             if let Event::Quit { .. } = event {
-                break 'main
+                break 'main;
             }
         }
 
@@ -74,12 +83,22 @@ fn main() {
 
         // render ground
         unsafe { ffi::NewtonBodyGetMatrix(example.ground(), transform.as_mut_ptr()) };
-        renderer.render_box(Matrix4::from_nonuniform_scale(8.0, 0.2, 8.0) * transform, color::RED).unwrap();
+        renderer
+            .render_box(
+                Matrix4::from_nonuniform_scale(8.0, 0.2, 8.0) * transform,
+                color::RED,
+            )
+            .unwrap();
 
         // render box
         for b in example.bodies() {
             unsafe { ffi::NewtonBodyGetMatrix(*b, transform.as_mut_ptr()) };
-            renderer.render_box(Matrix4::from_nonuniform_scale(1.0, 1.0, 1.0) * transform, color::BLUE).unwrap();
+            renderer
+                .render_box(
+                    Matrix4::from_nonuniform_scale(1.0, 1.0, 1.0) * transform,
+                    color::GREEN,
+                )
+                .unwrap();
         }
 
         window.gl_swap_window();
@@ -87,9 +106,9 @@ fn main() {
 }
 
 mod example {
-    use ::ffi;
+    use ffi;
 
-    use ::cgmath::{
+    use cgmath::{
         Matrix4,
         Vector3,
         Vector4,
@@ -110,7 +129,8 @@ mod example {
         pub fn new() -> Self {
             unsafe {
                 let world = ffi::NewtonCreate();
-                let (ground_collision, box_collision, ground_body, box_bodies) = Self::add_bodies(world);
+                let (ground_collision, box_collision, ground_body, box_bodies) =
+                    Self::add_bodies(world);
 
                 Self {
                     world,
