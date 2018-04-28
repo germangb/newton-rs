@@ -7,6 +7,9 @@ authors = ["germän gômez <germangb42@gmail.com>"]
 
 [dev-dependencies]
 cgmath = "0.16"
+gl = "0.10"
+sdl2 = "0.31"
+lazy_static = "1.0"
 
 [build-dependencies]
 bindgen = "0.36"
