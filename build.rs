@@ -10,15 +10,10 @@ use std::{
 };
 
 mod config {
-    #[cfg(target_pointer_width = "64")]
-    pub static LIB_PATH: &str = "lib64/";
-
-    #[cfg(not(target_pointer_width = "64"))]
-    pub static LIB_PATH: &str = "lib/";
-
-    pub static LIB: &str = "Newton_d";
+    pub static LIB_PATH:    &str = "lib64/";
+    pub static LIB:         &str = "Newton_d";
     pub static HEADER_PATH: &str = "include/";
-    pub static HEADER: &str = "Newton.h";
+    pub static HEADER:      &str = "Newton.h";
 }
 
 fn main() {
