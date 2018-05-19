@@ -10,10 +10,10 @@ use std::{
 };
 
 mod config {
-    pub static LIB_PATH:    &str = "lib64/";
-    pub static LIB:         &str = "Newton_d";
-    pub static HEADER_PATH: &str = "include/";
-    pub static HEADER:      &str = "Newton.h";
+    pub static LIB_PATH:    &[&str] = &["lib64/", "lib/"];
+    pub static LIB:         &str    = "Newton_d";
+    pub static HEADER_PATH: &str    = "include/";
+    pub static HEADER:      &str    = "Newton.h";
 }
 
 fn main() {
@@ -21,11 +21,13 @@ fn main() {
         .define("NEWTON_DEMOS_SANDBOX", "OFF")
         .build();
 
-    println!(
-        "cargo:rustc-link-search={build_path}/{lib_path}",
-        build_path=dst.display(),
-        lib_path=config::LIB_PATH
-    );
+    for lib_path in config::LIB_PATH.iter() {
+        println!(
+            "cargo:rustc-link-search={build_path}/{lib_path}",
+            build_path=dst.display(),
+            lib_path=lib_path,
+        );
+    }
     println!("cargo:rustc-link-lib={}", config::LIB);
 
     let mut header_file = PathBuf::from(env::var("OUT_DIR").unwrap());
