@@ -10,6 +10,10 @@ cgmath = "0.16"
 gl = "0.10"
 sdl2 = "0.31"
 lazy_static = "1.0"
+rand = "0.4"
+
+cgmath-culling = { git = "https://github.com/germangb/cgmath-culling.git" }
+stb = { git = "https://github.com/germangb/stb-rs.git" }
 
 [build-dependencies]
 bindgen = "0.36"

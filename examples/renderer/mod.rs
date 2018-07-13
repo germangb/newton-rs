@@ -1,20 +1,10 @@
-extern crate gl;
+use stb::image::Image;
+use cgmath::{Matrix4, PerspectiveFov, Point3, Vector3, prelude::*};
 
-use cgmath::{
-    Matrix4,
-    PerspectiveFov,
-    Point3,
-    Vector3,
-    
-    prelude::*,
-};
-
+use gl;
 use gl::types::*;
 
-use std::{
-    ptr,
-    ffi::CString,
-};
+use std::{ptr, ffi::CString};
 
 mod cube {
     static BLOB: &[u8; 912] = include_bytes!("assets/cube.bin");
@@ -39,10 +29,12 @@ pub enum RenderError {
 #[derive(Debug)]
 pub struct ShaderProgram {
     program_id: GLuint,
-    view_projection_uniform: GLint,
+    projection_uniform: GLint,
+    view_uniform: GLint,
     world_uniform: GLint,
     color_uniform: GLint,
     light_uniform: GLint,
+    texture_uniform: GLint,
 }
 
 #[derive(Debug)]
@@ -52,6 +44,42 @@ pub struct Renderer {
     // box mesh
     box_vbo: GLuint,
     box_ebo: GLuint,
+
+    // textures
+    diamond_texture: GLuint,
+}
+
+pub struct Camera {
+    perspective: PerspectiveFov<f32>,
+
+    eye: Point3<f32>,
+    center: Point3<f32>,
+    up: Vector3<f32>,
+}
+
+impl Camera {
+    pub fn new(perspective: PerspectiveFov<f32>) -> Self {
+        Self {
+            perspective,
+            eye: Point3::new(0.0, 0.0, 0.0),
+            center: Point3::new(0.0, 0.0, 0.0),
+            up: Vector3::new(0.0, 1.0, 0.0),
+        }
+    }
+
+    pub fn update_view(&mut self, eye: Point3<f32>, center: Point3<f32>, up: Vector3<f32>) {
+        self.eye = eye;
+        self.center = center;
+        self.up = up;
+    }
+
+    pub fn projection(&self) -> Matrix4<f32> {
+        self.perspective.into()
+    }
+
+    pub fn view(&self) -> Matrix4<f32> {
+        Matrix4::look_at(self.eye, self.center, self.up)
+    }
 }
 
 impl Renderer {
@@ -65,6 +93,7 @@ impl Renderer {
                 box_ebo: box_ebo,
 
                 program: Self::create_shader_program()?,
+                diamond_texture: Self::create_diamond_texture()?,
             })
         }
     }
@@ -161,11 +190,12 @@ impl Renderer {
         gl::DeleteShader(fragment_shader);
         gl::UseProgram(program_id);
 
-        let view_projection_uniform =
-            gl::GetUniformLocation(program_id, "u_view_projection\0".as_ptr() as _);
+        let view_uniform = gl::GetUniformLocation(program_id, "u_view\0".as_ptr() as _);
+        let projection_uniform = gl::GetUniformLocation(program_id, "u_projection\0".as_ptr() as _);
         let world_uniform = gl::GetUniformLocation(program_id, "u_world\0".as_ptr() as _);
         let color_uniform = gl::GetUniformLocation(program_id, "u_color\0".as_ptr() as _);
         let light_uniform = gl::GetUniformLocation(program_id, "u_light\0".as_ptr() as _);
+        let texture_uniform = gl::GetUniformLocation(program_id, "u_texture\0".as_ptr() as _);
 
         let error = gl::GetError();
         if error != gl::NO_ERROR {
@@ -173,11 +203,44 @@ impl Renderer {
         } else {
             Ok(ShaderProgram {
                 program_id,
-                view_projection_uniform,
+                projection_uniform,
+                view_uniform,
                 world_uniform,
                 color_uniform,
                 light_uniform,
+                texture_uniform,
             })
+        }
+    }
+
+    unsafe fn create_diamond_texture() -> RenderResult<GLuint> {
+        let mut texture = 0;
+        gl::GenTextures(1, &mut texture);
+
+        gl::ActiveTexture(gl::TEXTURE0);
+        gl::BindTexture(gl::TEXTURE_2D, texture);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, gl::REPEAT as _);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, gl::REPEAT as _);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::NEAREST as _);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::NEAREST as _);
+
+        // decode image
+        let image: Image<u8> = Image::from_file("examples/assets/diamonds.png", 3).unwrap();
+        gl::TexImage2D(gl::TEXTURE_2D,
+                       0,
+                       gl::RGB8 as _,
+                       image.width() as _,
+                       image.height() as _,
+                       0,
+                       gl::RGB,
+                       gl::UNSIGNED_BYTE,
+                       image.as_ptr() as _);
+
+        let error = gl::GetError();
+        if error != gl::NO_ERROR {
+            Err(RenderError::Error(error))
+        } else {
+            Ok(texture)
         }
     }
 
@@ -218,10 +281,14 @@ impl Renderer {
         unsafe {
             self.init_state();
 
-            gl::ClearColor(0.25, 0.25, 0.25, 1.0);
+            gl::ClearColor(0.24, 0.24, 0.24, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
 
             gl::Enable(gl::DEPTH_TEST);
+
+            gl::ActiveTexture(gl::TEXTURE0);
+            gl::BindTexture(gl::TEXTURE_2D, self.diamond_texture);
+            gl::Uniform1i(self.program.texture_uniform, 0);
 
             check_gl_error()
         }
@@ -235,22 +302,20 @@ impl Renderer {
         }
     }
 
-    pub fn set_camera_transforms(
-        &self,
-        projection: PerspectiveFov<f32>,
-        eye: Point3<f32>,
-        center: Point3<f32>,
-        up: Vector3<f32>,
-    ) -> RenderResult<()> {
+    pub fn set_camera(&self, camera: &Camera) -> RenderResult<()> {
         unsafe {
-            let view_proj = Matrix4::from(projection) * Matrix4::look_at(eye, center, up);
             gl::UniformMatrix4fv(
-                self.program.view_projection_uniform,
+                self.program.projection_uniform,
                 1,
                 gl::FALSE,
-                view_proj.as_ptr(),
+                camera.projection().as_ptr(),
             );
-
+            gl::UniformMatrix4fv(
+                self.program.view_uniform,
+                1,
+                gl::FALSE,
+                camera.view().as_ptr(),
+            );
             check_gl_error()
         }
     }
@@ -265,7 +330,6 @@ impl Renderer {
             check_gl_error()
         }
     }
-
 }
 
 #[inline]
@@ -281,6 +345,7 @@ unsafe fn check_gl_error() -> RenderResult<()> {
 impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
+            gl::DeleteTextures(1, &mut self.diamond_texture);
             gl::DeleteBuffers(1, &self.box_vbo);
             gl::DeleteBuffers(1, &self.box_ebo);
         }
@@ -294,3 +359,4 @@ impl Drop for ShaderProgram {
         }
     }
 }
+
