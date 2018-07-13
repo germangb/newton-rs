@@ -8,7 +8,7 @@ extern crate sdl2;
 
 mod renderer;
 
-use self::newton_dynamics::bindgen as ffi;
+use self::newton_dynamics::ffi;
 
 use cgmath::{
     Matrix4,
