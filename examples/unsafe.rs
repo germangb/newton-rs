@@ -167,7 +167,7 @@ mod example {
             let cs_box = ffi::NewtonCreateBox(self.world, 1.0, 1.0, 1.0, 0, tm.as_ptr());
             let cs_ground = ffi::NewtonCreateBox(self.world, 6.0, 0.2, 6.0, 0, tm.as_ptr());
 
-            self.ground_body = ffi::NewtonCreateDynamicBody(self.world, cs_ground, tm.as_ptr());
+            self.ground_body = ffi::NewtonCreateDynamicBody(self.world, cs_ground.clone(), tm.as_ptr());
             ffi::NewtonBodySetForceAndTorqueCallback(self.ground_body, Some(cb_apply_force));
 
             let mut rng = rand::thread_rng();
