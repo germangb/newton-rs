@@ -16,7 +16,7 @@ impl<V: NewtonMath> NewtonWorld<V> {
     pub fn new() -> Self {
         unsafe {
             NewtonWorld {
-                world: RefCount::new(WorldRef(ffi::NewtonCreate())),
+                world: RefCount::new(WorldRef::from_raw_parts(ffi::NewtonCreate(), true)),
                 _ph: PhantomData,
             }
         }
@@ -27,7 +27,7 @@ impl<V: NewtonMath> NewtonWorld<V> {
             // TODO wait for as_float_secs() stabilization
             let nanos = step.subsec_nanos();
             let secs = (step.as_secs() as f64) + (nanos as f64) / (1_000_000_000 as f64);
-            ffi::NewtonUpdate(self.world.0, secs as f32);
+            ffi::NewtonUpdate(self.world.raw, secs as f32);
         }
     }
 }

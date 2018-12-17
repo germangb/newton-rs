@@ -9,10 +9,7 @@ use std::time::{Duration, Instant};
 use cgmath::{prelude::*, Matrix4};
 
 use newton_dynamics::{
-    body::NewtonBody,
-    collision::{NewtonCollision, ShapeId},
-    traits::NewtonCgmath as Cgmath,
-    world::NewtonWorld,
+    traits::NewtonCgmath as Cgmath, NewtonBody, NewtonCollision, NewtonWorld, ShapeId,
 };
 
 fn main() {
@@ -26,6 +23,7 @@ fn main() {
     let start = Instant::now();
 
     for i in 0..16 {
+        thread::sleep(step);
         world.update(step);
 
         let position = cube.get_matrix()[3];
@@ -35,7 +33,5 @@ fn main() {
             start.elapsed(),
             position
         );
-
-        thread::sleep(step);
     }
 }

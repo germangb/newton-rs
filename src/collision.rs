@@ -35,11 +35,11 @@ impl<V: NewtonMath> NewtonCollision<V> {
                 ::std::ptr::null()
             };
             let collision =
-                ffi::NewtonCreateBox(world.world.0, size.0, size.1, size.2, id.0, offset_ptr);
+                ffi::NewtonCreateBox(world.world.raw, size.0, size.1, size.2, id.0, offset_ptr);
 
             NewtonCollision {
                 world: RefCount::clone(&world.world),
-                collision: RefCount::new(CollisionRef(collision)),
+                collision: RefCount::new(CollisionRef::from_raw_parts(collision, true)),
                 shape: Shape::Box {
                     dx: size.0,
                     dy: size.1,

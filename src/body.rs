@@ -17,13 +17,16 @@ pub struct NewtonBody<V> {
 impl<V: NewtonMath> NewtonBody<V> {
     pub fn new(world: &NewtonWorld<V>, collision: NewtonCollision<V>, offset: V::Matrix4) -> Self {
         unsafe {
-            let body =
-                ffi::NewtonCreateDynamicBody(world.world.0, collision.collision.0, offset.as_ptr());
+            let body = ffi::NewtonCreateDynamicBody(
+                world.world.raw,
+                collision.collision.raw,
+                offset.as_ptr(),
+            );
             ffi::NewtonBodySetForceAndTorqueCallback(body, Some(cb_apply_force));
             return NewtonBody {
                 world: RefCount::clone(&world.world),
                 collision: RefCount::clone(&collision.collision),
-                body: RefCount::new(BodyRef(body)),
+                body: RefCount::new(BodyRef::from_raw_parts(body, true)),
                 _ph: PhantomData,
             };
         }
@@ -43,7 +46,7 @@ impl<V: NewtonMath> NewtonBody<V> {
         unsafe {
             let mut p0 = V::Vector3::zero();
             let mut p1 = V::Vector3::zero();
-            ffi::NewtonBodyGetAABB(self.body.0, p0.as_mut_ptr(), p1.as_mut_ptr());
+            ffi::NewtonBodyGetAABB(self.body.raw, p0.as_mut_ptr(), p1.as_mut_ptr());
             (p0, p1)
         }
     }
@@ -51,20 +54,20 @@ impl<V: NewtonMath> NewtonBody<V> {
     pub fn get_matrix(&self) -> V::Matrix4 {
         unsafe {
             let mut mat = V::Matrix4::zero();
-            ffi::NewtonBodyGetMatrix(self.body.0, mat.as_mut_ptr());
+            ffi::NewtonBodyGetMatrix(self.body.raw, mat.as_mut_ptr());
             mat
         }
     }
 
     pub fn set_mass_matrix(&self, mass: f32, inertia: (f32, f32, f32)) {
         unsafe {
-            ffi::NewtonBodySetMassMatrix(self.body.0, mass, inertia.0, inertia.1, inertia.2);
+            ffi::NewtonBodySetMassMatrix(self.body.raw, mass, inertia.0, inertia.1, inertia.2);
         }
     }
 
     pub fn set_force(&self, force: V::Vector3) {
         unsafe {
-            ffi::NewtonBodySetForce(self.body.0, force.as_ptr());
+            ffi::NewtonBodySetForce(self.body.raw, force.as_ptr());
         }
     }
 }
