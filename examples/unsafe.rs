@@ -1,9 +1,9 @@
 extern crate cgmath;
 extern crate cgmath_culling;
 
+extern crate gl;
 extern crate rand;
 extern crate stb;
-extern crate gl;
 
 #[macro_use]
 extern crate lazy_static;
@@ -14,7 +14,7 @@ mod renderer;
 
 use self::newton_dynamics::ffi;
 
-use cgmath::{Matrix4, PerspectiveFov, Point3, Rad, Vector3, prelude::*};
+use cgmath::{prelude::*, Matrix4, PerspectiveFov, Point3, Rad, Vector3};
 use cgmath_culling::{BoundingBox, FrustumCuller, Intersection};
 
 use sdl2::event::Event;
@@ -23,8 +23,16 @@ use renderer::{Camera, Renderer};
 
 mod color {
     use renderer::Color3;
-    pub static WHITE: Color3 = Color3 { x: 1.0, y: 1.0, z: 1.0 };
-    pub static RED: Color3 = Color3 { x: 1.0, y: 0.25, z: 0.25 };
+    pub static WHITE: Color3 = Color3 {
+        x: 1.0,
+        y: 1.0,
+        z: 1.0,
+    };
+    pub static RED: Color3 = Color3 {
+        x: 1.0,
+        y: 0.25,
+        z: 0.25,
+    };
 }
 
 fn main() {
@@ -124,7 +132,7 @@ mod example {
     use rand;
     use rand::Rng;
 
-    use cgmath::{Matrix4, Vector3, Vector4, prelude::*};
+    use cgmath::{prelude::*, Matrix4, Vector3, Vector4};
     use std::ptr;
 
     pub struct Example {
@@ -167,7 +175,8 @@ mod example {
             let cs_box = ffi::NewtonCreateBox(self.world, 1.0, 1.0, 1.0, 0, tm.as_ptr());
             let cs_ground = ffi::NewtonCreateBox(self.world, 6.0, 0.2, 6.0, 0, tm.as_ptr());
 
-            self.ground_body = ffi::NewtonCreateDynamicBody(self.world, cs_ground.clone(), tm.as_ptr());
+            self.ground_body =
+                ffi::NewtonCreateDynamicBody(self.world, cs_ground.clone(), tm.as_ptr());
             ffi::NewtonBodySetForceAndTorqueCallback(self.ground_body, Some(cb_apply_force));
 
             let mut rng = rand::thread_rng();
@@ -220,4 +229,3 @@ mod example {
         }
     }
 }
-

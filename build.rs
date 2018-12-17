@@ -4,16 +4,13 @@ extern crate cmake;
 use bindgen::Builder;
 use cmake::Config;
 
-use std::{
-    env,
-    path::PathBuf
-};
+use std::{env, path::PathBuf};
 
 mod config {
-    pub static LIB_PATH:    &[&str] = &["lib64/", "lib/"];
-    pub static LIB:         &str    = "Newton_d";
-    pub static HEADER_PATH: &str    = "include/";
-    pub static HEADER:      &str    = "Newton.h";
+    pub static LIB_PATH: &[&str] = &["lib64/", "lib/"];
+    pub static LIB: &str = "Newton_d";
+    pub static HEADER_PATH: &str = "include/";
+    pub static HEADER: &str = "Newton.h";
 }
 
 fn main() {
@@ -24,8 +21,8 @@ fn main() {
     for lib_path in config::LIB_PATH.iter() {
         println!(
             "cargo:rustc-link-search={build_path}/{lib_path}",
-            build_path=dst.display(),
-            lib_path=lib_path,
+            build_path = dst.display(),
+            lib_path = lib_path,
         );
     }
     println!("cargo:rustc-link-lib={}", config::LIB);
@@ -42,12 +39,10 @@ fn main() {
         .header(header_file.to_str().unwrap())
         .generate_comments(true)
         .layout_tests(true)
-
         // derives
         .derive_copy(true)
         .derive_debug(true)
         .derive_default(true)
-        
         .rustfmt_bindings(true)
         .generate()
         .expect("Wrror while generating Newton bindings. Check the build log for more");

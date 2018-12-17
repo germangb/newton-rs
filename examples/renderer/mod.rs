@@ -1,10 +1,10 @@
+use cgmath::{prelude::*, Matrix4, PerspectiveFov, Point3, Vector3};
 use stb::image::Image;
-use cgmath::{Matrix4, PerspectiveFov, Point3, Vector3, prelude::*};
 
 use gl;
 use gl::types::*;
 
-use std::{ptr, ffi::CString};
+use std::{ffi::CString, ptr};
 
 mod cube {
     static BLOB: &[u8; 912] = include_bytes!("assets/cube.bin");
@@ -226,15 +226,17 @@ impl Renderer {
 
         // decode image
         let image: Image<u8> = Image::from_file("examples/assets/diamonds.png", 3).unwrap();
-        gl::TexImage2D(gl::TEXTURE_2D,
-                       0,
-                       gl::RGB8 as _,
-                       image.width() as _,
-                       image.height() as _,
-                       0,
-                       gl::RGB,
-                       gl::UNSIGNED_BYTE,
-                       image.as_ptr() as _);
+        gl::TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGB8 as _,
+            image.width() as _,
+            image.height() as _,
+            0,
+            gl::RGB,
+            gl::UNSIGNED_BYTE,
+            image.as_ptr() as _,
+        );
 
         let error = gl::GetError();
         if error != gl::NO_ERROR {
@@ -359,4 +361,3 @@ impl Drop for ShaderProgram {
         }
     }
 }
-
