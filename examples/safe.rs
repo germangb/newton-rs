@@ -22,14 +22,19 @@ fn main() {
     let cube = NewtonBody::new(&world, box_shape, Matrix4::identity());
     cube.set_mass_matrix(1.0, (1.0, 1.0, 1.0)); // unit mass
 
-    let step = Duration::new(0, 250_000_000);  // 0.25 second steps
+    let step = Duration::new(0, 250_000_000); // 0.25 second steps
     let start = Instant::now();
 
     for i in 0..16 {
         world.update(step);
 
         let position = cube.get_matrix()[3];
-        println!("Iter #{}, time = {:?}, position = {:?}", i, start.elapsed(), position);
+        println!(
+            "Iter #{}, time = {:?}, position = {:?}",
+            i,
+            start.elapsed(),
+            position
+        );
 
         thread::sleep(step);
     }
