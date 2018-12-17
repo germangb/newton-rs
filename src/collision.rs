@@ -5,8 +5,14 @@ use crate::{CollisionRef, RefCount, WorldRef};
 
 use std::marker::PhantomData;
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Hash, Debug, Clone, Copy, Eq, PartialEq)]
 pub struct ShapeId(pub i32);
+
+impl From<i32> for ShapeId {
+    fn from(n: i32) -> ShapeId {
+        ShapeId(n)
+    }
+}
 
 #[derive(Clone)]
 pub enum Shape {

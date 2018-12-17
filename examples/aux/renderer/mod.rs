@@ -14,10 +14,6 @@ mod cube {
     }
 }
 
-pub type RenderResult<T> = ::std::result::Result<T, RenderError>;
-
-pub type Color3 = ::cgmath::Vector3<f32>;
-
 #[derive(Debug)]
 pub enum RenderError {
     VertexShaderCompile(String),
@@ -42,22 +38,19 @@ pub struct Renderer {
     // box mesh
     box_vbo: GLuint,
     box_ebo: GLuint,
-
-    _ph: ::std::marker::PhantomData<V>,
 }
 
 impl Renderer {
-    pub fn new() -> RenderResult<Self> {
+    pub fn new() -> Self {
         // set up mesh and attribute pointers
         unsafe {
-            let (box_vbo, box_ebo) = Self::create_box_buffers()?;
+            let (box_vbo, box_ebo) = Self::create_box_buffers();
 
-            Ok(Self {
+            Self {
                 box_vbo: box_vbo,
                 box_ebo: box_ebo,
-                program: Self::create_shader_program()?,
-                _ph: ::std::marker::PhantomData,
-            })
+                program: Self::create_shader_program(),
+            }
         }
     }
 
@@ -92,7 +85,7 @@ impl Renderer {
         );
     }
 
-    unsafe fn create_shader_program() -> RenderResult<ShaderProgram> {
+    unsafe fn create_shader_program() -> ShaderProgram {
         gl::GetError();
 
         let mut info_log = vec![0u8; 1024];
@@ -116,9 +109,7 @@ impl Renderer {
         );
 
         if info_log_len > 0 {
-            return Err(RenderError::VertexShaderCompile(
-                String::from_utf8_lossy(&info_log[..info_log_len as usize]).into_owned(),
-            ));
+            panic!("{}", String::from_utf8_lossy(&info_log[..info_log_len as usize]).into_owned());
         }
 
         let fragment_shader = gl::CreateShader(gl::FRAGMENT_SHADER);
@@ -139,9 +130,7 @@ impl Renderer {
         );
 
         if info_log_len > 0 {
-            return Err(RenderError::FragmentShaderCompile(
-                String::from_utf8_lossy(&info_log[..info_log_len as usize]).into_owned(),
-            ));
+            panic!("{}", String::from_utf8_lossy(&info_log[..info_log_len as usize]).into_owned());
         }
 
         let program_id = gl::CreateProgram();
@@ -161,20 +150,20 @@ impl Renderer {
 
         let error = gl::GetError();
         if error != gl::NO_ERROR {
-            Err(RenderError::Error(error))
+            panic!();
         } else {
-            Ok(ShaderProgram {
+            ShaderProgram {
                 program_id,
                 projection_uniform,
                 view_uniform,
                 world_uniform,
                 color_uniform,
                 light_uniform,
-            })
+            }
         }
     }
 
-    unsafe fn create_box_buffers() -> RenderResult<(GLuint, GLuint)> {
+    unsafe fn create_box_buffers() -> (GLuint, GLuint) {
         gl::GetError();
 
         let mut box_vbo = 0;
@@ -201,29 +190,29 @@ impl Renderer {
 
         let error = gl::GetError();
         if error != gl::NO_ERROR {
-            Err(RenderError::Error(error))
+            panic!();
         } else {
-            Ok((box_vbo, box_ebo))
+            (box_vbo, box_ebo)
         }
     }
 
-    pub fn clear(&self) -> RenderResult<()> {
+    pub fn clear(&self) {
         unsafe {
             self.init_state();
 
-            gl::ClearColor(0.24, 0.24, 0.24, 1.0);
+            gl::ClearColor(1.0, 1.0, 1.0, 1.0);
             gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
             gl::Enable(gl::DEPTH_TEST);
         }
     }
 
-    pub fn set_light(&self, dir: Vector3<f32>) -> RenderResult<()> {
+    pub fn set_light(&self, dir: Vector3<f32>) {
         unsafe {
             gl::Uniform3f(self.program.light_uniform, dir.x, dir.y, dir.z);
         }
     }
 
-    pub fn set_view_projection(&self, proj: Matrix4<f32>, view: Matrix4<f32>) -> RenderResult<()> {
+    pub fn set_view_projection(&self, proj: Matrix4<f32>, view: Matrix4<f32>) {
         unsafe {
             gl::UniformMatrix4fv(
                 self.program.projection_uniform,
@@ -240,7 +229,7 @@ impl Renderer {
         }
     }
 
-    pub fn render_box(&self, transform: Matrix4<f32>, color: Vector3<f32>) -> RenderResult<()> {
+    pub fn render_box(&self, transform: Matrix4<f32>, color: Vector3<f32>) {
         unsafe {
             gl::UniformMatrix4fv(self.program.world_uniform, 1, gl::FALSE, transform.as_ptr());
             gl::Uniform3f(self.program.color_uniform, color.x, color.y, color.z);
@@ -249,7 +238,7 @@ impl Renderer {
     }
 }
 
-impl<V> Drop for Renderer<V> {
+impl Drop for Renderer {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteBuffers(1, &self.box_vbo);

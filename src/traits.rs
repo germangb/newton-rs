@@ -70,8 +70,7 @@ pub trait NewtonCallbacks<V> {
     fn force_torque() {}
 }
 
-#[derive(Debug, Clone)]
-pub enum NewtonArray {}
+pub type NewtonArray = ();
 
 impl NewtonMath for NewtonArray {
     type Vector3 = [f32; 3];
