@@ -91,6 +91,7 @@ impl Sandbox {
             for body in bodies.iter() {
                 let mut transform = Matrix4::identity();
                 unsafe {
+                    // XXX pointers
                     std::ptr::copy(&body.matrix() as *const _ as *const f32, &mut transform[0][0] as *mut f32, 16);
                 }
                 renderer.render(Primitive::Box, Mode::Fill, rgba!(1.0), transform);
