@@ -50,7 +50,10 @@ impl Sandbox {
         self.wireframe = wireframe;
     }
 
-    pub fn run<V: NewtonData>(self, world: NewtonWorld<V>, bodies: Vec<NewtonBody<V>>) {
+    pub fn run<'a, V>(self, world: NewtonWorld<V>, bodies: Vec<NewtonBody<V>>)
+    where
+        V: NewtonData,
+    {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
