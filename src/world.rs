@@ -1,41 +1,120 @@
-use crate::body::NewtonBody;
-use crate::ffi;
-use crate::traits::{NewtonData, Vector};
+use ffi;
+use NewtonData;
+use body::{NewtonBody, NewtonBodyInner};
 
+use std::ptr;
+use std::mem;
+use std::rc::{Rc, Weak};
+use std::sync::mpsc;
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::cell::RefCell;
 use std::time::Duration;
 
-#[derive(Debug, Clone)]
+type Rx<T> = mpsc::Receiver<T>;
+type Tx<T> = mpsc::Sender<T>;
+
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct WorldRef(pub(crate) *mut ffi::NewtonWorld);
+
+#[derive(Debug)]
 pub struct NewtonWorld<V> {
-    pub(crate) world: *mut ffi::NewtonWorld,
+    pub(crate) world: Rc<WorldRef>,
+
+    bodies: Rx<()>,
+    joints: Rx<()>,
+
     _ph: PhantomData<V>,
 }
 
-impl<V> Drop for NewtonWorld<V> {
-    fn drop(&mut self) {
-        unsafe {
-            ffi::NewtonDestroy(self.world);
-        }
+#[derive(Debug)]
+pub struct Bodies<V>(Vec<NewtonBody<V>>);
+
+impl<V> ::std::ops::Deref for Bodies<V> {
+    type Target = [NewtonBody<V>];
+
+    fn deref(&self) -> &Self::Target {
+        &self.0[..]
     }
 }
 
-impl<V: NewtonData> NewtonWorld<V> {
-    pub fn new() -> Rc<Self> {
+#[doc(hidden)]
+#[derive(Debug)]
+struct UserData {
+    bodies: Tx<()>,
+    joints: Tx<()>,
+}
+
+impl<V> NewtonWorld<V>
+where
+    V: NewtonData,
+{
+    pub fn new() -> NewtonWorld<V> {
         unsafe {
-            Rc::new(NewtonWorld {
-                world: ffi::NewtonCreate(),
+            let world = ffi::NewtonCreate();
+
+            let (b_tx, b_rx) = mpsc::channel();
+            let (j_tx, j_rx) = mpsc::channel();
+
+            ffi::NewtonWorldSetUserData(world, mem::transmute(Box::new(UserData {
+                bodies: b_tx,
+                joints: j_tx,
+            })));
+
+            NewtonWorld {
+                world: Rc::new(WorldRef(world)),
+                bodies: b_rx,
+                joints: j_rx,
                 _ph: PhantomData,
-            })
+            }
         }
     }
 
     pub fn update(&self, step: Duration) {
         unsafe {
-            // TODO wait for as_float_secs() stabilization
-            let nanos = step.subsec_nanos();
-            let secs = (step.as_secs() as f64) + (nanos as f64) / (1_000_000_000 as f64);
-            ffi::NewtonUpdate(self.world, secs as f32);
+            let secs = step.as_secs() as f64 + (step.subsec_nanos() as f64) / 1_000_000_000_f64;
+            ffi::NewtonUpdate(self.world.0, secs as f32);
+        }
+    }
+
+    pub fn bodies(&self, p0: V::Vector3, p1: V::Vector3) -> Bodies<V> {
+        type BodyVec<V> = RefCell<Vec<NewtonBody<V>>>;
+
+        unsafe {
+            // XXX fix pointers
+            let p0_ptr = &p0 as *const _ as *const f32;
+            let p1_ptr = &p1 as *const _ as *const f32;
+
+            let bodies: BodyVec<V> = RefCell::new(Vec::new());
+            ffi::NewtonWorldForEachBodyInAABBDo(self.world.0, p0_ptr, p1_ptr, Some(newton_body_iterator::<V>), &bodies as *const _ as *const _);
+
+            return Bodies(bodies.into_inner());
+        }
+
+        // TODO collect bodies
+        unsafe extern "C" fn newton_body_iterator<V>(body: *const ffi::NewtonBody, user_data: *const std::ffi::c_void) -> i32 {
+            let bodies: &BodyVec<V> = mem::transmute(user_data);
+            let mut vec = bodies.borrow_mut();
+
+            // body weak shared reference
+            let body = ffi::NewtonBodyGetUserData(body);
+            let body: Weak<NewtonBodyInner<V>> = mem::transmute(body);
+
+            if let Some(b) = body.upgrade() {
+                vec.push(b);
+            }
+
+            1
         }
     }
 }
+
+impl Drop for WorldRef {
+    fn drop(&mut self) {
+        unsafe {
+            let _: Box<UserData> = mem::transmute(ffi::NewtonWorldGetUserData(self.0));
+            ffi::NewtonDestroy(self.0);
+        }
+    }
+}
+

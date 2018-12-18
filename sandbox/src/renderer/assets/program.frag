@@ -8,6 +8,7 @@ uniform vec4 u_color;
 
 void main() {
     float shade = dot(v_normal, vec3(0.0, 0.0, 1.0));
+    shade = shade * 0.5 + 0.5;
 
-    frag_color = vec4(u_color.rgb * shade, u_color.a);
+    frag_color = vec4(u_color.rgb * shade * shade, u_color.a);
 }

@@ -1,61 +1,50 @@
-use crate::ffi;
-use crate::traits::{NewtonData, Vector};
-use crate::world::NewtonWorld;
+use ffi;
+use NewtonData;
+use world::{NewtonWorld, WorldRef};
+use body::{NewtonBodyInner, NewtonBodyBuilder};
 
-use std::marker::PhantomData;
 use std::rc::Rc;
-
-#[derive(Hash, Debug, Clone, Copy, Eq, PartialEq)]
-pub struct ShapeId(pub i32);
-
-impl From<i32> for ShapeId {
-    fn from(n: i32) -> ShapeId {
-        ShapeId(n)
-    }
-}
+use std::mem;
+use std::ptr;
+use std::marker::PhantomData;
 
 #[derive(Debug)]
-pub struct NewtonCollision<V> {
-    pub(crate) world: Rc<NewtonWorld<V>>,
-    pub(crate) collision: *mut ffi::NewtonCollision,
-    pub(crate) owned: bool,
+pub struct NewtonCuboid<V> {
+    pub(self) world: Rc<WorldRef>,
+    collision: *mut ffi::NewtonCollision,
     _ph: PhantomData<V>,
 }
 
-impl<V> Drop for NewtonCollision<V> {
-    fn drop(&mut self) {
-        if self.owned {
-            unsafe { ffi::NewtonDestroyCollision(self.collision) }
-        }
-    }
-}
-
-impl<V: NewtonData> NewtonCollision<V> {
-    pub fn from_raw(world: Rc<NewtonWorld<V>>, collision: *mut ffi::NewtonCollision) -> Self {
-        NewtonCollision {
-            world,
-            collision,
-            owned: true,
-            _ph: PhantomData,
-        }
-    }
-
-    pub fn new_box(
-        world: Rc<NewtonWorld<V>>,
-        size: (f32, f32, f32),
-        id: ShapeId,
-        offset: Option<V::Matrix4>,
-    ) -> Self {
+impl<V> NewtonCuboid<V>
+where
+    V: NewtonData,
+{
+    pub fn new(world: &NewtonWorld<V>, dx: f32, dy: f32, dz: f32) -> NewtonCuboid<V> {
         unsafe {
-            let offset_ptr = if let &Some(ref m) = &offset {
-                m.as_ptr()
-            } else {
-                ::std::ptr::null()
-            };
-            let collision =
-                ffi::NewtonCreateBox(world.world, size.0, size.1, size.2, id.0, offset_ptr);
+            NewtonCuboid {
+                world: Rc::clone(&world.world),
+                collision: ffi::NewtonCreateBox(world.world.0, dx, dy, dz, 0, ptr::null()),
+                _ph: PhantomData,
+            }
+        }
+    }
 
-            Self::from_raw(world, collision)
+    pub fn body(&self, matrix: V::Matrix4) -> NewtonBodyBuilder<V> {
+        NewtonBodyBuilder {
+            world: self.world.clone(),
+            matrix,
+            collision: self.collision,
+            compute_mass: false,
+            mass: 0.0,
         }
     }
 }
+
+impl<V> Drop for NewtonCuboid<V> {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::NewtonDestroyCollision(self.collision);
+        }
+    }
+}
+

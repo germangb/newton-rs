@@ -1,5 +1,3 @@
-use newton_dynamics::traits::NewtonData;
-
 #[derive(Debug, Clone, Copy)]
 pub enum SandboxCollisionData {
     Box {
