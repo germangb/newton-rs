@@ -8,10 +8,10 @@ use newton::world::NewtonWorld;
 use newton::collision::NewtonCuboid;
 
 const fn position(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
-    [   [1.0, 0.0, 0.0, 0.0],
+    [[1.0, 0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
         [0.0, 0.0, 1.0, 0.0],
-        [x,   y,   z,   1.0]]
+        [x, y, z, 1.0]]
 }
 
 fn main() {
@@ -19,15 +19,15 @@ fn main() {
     let shape = NewtonCuboid::new(&world, 1.0, 1.0, 1.0);
 
     let bodies = [
-        position(0.0, 0.0, 0.0),
-        position(0.623, 1.5, 0.245),
-        position(-0.123, 2.64, -0.145),
-        position(-0.123, 3.84, -0.145),
-        position(-0.123, 4.94, -0.145),
+        (0.0, 0.0, 0.0),
+        (0.623, 1.5, 0.245),
+        (-0.123, 2.64, -0.145),
+        (-0.123, 3.84, -0.145),
+        (-0.123, 4.94, -0.145),
     ]
         .iter()
-        .map(|p| {
-            shape.body(*p)
+        .map(|&(x, y, z)| {
+            shape.body(position(x, y, z))
                 .compute_mass(1.0)
                 .build()
         })
