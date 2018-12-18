@@ -225,18 +225,8 @@ impl Renderer {
 
     pub fn set_view_projection(&self, proj: Matrix4<f32>, view: Matrix4<f32>) -> RenderResult<()> {
         unsafe {
-            gl::UniformMatrix4fv(
-                self.program.projection_uniform,
-                1,
-                gl::FALSE,
-                proj.as_ptr(),
-            );
-            gl::UniformMatrix4fv(
-                self.program.view_uniform,
-                1,
-                gl::FALSE,
-                view.as_ptr(),
-            );
+            gl::UniformMatrix4fv(self.program.projection_uniform, 1, gl::FALSE, proj.as_ptr());
+            gl::UniformMatrix4fv(self.program.view_uniform, 1, gl::FALSE, view.as_ptr());
         }
     }
 

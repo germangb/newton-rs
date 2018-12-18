@@ -1,9 +1,9 @@
 use crate::ffi;
-use crate::traits::{NewtonMath, Vector};
+use crate::traits::{NewtonData, Vector};
 use crate::world::NewtonWorld;
-use crate::{CollisionRef, RefCount, WorldRef};
 
 use std::marker::PhantomData;
+use std::rc::Rc;
 
 #[derive(Hash, Debug, Clone, Copy, Eq, PartialEq)]
 pub struct ShapeId(pub i32);
@@ -14,22 +14,34 @@ impl From<i32> for ShapeId {
     }
 }
 
-#[derive(Clone)]
-pub enum Shape {
-    Box { dx: f32, dy: f32, dz: f32 },
-}
-
-#[derive(Clone)]
+#[derive(Debug)]
 pub struct NewtonCollision<V> {
-    pub(crate) world: RefCount<WorldRef>,
-    pub(crate) collision: RefCount<CollisionRef>,
-    shape: Shape,
+    pub(crate) world: Rc<NewtonWorld<V>>,
+    pub(crate) collision: *mut ffi::NewtonCollision,
+    pub(crate) owned: bool,
     _ph: PhantomData<V>,
 }
 
-impl<V: NewtonMath> NewtonCollision<V> {
+impl<V> Drop for NewtonCollision<V> {
+    fn drop(&mut self) {
+        if self.owned {
+            unsafe { ffi::NewtonDestroyCollision(self.collision) }
+        }
+    }
+}
+
+impl<V: NewtonData> NewtonCollision<V> {
+    pub fn from_raw(world: Rc<NewtonWorld<V>>, collision: *mut ffi::NewtonCollision) -> Self {
+        NewtonCollision {
+            world,
+            collision,
+            owned: true,
+            _ph: PhantomData,
+        }
+    }
+
     pub fn new_box(
-        world: &NewtonWorld<V>,
+        world: Rc<NewtonWorld<V>>,
         size: (f32, f32, f32),
         id: ShapeId,
         offset: Option<V::Matrix4>,
@@ -41,22 +53,9 @@ impl<V: NewtonMath> NewtonCollision<V> {
                 ::std::ptr::null()
             };
             let collision =
-                ffi::NewtonCreateBox(world.world.raw, size.0, size.1, size.2, id.0, offset_ptr);
+                ffi::NewtonCreateBox(world.world, size.0, size.1, size.2, id.0, offset_ptr);
 
-            NewtonCollision {
-                world: RefCount::clone(&world.world),
-                collision: RefCount::new(CollisionRef::from_raw_parts(collision, true)),
-                shape: Shape::Box {
-                    dx: size.0,
-                    dy: size.1,
-                    dz: size.2,
-                },
-                _ph: PhantomData,
-            }
+            Self::from_raw(world, collision)
         }
-    }
-
-    pub fn shape(&self) -> &Shape {
-        &self.shape
     }
 }

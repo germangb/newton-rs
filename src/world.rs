@@ -1,24 +1,32 @@
 use crate::body::NewtonBody;
 use crate::ffi;
-use crate::traits::{NewtonMath, Vector};
-use crate::{RefCount, WorldRef};
+use crate::traits::{NewtonData, Vector};
 
 use std::marker::PhantomData;
+use std::rc::Rc;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct NewtonWorld<V> {
-    pub(crate) world: RefCount<WorldRef>,
+    pub(crate) world: *mut ffi::NewtonWorld,
     _ph: PhantomData<V>,
 }
 
-impl<V: NewtonMath> NewtonWorld<V> {
-    pub fn new() -> Self {
+impl<V> Drop for NewtonWorld<V> {
+    fn drop(&mut self) {
         unsafe {
-            NewtonWorld {
-                world: RefCount::new(WorldRef::from_raw_parts(ffi::NewtonCreate(), true)),
+            ffi::NewtonDestroy(self.world);
+        }
+    }
+}
+
+impl<V: NewtonData> NewtonWorld<V> {
+    pub fn new() -> Rc<Self> {
+        unsafe {
+            Rc::new(NewtonWorld {
+                world: ffi::NewtonCreate(),
                 _ph: PhantomData,
-            }
+            })
         }
     }
 
@@ -27,7 +35,7 @@ impl<V: NewtonMath> NewtonWorld<V> {
             // TODO wait for as_float_secs() stabilization
             let nanos = step.subsec_nanos();
             let secs = (step.as_secs() as f64) + (nanos as f64) / (1_000_000_000 as f64);
-            ffi::NewtonUpdate(self.world.raw, secs as f32);
+            ffi::NewtonUpdate(self.world, secs as f32);
         }
     }
 }

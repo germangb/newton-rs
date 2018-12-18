@@ -5,6 +5,7 @@ authors = ["german gomez <germangb42@gmail.com>"]
 edition = "2018"
 
 [dependencies]
+newton-dynamics = { path = "../"}
 cgmath = "0.16"
 gl = "0.10"
 sdl2 = "0.31"

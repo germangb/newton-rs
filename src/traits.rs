@@ -6,6 +6,29 @@ use cgmath::{
     Matrix4, Vector3, Vector4,
 };
 
+pub trait NewtonData {
+    /// Three dimensional vector type
+    type Vector3: Vector + Copy + Send;
+
+    /// Four dimensional vector type
+    type Vector4: Vector + Copy + Send;
+
+    /// 4x4 Matrix type
+    type Matrix4: Vector + Copy + Send;
+
+    /// Quaternion type
+    type Quaternion;
+
+    /// NewtonWorld UserData type
+    type WorldUserData;
+
+    /// NewtonBody UserData type
+    type BodyUserData;
+
+    /// NewtonCollision UserData type
+    type CollisionUserData;
+}
+
 pub trait Vector: Sized {
     fn zero() -> Self;
     fn identity() -> Self;
@@ -60,22 +83,20 @@ array_impl!(
     <Matrix4<f32> as SquareMatrix>::identity()
 );
 
-pub trait NewtonMath {
-    type Vector3: Vector + Copy + Send;
-    type Vector4: Vector + Copy + Send;
-    type Matrix4: Vector + Copy + Send;
-}
-
 pub trait NewtonCallbacks<V> {
     fn force_torque() {}
 }
 
 pub type NewtonArray = ();
 
-impl NewtonMath for NewtonArray {
+impl NewtonData for NewtonArray {
     type Vector3 = [f32; 3];
     type Vector4 = [f32; 4];
     type Matrix4 = [f32; 16];
+    type Quaternion = ();
+    type WorldUserData = ();
+    type BodyUserData = ();
+    type CollisionUserData = ();
 }
 
 #[cfg(feature = "cgmath_math")]
@@ -83,8 +104,12 @@ impl NewtonMath for NewtonArray {
 pub enum NewtonCgmath {}
 
 #[cfg(feature = "cgmath_math")]
-impl NewtonMath for NewtonCgmath {
+impl NewtonData for NewtonCgmath {
     type Vector3 = Vector3<f32>;
     type Vector4 = Vector4<f32>;
     type Matrix4 = Matrix4<f32>;
+    type Quaternion = ();
+    type WorldUserData = ();
+    type BodyUserData = ();
+    type CollisionUserData = ();
 }

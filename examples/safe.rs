@@ -3,6 +3,7 @@
 extern crate cgmath;
 extern crate newton_dynamics;
 
+use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -13,20 +14,20 @@ use newton_dynamics::{
 };
 
 fn main() {
-    let world: NewtonWorld<Cgmath> = NewtonWorld::new();
-    let box_shape = NewtonCollision::new_box(&world, (1.0, 1.0, 1.0), ShapeId(0), None);
+    let world: Rc<NewtonWorld<Cgmath>> = NewtonWorld::new();
+    let box_shape = NewtonCollision::new_box(world.clone(), (1.0, 1.0, 1.0), ShapeId(0), None);
 
-    let cube = NewtonBody::new(&world, box_shape, Matrix4::identity());
+    let cube = NewtonBody::new(world.clone(), &box_shape, Matrix4::identity());
     cube.set_mass_matrix(1.0, (1.0, 1.0, 1.0)); // unit mass
 
     let step = Duration::new(0, 250_000_000); // 0.25 second steps
     let start = Instant::now();
 
-    for i in 0..16 {
+    for i in 0..4 {
         thread::sleep(step);
         world.update(step);
 
-        let position = cube.get_matrix()[3];
+        let position = cube.matrix()[3];
         println!(
             "Iter #{}, time = {:?}, position = {:?}",
             i,

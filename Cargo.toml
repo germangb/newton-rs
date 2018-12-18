@@ -12,11 +12,7 @@ default = ["cgmath_math"]
 cgmath_math = ["cgmath"]
 
 [dev-dependencies]
-cgmath = "0.16"
-gl = "0.10"
-sdl2 = "0.31"
-lazy_static = "1.0"
-rand = "0.4"
+sandbox = { path = "sandbox/" }
 
 cgmath-culling = { git = "https://github.com/germangb/cgmath-culling.git" }
 stb = { git = "https://github.com/germangb/stb-rs.git" }

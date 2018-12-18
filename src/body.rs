@@ -1,34 +1,44 @@
 use crate::collision::NewtonCollision;
 use crate::ffi;
-use crate::traits::{NewtonMath, Vector};
+use crate::traits::{NewtonData, Vector};
 use crate::world::NewtonWorld;
-use crate::{BodyRef, CollisionRef, RefCount, WorldRef};
 
 use std::marker::PhantomData;
+use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct NewtonBody<V> {
-    pub(crate) world: RefCount<WorldRef>,
-    pub(crate) body: RefCount<BodyRef>,
-    pub(crate) collision: RefCount<CollisionRef>,
+    pub(crate) world: Rc<NewtonWorld<V>>,
+    pub(crate) body: *mut ffi::NewtonBody,
+
+    pub(crate) owned: bool,
     _ph: PhantomData<V>,
 }
 
-impl<V: NewtonMath> NewtonBody<V> {
-    pub fn new(world: &NewtonWorld<V>, collision: NewtonCollision<V>, offset: V::Matrix4) -> Self {
+impl<V> Drop for NewtonBody<V> {
+    fn drop(&mut self) {
+        if self.owned {
+            unsafe { ffi::NewtonDestroyBody(self.body) }
+        }
+    }
+}
+
+impl<V: NewtonData> NewtonBody<V> {
+    pub fn new(
+        world: Rc<NewtonWorld<V>>,
+        collision: &NewtonCollision<V>,
+        offset: V::Matrix4,
+    ) -> Rc<Self> {
         unsafe {
-            let body = ffi::NewtonCreateDynamicBody(
-                world.world.raw,
-                collision.collision.raw,
-                offset.as_ptr(),
-            );
+            let body =
+                ffi::NewtonCreateDynamicBody(world.world, collision.collision, offset.as_ptr());
             ffi::NewtonBodySetForceAndTorqueCallback(body, Some(cb_apply_force));
-            return NewtonBody {
-                world: RefCount::clone(&world.world),
-                collision: RefCount::clone(&collision.collision),
-                body: RefCount::new(BodyRef::from_raw_parts(body, true)),
+            return Rc::new(NewtonBody {
+                world,
+                owned: true,
+                body,
                 _ph: PhantomData,
-            };
+            });
         }
 
         extern "C" fn cb_apply_force(
@@ -42,32 +52,54 @@ impl<V: NewtonMath> NewtonBody<V> {
         }
     }
 
-    pub fn get_aabb(&self) -> (V::Vector3, V::Vector3) {
+    pub fn aabb(&self) -> (V::Vector3, V::Vector3) {
         unsafe {
             let mut p0 = V::Vector3::zero();
             let mut p1 = V::Vector3::zero();
-            ffi::NewtonBodyGetAABB(self.body.raw, p0.as_mut_ptr(), p1.as_mut_ptr());
+            ffi::NewtonBodyGetAABB(self.body, p0.as_mut_ptr(), p1.as_mut_ptr());
             (p0, p1)
         }
     }
 
-    pub fn get_matrix(&self) -> V::Matrix4 {
+    pub fn matrix(&self) -> V::Matrix4 {
         unsafe {
             let mut mat = V::Matrix4::zero();
-            ffi::NewtonBodyGetMatrix(self.body.raw, mat.as_mut_ptr());
+            ffi::NewtonBodyGetMatrix(self.body, mat.as_mut_ptr());
             mat
+        }
+    }
+
+    pub fn collision(&self) -> NewtonCollision<V> {
+        unimplemented!()
+    }
+
+    pub fn set_linear_damping(&self, damping: f32) {
+        unsafe {
+            ffi::NewtonBodySetLinearDamping(self.body, damping);
+        }
+    }
+
+    pub fn set_full_mass_matrix(&self, mass: f32, inertia: V::Matrix4) {
+        unsafe {
+            ffi::NewtonBodySetFullMassMatrix(self.body, mass, inertia.as_ptr());
+        }
+    }
+
+    pub fn set_mass_properties(&self, mass: f32, collision: &NewtonCollision<V>) {
+        unsafe {
+            ffi::NewtonBodySetMassProperties(self.body, mass, collision.collision);
         }
     }
 
     pub fn set_mass_matrix(&self, mass: f32, inertia: (f32, f32, f32)) {
         unsafe {
-            ffi::NewtonBodySetMassMatrix(self.body.raw, mass, inertia.0, inertia.1, inertia.2);
+            ffi::NewtonBodySetMassMatrix(self.body, mass, inertia.0, inertia.1, inertia.2);
         }
     }
 
     pub fn set_force(&self, force: V::Vector3) {
         unsafe {
-            ffi::NewtonBodySetForce(self.body.raw, force.as_ptr());
+            ffi::NewtonBodySetForce(self.body, force.as_ptr());
         }
     }
 }
