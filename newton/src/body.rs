@@ -1,10 +1,10 @@
 use crate::ffi;
-use crate::NewtonData;
 use crate::world::WorldRef;
+use crate::NewtonData;
 
+use std::marker::PhantomData;
 use std::mem;
 use std::rc::Rc;
-use std::marker::PhantomData;
 
 /// Reference counted body
 pub type NewtonBody<V> = Rc<NewtonBodyInner<V>>;
@@ -25,14 +25,8 @@ pub enum SleepState {
 
 enum BodyMass<V: NewtonData> {
     Compute,
-    PrincipalAxis {
-        ix: f32,
-        iy: f32,
-        iz: f32,
-    },
-    FullMatrix {
-        matrix: V::Matrix4,
-    }
+    PrincipalAxis { ix: f32, iy: f32, iz: f32 },
+    FullMatrix { matrix: V::Matrix4 },
 }
 
 pub struct NewtonBodyBuilder<V: NewtonData> {
@@ -43,7 +37,11 @@ pub struct NewtonBodyBuilder<V: NewtonData> {
 }
 
 impl<V: NewtonData> NewtonBodyBuilder<V> {
-    pub(crate) fn new(world: Rc<WorldRef>, collision: *mut ffi::NewtonCollision, matrix: V::Matrix4) -> NewtonBodyBuilder<V> {
+    pub(crate) fn new(
+        world: Rc<WorldRef>,
+        collision: *mut ffi::NewtonCollision,
+        matrix: V::Matrix4,
+    ) -> NewtonBodyBuilder<V> {
         NewtonBodyBuilder {
             world,
             matrix,
@@ -80,14 +78,18 @@ impl<V: NewtonData> NewtonBodyBuilder<V> {
             ffi::NewtonBodySetForceAndTorqueCallback(body, Some(cb_apply_force));
 
             match self.mass {
-                Some((m, BodyMass::Compute)) => ffi::NewtonBodySetMassProperties(body, m, self.collision),
-                Some((m, BodyMass::PrincipalAxis { ix, iy, iz })) => ffi::NewtonBodySetMassMatrix(body, m, ix, iy, iz),
+                Some((m, BodyMass::Compute)) => {
+                    ffi::NewtonBodySetMassProperties(body, m, self.collision)
+                }
+                Some((m, BodyMass::PrincipalAxis { ix, iy, iz })) => {
+                    ffi::NewtonBodySetMassMatrix(body, m, ix, iy, iz)
+                }
                 Some((m, BodyMass::FullMatrix { matrix })) => {
                     // XXX pointers
                     let mat_ptr = &matrix as *const _ as *const f32;
                     ffi::NewtonBodySetFullMassMatrix(body, m, mat_ptr);
-                },
-                _ => {},
+                }
+                _ => {}
             }
 
             let body = Rc::new(NewtonBodyInner {
@@ -137,15 +139,17 @@ where
         unsafe {
             let mut p0: V::Vector3 = mem::zeroed();
             let mut p1: V::Vector3 = mem::zeroed();
-            ffi::NewtonBodyGetAABB(self.body, &mut p0 as *mut _ as *mut f32, &mut p1 as *mut _ as *mut f32);
+            ffi::NewtonBodyGetAABB(
+                self.body,
+                &mut p0 as *mut _ as *mut f32,
+                &mut p1 as *mut _ as *mut f32,
+            );
             (p0, p1)
         }
     }
 
     pub fn sleep_state(&self) -> SleepState {
-        unsafe {
-            mem::transmute(ffi::NewtonBodyGetSleepState(self.body))
-        }
+        unsafe { mem::transmute(ffi::NewtonBodyGetSleepState(self.body)) }
     }
 }
 
@@ -159,5 +163,7 @@ impl<V> Drop for NewtonBodyInner<V> {
 
 // XXX
 extern "C" fn cb_apply_force(body: *const ffi::NewtonBody, _timestep: f32, _thread_idx: i32) {
-    unsafe { ffi::NewtonBodySetForce(body, [0.0, -4.0, 0.0].as_ptr()); }
+    unsafe {
+        ffi::NewtonBodySetForce(body, [0.0, -4.0, 0.0].as_ptr());
+    }
 }

@@ -1,12 +1,12 @@
+use crate::body::{NewtonBodyBuilder, NewtonBodyInner};
 use crate::ffi;
-use crate::NewtonData;
 use crate::world::{NewtonWorld, WorldRef};
-use crate::body::{NewtonBodyInner, NewtonBodyBuilder};
+use crate::NewtonData;
 
-use std::rc::Rc;
+use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
-use std::marker::PhantomData;
+use std::rc::Rc;
 
 macro_rules! primitives {
     ($(
@@ -61,4 +61,3 @@ primitives! {
     #[derive(Debug)]
     pub struct NewtonCylinder<V: NewtonData> => NewtonCreateCylinder(radius0, radius1, height);
 }
-

@@ -1,8 +1,8 @@
 extern crate newton;
 
-use newton::Array;
-use newton::world::NewtonWorld;
 use newton::collision::NewtonCuboid;
+use newton::world::NewtonWorld;
+use newton::Array;
 
 use std::time::Duration;
 
@@ -23,8 +23,10 @@ fn main() {
 }
 
 const fn position(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
-    [[1.0, 0.0, 0.0, 0.0],
+    [
+        [1.0, 0.0, 0.0, 0.0],
         [0.0, 1.0, 0.0, 0.0],
         [0.0, 0.0, 1.0, 0.0],
-        [x, y, z, 1.0]]
+        [x, y, z, 1.0],
+    ]
 }

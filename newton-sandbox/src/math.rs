@@ -1,3 +1,3 @@
 pub use cgmath::prelude::*;
-pub use cgmath::{Vector3, Vector4, Matrix4, Quaternion, Point3};
-pub use cgmath::{Rad, Deg};
+pub use cgmath::{Deg, Rad};
+pub use cgmath::{Matrix4, Point3, Quaternion, Vector3, Vector4};

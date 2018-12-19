@@ -2,9 +2,9 @@ pub extern crate newton_sys as ffi;
 
 use std::fmt::Debug;
 
+pub mod body;
 pub mod collision;
 pub mod world;
-pub mod body;
 
 /// Algebraic types
 pub trait NewtonData: Debug {

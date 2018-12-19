@@ -5,20 +5,20 @@ macro_rules! check {
         let error = gl::GetError();
         assert_eq!(gl::NO_ERROR, error);
         result
-    }}
+    }};
 }
 
-mod cube;
 mod capsule;
+mod cube;
 mod cylinder;
-mod sphere;
 mod program;
+mod sphere;
 
-use self::program::Program;
 use self::cube::Cube;
+use self::program::Program;
 
 use cgmath::prelude::*;
-use cgmath::{Matrix4};
+use cgmath::Matrix4;
 
 use std::cell::Cell;
 
@@ -67,30 +67,50 @@ impl Renderer {
 
     pub fn set_view(&self, view: Matrix4<f32>) {
         unsafe {
-            check!(gl::UniformMatrix4fv(self.program.view, 1, gl::FALSE, view.as_ptr()));
+            check!(gl::UniformMatrix4fv(
+                self.program.view,
+                1,
+                gl::FALSE,
+                view.as_ptr()
+            ));
         }
     }
 
     pub fn set_projection(&self, proj: Matrix4<f32>) {
         unsafe {
-            check!(gl::UniformMatrix4fv(self.program.projection, 1, gl::FALSE, proj.as_ptr()));
+            check!(gl::UniformMatrix4fv(
+                self.program.projection,
+                1,
+                gl::FALSE,
+                proj.as_ptr()
+            ));
         }
     }
 
     fn set_world(&self, world: Matrix4<f32>) {
         unsafe {
-            check!(gl::UniformMatrix4fv(self.program.world, 1, gl::FALSE, world.as_ptr()));
+            check!(gl::UniformMatrix4fv(
+                self.program.world,
+                1,
+                gl::FALSE,
+                world.as_ptr()
+            ));
         }
     }
 
     fn set_color(&self, color: Color) {
         unsafe {
-            check!(gl::Uniform4f(self.program.color, color.r, color.g, color.b, color.a));
+            check!(gl::Uniform4f(
+                self.program.color,
+                color.r,
+                color.g,
+                color.b,
+                color.a
+            ));
         }
     }
 
-    pub fn set_up_primitive(&self, primitive: Primitive) {
-    }
+    pub fn set_up_primitive(&self, primitive: Primitive) {}
 
     pub fn render(&self, primitive: Primitive, mode: Mode, color: Color, world: Matrix4<f32>) {
         if primitive == Primitive::Box {
@@ -110,9 +130,16 @@ impl Renderer {
             }
             match primitive {
                 Primitive::Box => {
-                    if self.primitive.get() != Some(primitive) { check!(gl::BindVertexArray(self.cube.vao)); }
-                    check!(gl::DrawElements(gl::TRIANGLES, self.cube.indices() as _, gl::UNSIGNED_INT, std::ptr::null()));
-                },
+                    if self.primitive.get() != Some(primitive) {
+                        check!(gl::BindVertexArray(self.cube.vao));
+                    }
+                    check!(gl::DrawElements(
+                        gl::TRIANGLES,
+                        self.cube.indices() as _,
+                        gl::UNSIGNED_INT,
+                        std::ptr::null()
+                    ));
+                }
                 _ => unreachable!(),
             }
 

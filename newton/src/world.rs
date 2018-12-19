@@ -1,13 +1,13 @@
+use crate::body::{NewtonBody, NewtonBodyInner};
 use crate::ffi;
 use crate::NewtonData;
-use crate::body::{NewtonBody, NewtonBodyInner};
 
-use std::ptr;
+use std::cell::RefCell;
+use std::marker::PhantomData;
 use std::mem;
+use std::ptr;
 use std::rc::{Rc, Weak};
 use std::sync::mpsc;
-use std::marker::PhantomData;
-use std::cell::RefCell;
 use std::time::Duration;
 
 type Rx<T> = mpsc::Receiver<T>;
@@ -56,10 +56,13 @@ where
             let (b_tx, b_rx) = mpsc::channel();
             let (j_tx, j_rx) = mpsc::channel();
 
-            ffi::NewtonWorldSetUserData(world, mem::transmute(Box::new(UserData {
-                bodies: b_tx,
-                joints: j_tx,
-            })));
+            ffi::NewtonWorldSetUserData(
+                world,
+                mem::transmute(Box::new(UserData {
+                    bodies: b_tx,
+                    joints: j_tx,
+                })),
+            );
 
             NewtonWorld {
                 world: Rc::new(WorldRef(world)),
@@ -86,13 +89,22 @@ where
             let p1_ptr = &p1 as *const _ as *const f32;
 
             let bodies: BodyVec<V> = RefCell::new(Vec::new());
-            ffi::NewtonWorldForEachBodyInAABBDo(self.world.0, p0_ptr, p1_ptr, Some(newton_body_iterator::<V>), &bodies as *const _ as *const _);
+            ffi::NewtonWorldForEachBodyInAABBDo(
+                self.world.0,
+                p0_ptr,
+                p1_ptr,
+                Some(newton_body_iterator::<V>),
+                &bodies as *const _ as *const _,
+            );
 
             return Bodies(bodies.into_inner());
         }
 
         // TODO collect bodies
-        unsafe extern "C" fn newton_body_iterator<V>(body: *const ffi::NewtonBody, user_data: *const std::ffi::c_void) -> i32 {
+        unsafe extern "C" fn newton_body_iterator<V>(
+            body: *const ffi::NewtonBody,
+            user_data: *const std::ffi::c_void,
+        ) -> i32 {
             let bodies: &BodyVec<V> = mem::transmute(user_data);
             let mut vec = bodies.borrow_mut();
 
@@ -117,4 +129,3 @@ impl Drop for WorldRef {
         }
     }
 }
-
