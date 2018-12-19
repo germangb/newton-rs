@@ -133,7 +133,7 @@ where
 impl Drop for WorldRef {
     fn drop(&mut self) {
         unsafe {
-            let _: Box<UserData> = mem::transmute(ffi::NewtonWorldGetUserData(self.0));
+            let _: Box<UserData> = Box::from_raw(ffi::NewtonWorldGetUserData(self.0) as _);
             ffi::NewtonDestroy(self.0);
         }
     }

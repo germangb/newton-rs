@@ -216,7 +216,7 @@ where
 impl<V> Drop for NewtonBodyInner<V> {
     fn drop(&mut self) {
         unsafe {
-            let _: Box<UserData<V>> = mem::transmute(ffi::NewtonBodyGetUserData(self.body));
+            let _: Box<UserData<V>> = Box::from_raw(ffi::NewtonBodyGetUserData(self.body) as _);
             ffi::NewtonDestroyBody(self.body);
         }
     }

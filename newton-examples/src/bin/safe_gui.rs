@@ -25,9 +25,7 @@ fn main() {
     .map(Matrix4::from_translation)
     .map(|m| {
         let body = shape.body(m).mass_compute(1.0).build();
-
         body.set_update::<Gravity>();
-
         body
     })
     .collect();

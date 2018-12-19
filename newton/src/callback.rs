@@ -9,6 +9,9 @@ pub trait ForceAndTorque<V> {
 /// Force and torque callback where gravity is applied to the body.
 pub enum Gravity {}
 
+/// Don't apply any forces to the body
+pub enum DoNothing {}
+
 impl<V> ForceAndTorque<V> for Gravity
 where
     V: NewtonConfig,
@@ -16,4 +19,8 @@ where
     fn force_and_torque(body: NewtonBody<V>) {
         body.set_force(V::GRAVITY)
     }
+}
+
+impl<V> ForceAndTorque<V> for DoNothing {
+    fn force_and_torque(body: NewtonBody<V>) {}
 }
