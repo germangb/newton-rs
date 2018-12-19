@@ -1,6 +1,7 @@
 mod renderer;
 mod types;
 
+use std::marker::PhantomData;
 use std::time::Duration;
 use std::rc::Rc;
 
@@ -13,7 +14,7 @@ pub use self::renderer::Color;
 use newton_dynamics::NewtonData;
 
 use newton_dynamics::world::NewtonWorld;
-use newton_dynamics::body::NewtonBody;
+use newton_dynamics::body::{NewtonBody, SleepState};
 //use newton_dynamics::{NewtonWorld, NewtonBody};
 //use newton_dynamics::traits::*;
 
@@ -27,18 +28,22 @@ macro_rules! rgba {
 pub use sdl2::event::Event;
 pub use sdl2::keyboard::{Keycode, Scancode};
 
-pub struct Sandbox {
+pub struct Sandbox<V> {
     background: Color,
     wireframe: bool,
     keyboard: bool,
+    aabb: bool,
+    _ph: PhantomData<V>,
 }
 
-impl Sandbox {
-    pub fn new() -> Sandbox {
+impl<V: NewtonData> Sandbox<V> {
+    pub fn new() -> Sandbox<V> {
         Sandbox {
             background: rgba!(1.0, 1.0, 1.0),
             wireframe: false,
             keyboard: false,
+            aabb: true,
+            _ph: PhantomData,
         }
     }
 
@@ -50,9 +55,47 @@ impl Sandbox {
         self.wireframe = wireframe;
     }
 
-    pub fn run<'a, V>(self, world: NewtonWorld<V>, bodies: Vec<NewtonBody<V>>)
+    fn render(&self, renderer: &Renderer, bodies: &[NewtonBody<V>]) {
+        renderer.reset();
+
+        for body in bodies.iter() {
+            let mut transform = Matrix4::identity();
+            unsafe {
+                // XXX pointers
+                std::ptr::copy(&body.matrix() as *const _ as *const f32, &mut transform[0][0] as *mut f32, 16);
+            }
+            let color = match body.sleep_state() {
+                SleepState::Sleeping => rgba!(1.0),
+                SleepState::Awake => rgba!(1.0, 0.0, 1.0),
+            };
+            renderer.render(Primitive::Box, Mode::Fill, color, transform);
+        }
+
+        if self.aabb {
+            // aabb
+            // XXX pointers
+            for body in bodies.iter() {
+                unsafe {
+                    let mut aabb: (Vector3<f32>, Vector3<f32>) = std::mem::zeroed();
+                    let mut position: Vector3<f32> = std::mem::zeroed();
+
+                    std::ptr::copy(&body.position() as *const _ as *const f32, &mut position as *mut _ as *mut f32, 3);
+                    std::ptr::copy(&body.aabb() as *const _ as *const f32, &mut aabb as *mut _ as *mut f32, 6);
+
+                    let scale = aabb.1 - aabb.0;
+
+                    let mut transform = Matrix4::from_translation(position) *
+                        Matrix4::from_nonuniform_scale(scale.x, scale.y, scale.z);
+
+                    renderer.render(Primitive::Box, Mode::Wireframe, rgba!(0.0), transform);
+                }
+            }
+        }
+    }
+
+    pub fn run<B>(self, world: NewtonWorld<V>, bodies: B)
     where
-        V: NewtonData,
+        B: Fn() -> Vec<NewtonBody<V>>,
     {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
@@ -86,16 +129,7 @@ impl Sandbox {
             }
 
             world.update(Duration::new(0, 1_000_000_000 / 60));
-
-            renderer.reset();
-            for body in bodies.iter() {
-                let mut transform = Matrix4::identity();
-                unsafe {
-                    // XXX pointers
-                    std::ptr::copy(&body.matrix() as *const _ as *const f32, &mut transform[0][0] as *mut f32, 16);
-                }
-                renderer.render(Primitive::Box, Mode::Fill, rgba!(1.0), transform);
-            }
+            self.render(&renderer, &bodies());
 
             window.gl_swap_window();
         }

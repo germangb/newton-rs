@@ -18,17 +18,18 @@ fn main() {
     let world = NewtonWorld::<Array>::new();
     let shape = NewtonCuboid::new(&world, 1.0, 1.0, 1.0);
 
-    let bodies = [
+    let bodies: Vec<_> = [
         (0.0, 0.0, 0.0),
         (0.623, 1.5, 0.245),
         (-0.123, 2.64, -0.145),
         (-0.123, 3.84, -0.145),
         (-0.123, 4.94, -0.145),
+        (-0.023, 6.0, -0.245),
     ]
         .iter()
         .map(|&(x, y, z)| {
             shape.body(position(x, y, z))
-                .compute_mass(1.0)
+                .mass_compute(1.0)
                 .build()
         })
         .collect();
@@ -41,5 +42,5 @@ fn main() {
     // remove floor body
     //drop(floor);
 
-    Sandbox::new().run(world, bodies);
+    Sandbox::new().run(world, || bodies.clone());
 }

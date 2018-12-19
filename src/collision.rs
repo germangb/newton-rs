@@ -8,43 +8,57 @@ use std::mem;
 use std::ptr;
 use std::marker::PhantomData;
 
-#[derive(Debug)]
-pub struct NewtonCuboid<V> {
-    pub(self) world: Rc<WorldRef>,
-    collision: *mut ffi::NewtonCollision,
-    _ph: PhantomData<V>,
-}
+macro_rules! primitives {
+    ($(
+        #[ $( $meta:meta )+ ]
+        pub struct $struct:ident<V: NewtonData> => $ffi:ident ( $($param:ident),+ );
+    )+) => {
+        $( #[ $( $meta )+ ]
+        pub struct $struct<V> {
+            pub(self) world: Rc<WorldRef>,
+            collision: *mut ffi::NewtonCollision,
+            _ph: PhantomData<V>,
+        }
+        impl<V> $struct<V>
+        where
+            V: NewtonData,
+        {
+            pub fn new(world: &NewtonWorld<V>, $( $param : f32 ),+ ) -> $struct<V> {
+                unsafe {
+                    $struct {
+                        world: Rc::clone(&world.world),
+                        collision: ffi::$ffi(world.world.0, $( $param, )+ 0, ptr::null()),
+                        _ph: PhantomData,
+                    }
+                }
+            }
 
-impl<V> NewtonCuboid<V>
-where
-    V: NewtonData,
-{
-    pub fn new(world: &NewtonWorld<V>, dx: f32, dy: f32, dz: f32) -> NewtonCuboid<V> {
-        unsafe {
-            NewtonCuboid {
-                world: Rc::clone(&world.world),
-                collision: ffi::NewtonCreateBox(world.world.0, dx, dy, dz, 0, ptr::null()),
-                _ph: PhantomData,
+            pub fn body(&self, matrix: V::Matrix4) -> NewtonBodyBuilder<V> {
+                NewtonBodyBuilder::new(self.world.clone(), self.collision, matrix)
             }
         }
-    }
-
-    pub fn body(&self, matrix: V::Matrix4) -> NewtonBodyBuilder<V> {
-        NewtonBodyBuilder {
-            world: self.world.clone(),
-            matrix,
-            collision: self.collision,
-            compute_mass: false,
-            mass: 0.0,
-        }
+        impl<V> Drop for $struct<V> {
+            fn drop(&mut self) {
+                unsafe { ffi::NewtonDestroyCollision(self.collision) }
+            }
+        })+
     }
 }
 
-impl<V> Drop for NewtonCuboid<V> {
-    fn drop(&mut self) {
-        unsafe {
-            ffi::NewtonDestroyCollision(self.collision);
-        }
-    }
+primitives! {
+    #[derive(Debug)]
+    pub struct NewtonCuboid<V: NewtonData> => NewtonCreateBox(dx, dy, dz);
+
+    #[derive(Debug)]
+    pub struct NewtonSphere<V: NewtonData> => NewtonCreateSphere(radius);
+
+    #[derive(Debug)]
+    pub struct NewtonCapsule<V: NewtonData> => NewtonCreateCapsule(radius0, radius1, height);
+
+    #[derive(Debug)]
+    pub struct NewtonCone<V: NewtonData> => NewtonCreateCone(radius, height);
+
+    #[derive(Debug)]
+    pub struct NewtonCylinder<V: NewtonData> => NewtonCreateCylinder(radius0, radius1, height);
 }
 
