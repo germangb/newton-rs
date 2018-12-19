@@ -1,6 +1,6 @@
-use ffi;
-use NewtonData;
-use world::WorldRef;
+use crate::ffi;
+use crate::NewtonData;
+use crate::world::WorldRef;
 
 use std::mem;
 use std::rc::Rc;

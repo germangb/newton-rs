@@ -1,22 +1,2 @@
-[package]
-name = "newton-dynamics"
-version = "0.1.0"
-authors = ["germän gômez <germangb42@gmail.com>"]
-
-[dependencies]
-cgmath = {version = "0.16", optional = true }
-
-[features]
-default = ["cgmath_math"]
-
-cgmath_math = ["cgmath"]
-
-[dev-dependencies]
-sandbox = { path = "sandbox/" }
-
-cgmath-culling = { git = "https://github.com/germangb/cgmath-culling.git" }
-stb = { git = "https://github.com/germangb/stb-rs.git" }
-
-[build-dependencies]
-bindgen = "0.36"
-cmake = "0.1"
+[workspace]
+members = ["newton", "newton-sys", "newton-sandbox", "newton-examples"]

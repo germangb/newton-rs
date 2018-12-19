@@ -1,7 +1,7 @@
-use ffi;
-use NewtonData;
-use world::{NewtonWorld, WorldRef};
-use body::{NewtonBodyInner, NewtonBodyBuilder};
+use crate::ffi;
+use crate::NewtonData;
+use crate::world::{NewtonWorld, WorldRef};
+use crate::body::{NewtonBodyInner, NewtonBodyBuilder};
 
 use std::rc::Rc;
 use std::mem;

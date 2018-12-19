@@ -1,0 +1,11 @@
+[package]
+name = "newton-sys"
+version = "0.1.0"
+authors = ["german gomez <germangb42@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+
+[build-dependencies]
+bindgen = "0.36"
+cmake = "0.1"

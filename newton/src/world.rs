@@ -1,6 +1,6 @@
-use ffi;
-use NewtonData;
-use body::{NewtonBody, NewtonBodyInner};
+use crate::ffi;
+use crate::NewtonData;
+use crate::body::{NewtonBody, NewtonBodyInner};
 
 use std::ptr;
 use std::mem;

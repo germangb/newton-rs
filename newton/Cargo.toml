@@ -1,0 +1,8 @@
+[package]
+name = "newton"
+version = "0.1.0"
+authors = ["german gomez <germangb42@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+newton-sys = { path = "../newton-sys" }

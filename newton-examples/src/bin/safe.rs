@@ -1,4 +1,4 @@
-extern crate newton_dynamics as newton;
+extern crate newton;
 
 use newton::Array;
 use newton::world::NewtonWorld;
@@ -11,7 +11,7 @@ fn main() {
 
     let cube = NewtonCuboid::new(&world, 1.0, 1.0, 1.0)
         .body(position(0.0, 0.0, 0.0))
-        .compute_mass(1.0)
+        .mass_compute(1.0)
         .build();
 
     for i in 0..8 {

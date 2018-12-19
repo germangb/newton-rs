@@ -7,7 +7,7 @@ use cmake::Config;
 use std::{env, path::PathBuf};
 
 fn main() {
-    let dst = Config::new("newton-dynamics")
+    let dst = Config::new("../newton-dynamics")
         .define("NEWTON_DEMOS_SANDBOX", "OFF")
         .build();
 
