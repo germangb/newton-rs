@@ -79,21 +79,11 @@ impl<V: NewtonConfig> NewtonBodyBuilder<V> {
     pub fn build(self) -> NewtonBody<V> {
         unsafe {
             // XXX fix pointer
-            let ptr = &self.matrix as *const _ as *const f32;
-            let body = ffi::NewtonCreateDynamicBody(self.world.0, self.collision, ptr);
-
-            // XXX remove this callback
-            //ffi::NewtonBodySetForceAndTorqueCallback(body, Some(cb_apply_force));
-
-            extern "C" fn cb_apply_force(
-                body: *const ffi::NewtonBody,
-                _timestep: f32,
-                _thread_idx: i32,
-            ) {
-                unsafe {
-                    ffi::NewtonBodySetForce(body, [0.0, -4.0, 0.0].as_ptr());
-                }
-            }
+            let body = ffi::NewtonCreateDynamicBody(
+                self.world.0,
+                self.collision,
+                mem::transmute(&self.matrix),
+            );
 
             match self.mass {
                 Some((m, BodyMass::Compute)) => {
@@ -158,7 +148,7 @@ where
     pub fn matrix(&self) -> V::Matrix4 {
         unsafe {
             let mut mat = mem::zeroed();
-            ffi::NewtonBodyGetMatrix(self.body, &mut mat as *mut _ as *mut f32);
+            ffi::NewtonBodyGetMatrix(self.body, mem::transmute(&mut mat));
             mat
         }
     }

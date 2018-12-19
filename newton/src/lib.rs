@@ -31,4 +31,7 @@ pub trait NewtonConfig: std::fmt::Debug {
 
     /// Quaternion type
     type Quaternion: Copy;
+
+    ///// Custom data optionally stored on each body
+    //type BodyUserData;
 }
