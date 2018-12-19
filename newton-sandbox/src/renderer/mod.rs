@@ -52,6 +52,15 @@ pub struct Color {
     pub a: f32,
 }
 
+#[derive(Debug)]
+pub struct RenderStats {
+    /// number of triangles
+    pub tris: usize,
+
+    /// number of drawcalls
+    pub drawcalls: usize,
+}
+
 impl Renderer {
     pub fn new() -> Self {
         let render = Renderer {
@@ -110,9 +119,14 @@ impl Renderer {
         }
     }
 
-    pub fn set_up_primitive(&self, primitive: Primitive) {}
-
-    pub fn render(&self, primitive: Primitive, mode: Mode, color: Color, world: Matrix4<f32>) {
+    pub fn render(
+        &self,
+        primitive: Primitive,
+        mode: Mode,
+        color: Color,
+        world: Matrix4<f32>,
+        mut stats: Option<&mut RenderStats>,
+    ) {
         if primitive == Primitive::Box {
             self.set_world(world * Matrix4::from_scale(0.5));
         } else {
@@ -139,6 +153,11 @@ impl Renderer {
                         gl::UNSIGNED_INT,
                         std::ptr::null()
                     ));
+
+                    if let Some(ref mut stats) = stats {
+                        stats.tris += self.cube.tris();
+                        stats.drawcalls += 1;
+                    }
                 }
                 _ => unreachable!(),
             }

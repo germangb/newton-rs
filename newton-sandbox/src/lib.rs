@@ -10,16 +10,21 @@ use newton::body::SleepState;
 use cgmath::prelude::*;
 use cgmath::{perspective, Deg, Matrix4, Point3, Vector3};
 
-use self::renderer::{Mode, Primitive, Renderer};
+use self::renderer::{Mode, Primitive, RenderStats, Renderer};
 
 use imgui::im_str;
-use imgui::{ImGui, ImGuiCond, Ui};
+use imgui::{ImGui, ImGuiCond, ImString, Ui};
 
 pub use self::renderer::Color;
 
 #[derive(Debug)]
 pub enum SandboxData {}
-impl newton::NewtonData for SandboxData {
+impl newton::NewtonConfig for SandboxData {
+    const GRAVITY: math::Vector3<f32> = math::Vector3 {
+        x: 0.0,
+        y: -9.81,
+        z: 0.0,
+    };
     type Vector3 = math::Vector3<f32>;
     type Vector4 = math::Vector4<f32>;
     type Matrix4 = math::Matrix4<f32>;
@@ -64,11 +69,20 @@ pub use sdl2::mouse::MouseButton;
 pub struct Sandbox<E> {
     handler: Option<E>,
     background: Color,
-    wireframe: bool,
-    keyboard: bool,
-    aabb: bool,
     awake_color: Color,
     sleep_color: Color,
+
+    keyboard: bool,
+
+    simulate: bool,
+    elapsed: Duration,
+    time_scale: f32,
+
+    wireframe: bool,
+    aabb: bool,
+    constraints: bool,
+    bodies: bool,
+    stats: bool,
 }
 
 impl<E: EventHandler> Sandbox<E> {
@@ -76,11 +90,19 @@ impl<E: EventHandler> Sandbox<E> {
         Sandbox {
             handler: None,
             background: rgba!(1.0, 1.0, 1.0),
+
+            simulate: false,
+            elapsed: Duration::new(0, 0),
+            time_scale: 1.0,
+
             wireframe: false,
             keyboard: false,
             aabb: true,
+            constraints: false,
+            bodies: true,
             awake_color: rgba!(1.0, 0.0, 1.0),
             sleep_color: rgba!(1.0, 1.0, 1.0),
+            stats: true,
         }
     }
 
@@ -100,24 +122,36 @@ impl<E: EventHandler> Sandbox<E> {
         self.aabb = aabb;
     }
 
-    fn render(&self, renderer: &Renderer, bodies: &[NewtonBody]) {
+    fn render(&self, renderer: &Renderer, bodies: &[NewtonBody]) -> RenderStats {
         renderer.reset();
 
-        for body in bodies.iter() {
-            let mut transform = Matrix4::identity();
-            unsafe {
-                // XXX pointers
-                std::ptr::copy(
-                    &body.matrix() as *const _ as *const f32,
-                    &mut transform[0][0] as *mut f32,
-                    16,
-                );
+        let mut stats = RenderStats {
+            tris: 0,
+            drawcalls: 0,
+        };
+
+        if self.bodies {
+            for body in bodies.iter() {
+                let mut transform = Matrix4::identity();
+                unsafe {
+                    // XXX pointers
+                    std::ptr::copy(
+                        &body.matrix() as *const _ as *const f32,
+                        &mut transform[0][0] as *mut f32,
+                        16,
+                    );
+                }
+                let color = match body.sleep_state() {
+                    SleepState::Sleeping => self.sleep_color,
+                    SleepState::Awake => self.awake_color,
+                };
+                let mode = if self.wireframe {
+                    Mode::Wireframe
+                } else {
+                    Mode::Fill
+                };
+                renderer.render(Primitive::Box, mode, color, transform, Some(&mut stats));
             }
-            let color = match body.sleep_state() {
-                SleepState::Sleeping => self.sleep_color,
-                SleepState::Awake => self.awake_color,
-            };
-            renderer.render(Primitive::Box, Mode::Fill, color, transform);
         }
 
         if self.aabb {
@@ -144,10 +178,18 @@ impl<E: EventHandler> Sandbox<E> {
                     let mut transform = Matrix4::from_translation(position)
                         * Matrix4::from_nonuniform_scale(scale.x, scale.y, scale.z);
 
-                    renderer.render(Primitive::Box, Mode::Wireframe, rgba!(0.0), transform);
+                    renderer.render(
+                        Primitive::Box,
+                        Mode::Wireframe,
+                        rgba!(0.0),
+                        transform,
+                        Some(&mut stats),
+                    );
                 }
             }
         }
+
+        stats
     }
 
     pub fn run<B>(mut self, world: NewtonWorld, bodies: B)
@@ -215,7 +257,13 @@ impl<E: EventHandler> Sandbox<E> {
                 }
             }
 
-            world.update(Duration::new(0, 1_000_000_000 / 60));
+            if self.simulate {
+                let step = (1_000_000_000.0f32 / 60.0) * self.time_scale;
+                let step = Duration::new(0, step as u32);
+                world.update(step);
+
+                self.elapsed += step;
+            }
 
             unsafe {
                 gl::Enable(gl::DEPTH_TEST);
@@ -223,7 +271,7 @@ impl<E: EventHandler> Sandbox<E> {
                 gl::Disable(gl::SCISSOR_TEST);
             }
 
-            self.render(&renderer, &bodies());
+            let stats = self.render(&renderer, &bodies());
 
             unsafe {
                 gl::Disable(gl::DEPTH_TEST);
@@ -232,28 +280,72 @@ impl<E: EventHandler> Sandbox<E> {
             }
 
             let ui = imgui_sdl2.frame(&window, &mut imgui, &event_pump);
-            self.do_imgui(&ui);
+            self.do_imgui(&ui, &world, &stats);
             imgui_renderer.render(ui);
 
             window.gl_swap_window();
         }
     }
 
-    fn do_imgui(&self, ui: &imgui::Ui) {
-        ui.window(im_str!("Hello world"))
-            .size((300.0, 100.0), ImGuiCond::FirstUseEver)
-            .build(|| {
-                ui.text(im_str!("Hello world!"));
-                ui.text(im_str!("こんにちは世界！"));
-                ui.text(im_str!("This...is...imgui-rs!"));
+    fn do_imgui(&mut self, ui: &imgui::Ui, world: &NewtonWorld, stats: &RenderStats) {
+        ui.main_menu_bar(|| {
+            ui.menu(im_str!("Simulation")).build(|| {
+                ui.menu_item(im_str!("Simulate"))
+                    .selected(&mut self.simulate)
+                    .build();
+            });
+
+            ui.menu(im_str!("Render")).build(|| {
+                ui.menu_item(im_str!("Bodies"))
+                    .selected(&mut self.bodies)
+                    .build();
+                ui.menu_item(im_str!("AABB"))
+                    .selected(&mut self.aabb)
+                    .build();
+                ui.menu_item(im_str!("Constraints"))
+                    .selected(&mut self.constraints)
+                    .build();
                 ui.separator();
-                let mouse_pos = ui.imgui().mouse_pos();
-                ui.text(im_str!(
-                    "Mouse Position: ({:.1},{:.1})",
-                    mouse_pos.0,
-                    mouse_pos.1
-                ));
-            })
+                ui.menu_item(im_str!("Wireframe"))
+                    .selected(&mut self.wireframe)
+                    .build();
+                ui.menu_item(im_str!("Stats"))
+                    .selected(&mut self.stats)
+                    .build();
+            });
+        });
+
+        if self.stats {
+            ui.window(im_str!("Stats"))
+                .size((300.0, 100.0), ImGuiCond::FirstUseEver)
+                .build(|| {
+                    ui.label_text(
+                        im_str!("Elapsed"),
+                        &ImString::new(format!("{:?}", self.elapsed)),
+                    );
+                    ui.slider_float(im_str!("Time scale"), &mut self.time_scale, 0.1, 2.0)
+                        .build();
+                    ui.separator();
+                    ui.label_text(
+                        im_str!("Bodies"),
+                        &ImString::new(format!("{}", world.body_count())),
+                    );
+                    ui.label_text(im_str!("Constraints"), im_str!("0"));
+                    ui.separator();
+                    ui.label_text(
+                        im_str!("Triangles"),
+                        &ImString::new(format!("{}", stats.tris)),
+                    );
+                    ui.label_text(
+                        im_str!("Draw calls"),
+                        &ImString::new(format!("{}", stats.drawcalls)),
+                    );
+                    ui.label_text(
+                        im_str!("Frames/second"),
+                        &ImString::new(format!("{}", ui.framerate())),
+                    );
+                })
+        }
     }
 }
 

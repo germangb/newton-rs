@@ -1,7 +1,7 @@
 use crate::body::{NewtonBodyBuilder, NewtonBodyInner};
 use crate::ffi;
 use crate::world::{NewtonWorld, WorldRef};
-use crate::NewtonData;
+use crate::NewtonConfig;
 
 use std::marker::PhantomData;
 use std::mem;
@@ -11,7 +11,7 @@ use std::rc::Rc;
 macro_rules! primitives {
     ($(
         #[ $( $meta:meta )+ ]
-        pub struct $struct:ident<V: NewtonData> => $ffi:ident ( $($param:ident),+ );
+        pub struct $struct:ident<V: NewtonConfig> => $ffi:ident ( $($param:ident),+ );
     )+) => {
         $( #[ $( $meta )+ ]
         pub struct $struct<V> {
@@ -21,7 +21,7 @@ macro_rules! primitives {
         }
         impl<V> $struct<V>
         where
-            V: NewtonData,
+            V: NewtonConfig,
         {
             pub fn new(world: &NewtonWorld<V>, $( $param : f32 ),+ ) -> $struct<V> {
                 unsafe {
@@ -47,17 +47,17 @@ macro_rules! primitives {
 
 primitives! {
     #[derive(Debug)]
-    pub struct NewtonCuboid<V: NewtonData> => NewtonCreateBox(dx, dy, dz);
+    pub struct NewtonCuboid<V: NewtonConfig> => NewtonCreateBox(dx, dy, dz);
 
     #[derive(Debug)]
-    pub struct NewtonSphere<V: NewtonData> => NewtonCreateSphere(radius);
+    pub struct NewtonSphere<V: NewtonConfig> => NewtonCreateSphere(radius);
 
     #[derive(Debug)]
-    pub struct NewtonCapsule<V: NewtonData> => NewtonCreateCapsule(radius0, radius1, height);
+    pub struct NewtonCapsule<V: NewtonConfig> => NewtonCreateCapsule(radius0, radius1, height);
 
     #[derive(Debug)]
-    pub struct NewtonCone<V: NewtonData> => NewtonCreateCone(radius, height);
+    pub struct NewtonCone<V: NewtonConfig> => NewtonCreateCone(radius, height);
 
     #[derive(Debug)]
-    pub struct NewtonCylinder<V: NewtonData> => NewtonCreateCylinder(radius0, radius1, height);
+    pub struct NewtonCylinder<V: NewtonConfig> => NewtonCreateCylinder(radius0, radius1, height);
 }

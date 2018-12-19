@@ -39,6 +39,10 @@ impl Cube {
         }
     }
 
+    pub fn tris(&self) -> usize {
+        self.indices() / 3
+    }
+
     pub fn indices(&self) -> usize {
         36
     }

@@ -1,6 +1,6 @@
-use crate::body::{NewtonBody, NewtonBodyInner};
+use crate::body::{NewtonBody, NewtonBodyInner, UserData as BodyUserData};
 use crate::ffi;
-use crate::NewtonData;
+use crate::NewtonConfig;
 
 use std::cell::RefCell;
 use std::marker::PhantomData;
@@ -47,7 +47,7 @@ struct UserData {
 
 impl<V> NewtonWorld<V>
 where
-    V: NewtonData,
+    V: NewtonConfig,
 {
     pub fn new() -> NewtonWorld<V> {
         unsafe {
@@ -80,6 +80,16 @@ where
         }
     }
 
+    pub fn set_substeps(&self, steps: usize) {
+        unsafe {
+            ffi::NewtonSetNumberOfSubsteps(self.world.0, steps as _);
+        }
+    }
+
+    pub fn body_count(&self) -> usize {
+        unsafe { ffi::NewtonWorldGetBodyCount(self.world.0) as usize }
+    }
+
     pub fn bodies(&self, p0: V::Vector3, p1: V::Vector3) -> Bodies<V> {
         type BodyVec<V> = RefCell<Vec<NewtonBody<V>>>;
 
@@ -100,7 +110,6 @@ where
             return Bodies(bodies.into_inner());
         }
 
-        // TODO collect bodies
         unsafe extern "C" fn newton_body_iterator<V>(
             body: *const ffi::NewtonBody,
             user_data: *const std::ffi::c_void,
@@ -110,9 +119,9 @@ where
 
             // body weak shared reference
             let body = ffi::NewtonBodyGetUserData(body);
-            let body: Weak<NewtonBodyInner<V>> = mem::transmute(body);
+            let body_udata: BodyUserData<V> = mem::transmute(body);
 
-            if let Some(b) = body.upgrade() {
+            if let Some(b) = body_udata.body.upgrade() {
                 vec.push(b);
             }
 
