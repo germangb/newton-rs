@@ -22,5 +22,5 @@ where
 }
 
 impl<V> ForceAndTorque<V> for DoNothing {
-    fn force_and_torque(body: NewtonBody<V>) {}
+    fn force_and_torque(_: NewtonBody<V>) {}
 }

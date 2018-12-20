@@ -15,9 +15,10 @@ macro_rules! primitives {
     )+) => {
         $( #[ $( $meta )+ ]
         pub struct $struct<V> {
-            pub(self) world: Rc<WorldRef>,
-            collision: *mut ffi::NewtonCollision,
-            _ph: PhantomData<V>,
+            pub(crate) world: Rc<WorldRef>,
+            pub(crate) collision: *mut ffi::NewtonCollision,
+            pub(crate) owned: bool,
+            pub(crate) _ph: PhantomData<V>,
         }
         impl<V> $struct<V>
         where
@@ -28,8 +29,15 @@ macro_rules! primitives {
                     $struct {
                         world: Rc::clone(&world.world),
                         collision: ffi::$ffi(world.world.0, $( $param, )+ 0, ptr::null()),
+                        owned: true,
                         _ph: PhantomData,
                     }
+                }
+            }
+
+            pub fn set_scale(&self, x: f32, y: f32, z: f32) {
+                unsafe {
+                    ffi::NewtonCollisionSetScale(self.collision, x, y, z);
                 }
             }
 
@@ -39,7 +47,9 @@ macro_rules! primitives {
         }
         impl<V> Drop for $struct<V> {
             fn drop(&mut self) {
-                unsafe { ffi::NewtonDestroyCollision(self.collision) }
+                if self.owned {
+                    unsafe { ffi::NewtonDestroyCollision(self.collision) }
+                }
             }
         })+
     }

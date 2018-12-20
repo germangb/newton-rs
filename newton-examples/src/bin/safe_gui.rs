@@ -1,34 +1,30 @@
 extern crate newton_sandbox;
 
 use newton_sandbox::Sandbox;
-use newton_sandbox::{Event, EventHandler};
 
 use newton_sandbox::math::*;
-use newton_sandbox::{NewtonBody, NewtonCuboid, NewtonWorld};
+use newton_sandbox::{NewtonCuboid, NewtonWorld};
 
 use newton::callback::Gravity;
 
 fn main() {
     let world = NewtonWorld::new();
     let shape = NewtonCuboid::new(&world, 1.0, 1.0, 1.0);
+    //shape.set_scale(2.0, 2.0, 2.0);
 
-    let bodies: Vec<_> = [
-        (0.0, 0.0, 0.0),
-        (0.623, 1.5, 0.245),
-        (-0.123, 2.64, -0.145),
-        (-0.123, 3.84, -0.145),
-        (-0.123, 4.94, -0.145),
-        (-0.023, 6.0, -0.245),
-    ]
-    .iter()
-    .map(|&(x, y, z)| Vector3::new(x, y, z))
-    .map(Matrix4::from_translation)
-    .map(|m| {
-        let body = shape.body(m).mass_compute(1.0).build();
-        body.set_update::<Gravity>();
-        body
-    })
-    .collect();
+    let bodies: Vec<_> = [(0.623, 0.245), (-0.123, -0.145), (0.023, -0.245)]
+        .iter()
+        .cycle()
+        .take(16) // spawn 16 bodies
+        .enumerate()
+        .map(|(i, &(x, z))| Vector3::new(x, (i as f32) * 1.2, z))
+        .map(Matrix4::from_translation)
+        .map(|m| {
+            let body = shape.body(m).mass_compute(1.0).build();
+            body.set_update::<Gravity>();
+            body
+        })
+        .collect();
 
     let shape = NewtonCuboid::new(&world, 16.0, 1.0, 16.0);
     let floor = shape
@@ -38,5 +34,5 @@ fn main() {
     // remove floor body
     //drop(floor);
 
-    Sandbox::<()>::new().run(world, || bodies.clone());
+    Sandbox::new().size(800, 600).run(world, || bodies.clone());
 }

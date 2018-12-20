@@ -3,7 +3,7 @@ mod renderer;
 
 use std::marker::PhantomData;
 use std::rc::Rc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use newton::body::SleepState;
 
@@ -29,6 +29,7 @@ impl newton::NewtonConfig for SandboxData {
     type Vector4 = math::Vector4<f32>;
     type Matrix4 = math::Matrix4<f32>;
     type Quaternion = math::Quaternion<f32>;
+    type Collision = ();
 }
 
 pub trait EventHandler {
@@ -66,11 +67,18 @@ pub use sdl2::event::WindowEvent;
 pub use sdl2::keyboard::{Keycode, Mod, Scancode};
 pub use sdl2::mouse::MouseButton;
 
-pub struct Sandbox<E> {
-    handler: Option<E>,
+pub struct Sandbox {
+    handler: Option<Box<EventHandler>>,
+
+    // window
+    width: usize,
+    height: usize,
+
+    // render
     background: Color,
     awake_color: Color,
     sleep_color: Color,
+    lighting: bool,
 
     keyboard: bool,
 
@@ -85,8 +93,8 @@ pub struct Sandbox<E> {
     stats: bool,
 }
 
-impl<E: EventHandler> Sandbox<E> {
-    pub fn new() -> Sandbox<E> {
+impl Sandbox {
+    pub fn new() -> Sandbox {
         Sandbox {
             handler: None,
             background: rgba!(1.0, 1.0, 1.0),
@@ -95,20 +103,34 @@ impl<E: EventHandler> Sandbox<E> {
             elapsed: Duration::new(0, 0),
             time_scale: 1.0,
 
+            awake_color: rgba!(1.0, 0.0, 1.0),
+            sleep_color: rgba!(1.0, 1.0, 1.0),
+            lighting: true,
+
+            width: 800,
+            height: 600,
+
             wireframe: false,
             keyboard: false,
             aabb: true,
             constraints: false,
             bodies: true,
-            awake_color: rgba!(1.0, 0.0, 1.0),
-            sleep_color: rgba!(1.0, 1.0, 1.0),
+
             stats: true,
         }
     }
 
+    pub fn size(mut self, width: usize, height: usize) -> Self {
+        self.width = width;
+        self.height = height;
+        self
+    }
+
+    /*
     pub fn event_handler(&mut self, handler: E) {
         self.handler = Some(handler);
     }
+    */
 
     pub fn background_color(&mut self, background: Color) {
         self.background = background;
@@ -131,6 +153,8 @@ impl<E: EventHandler> Sandbox<E> {
         };
 
         if self.bodies {
+            renderer.set_lighting(self.lighting);
+
             for body in bodies.iter() {
                 let mut transform = Matrix4::identity();
                 unsafe {
@@ -200,7 +224,7 @@ impl<E: EventHandler> Sandbox<E> {
         let video_subsystem = sdl_context.video().unwrap();
 
         let window = video_subsystem
-            .window("Window", 640, 480)
+            .window("Window", self.width as _, self.height as _)
             .opengl()
             .position_centered()
             .build()
@@ -217,9 +241,10 @@ impl<E: EventHandler> Sandbox<E> {
 
         let renderer = get_renderer();
 
-        let proj = perspective(Deg(55.0_f32), 4.0 / 3.0, 0.01, 1000.0);
+        let aspect = (self.width as f32) / (self.height as f32);
+        let proj = perspective(Deg(55.0_f32), aspect, 0.01, 1000.0);
         let view = Matrix4::look_at(
-            Point3::new(12.0, 6.0, 16.0f32) / 2.0,
+            Point3::new(12.0, 6.0, 16.0f32),
             Point3::new(0.0, 0.0, 0.0),
             Vector3::new(0.0, 1.0, 0.0),
         );
@@ -308,6 +333,9 @@ impl<E: EventHandler> Sandbox<E> {
                 ui.separator();
                 ui.menu_item(im_str!("Wireframe"))
                     .selected(&mut self.wireframe)
+                    .build();
+                ui.menu_item(im_str!("Lighting"))
+                    .selected(&mut self.lighting)
                     .build();
                 ui.menu_item(im_str!("Stats"))
                     .selected(&mut self.stats)

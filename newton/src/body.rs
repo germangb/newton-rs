@@ -179,6 +179,18 @@ where
         }
     }
 
+    pub fn point_velocity(&self, point: V::Vector3) -> V::Vector3 {
+        unsafe {
+            let mut v = mem::zeroed();
+            ffi::NewtonBodyGetPointVelocity(
+                self.body,
+                mem::transmute(&point),
+                mem::transmute(&mut v),
+            );
+            v
+        }
+    }
+
     pub fn linear_velocity(&self) -> V::Vector3 {
         unsafe {
             let mut v = mem::zeroed();

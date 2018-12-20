@@ -7,11 +7,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
 use std::rc::{Rc, Weak};
-use std::sync::mpsc;
 use std::time::Duration;
-
-type Rx<T> = mpsc::Receiver<T>;
-type Tx<T> = mpsc::Sender<T>;
 
 #[doc(hidden)]
 #[derive(Debug)]
@@ -20,10 +16,6 @@ pub struct WorldRef(pub(crate) *mut ffi::NewtonWorld);
 #[derive(Debug)]
 pub struct NewtonWorld<V> {
     pub(crate) world: Rc<WorldRef>,
-
-    bodies: Rx<()>,
-    joints: Rx<()>,
-
     _ph: PhantomData<V>,
 }
 
@@ -38,13 +30,6 @@ impl<V> ::std::ops::Deref for Bodies<V> {
     }
 }
 
-#[doc(hidden)]
-#[derive(Debug)]
-struct UserData {
-    bodies: Tx<()>,
-    joints: Tx<()>,
-}
-
 impl<V> NewtonWorld<V>
 where
     V: NewtonConfig,
@@ -53,21 +38,8 @@ where
         unsafe {
             let world = ffi::NewtonCreate();
 
-            let (b_tx, b_rx) = mpsc::channel();
-            let (j_tx, j_rx) = mpsc::channel();
-
-            ffi::NewtonWorldSetUserData(
-                world,
-                mem::transmute(Box::new(UserData {
-                    bodies: b_tx,
-                    joints: j_tx,
-                })),
-            );
-
             NewtonWorld {
                 world: Rc::new(WorldRef(world)),
-                bodies: b_rx,
-                joints: j_rx,
                 _ph: PhantomData,
             }
         }
@@ -110,6 +82,7 @@ where
             return Bodies(bodies.into_inner());
         }
 
+        // FIXME
         unsafe extern "C" fn newton_body_iterator<V>(
             body: *const ffi::NewtonBody,
             user_data: *const std::ffi::c_void,
@@ -133,7 +106,6 @@ where
 impl Drop for WorldRef {
     fn drop(&mut self) {
         unsafe {
-            let _: Box<UserData> = Box::from_raw(ffi::NewtonWorldGetUserData(self.0) as _);
             ffi::NewtonDestroy(self.0);
         }
     }

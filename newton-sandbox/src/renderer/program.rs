@@ -10,6 +10,7 @@ pub struct Program {
     pub(crate) view: GLint,
     pub(crate) projection: GLint,
     pub(crate) color: GLint,
+    pub(crate) lighting: GLint,
 }
 
 impl Drop for Program {
@@ -50,6 +51,10 @@ impl Program {
                 color: check!(gl::GetUniformLocation(
                     program,
                     "u_color\0".as_ptr() as *const GLchar
+                )),
+                lighting: check!(gl::GetUniformLocation(
+                    program,
+                    "u_lighting\0".as_ptr() as *const GLchar
                 )),
             }
         }

@@ -96,6 +96,15 @@ impl Renderer {
         }
     }
 
+    pub fn set_lighting(&self, lighting: bool) {
+        unsafe {
+            check!(gl::Uniform1i(
+                self.program.lighting,
+                if lighting { 1 } else { 0 },
+            ));
+        }
+    }
+
     fn set_world(&self, world: Matrix4<f32>) {
         unsafe {
             check!(gl::UniformMatrix4fv(
