@@ -1,73 +1,147 @@
-use crate::body::{NewtonBodyBuilder, NewtonBodyInner};
+use crate::body;
+use crate::body::{NewtonBody, NewtonBodyInner};
 use crate::ffi;
 use crate::world::{NewtonWorld, WorldRef};
 use crate::NewtonConfig;
 
+use std::cell::Cell;
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
 use std::rc::Rc;
 
-macro_rules! primitives {
-    ($(
-        #[ $( $meta:meta )+ ]
-        pub struct $struct:ident<V: NewtonConfig> => $ffi:ident ( $($param:ident),+ );
-    )+) => {
-        $( #[ $( $meta )+ ]
-        pub struct $struct<V> {
-            pub(crate) world: Rc<WorldRef>,
-            pub(crate) collision: *mut ffi::NewtonCollision,
-            pub(crate) owned: bool,
-            pub(crate) _ph: PhantomData<V>,
-        }
-        impl<V> $struct<V>
-        where
-            V: NewtonConfig,
-        {
-            pub fn new(world: &NewtonWorld<V>, $( $param : f32 ),+ ) -> $struct<V> {
-                unsafe {
-                    $struct {
-                        world: Rc::clone(&world.world),
-                        collision: ffi::$ffi(world.world.0, $( $param, )+ 0, ptr::null()),
-                        owned: true,
-                        _ph: PhantomData,
-                    }
-                }
-            }
+#[derive(Debug)]
+pub enum CollisionParams {
+    Cuboid {
+        dx: f32,
+        dy: f32,
+        dz: f32,
+    },
+    Sphere {
+        radius: f32,
+    },
+    Capsule {
+        radius0: f32,
+        radius1: f32,
+        height: f32,
+    },
+}
 
-            pub fn set_scale(&self, x: f32, y: f32, z: f32) {
-                unsafe {
-                    ffi::NewtonCollisionSetScale(self.collision, x, y, z);
-                }
-            }
+#[derive(Debug)]
+pub struct CollisionInfo {
+    params: CollisionParams,
+    scale: (f32, f32, f32),
+}
 
-            pub fn body(&self, matrix: V::Matrix4) -> NewtonBodyBuilder<V> {
-                NewtonBodyBuilder::new(self.world.clone(), self.collision, matrix)
-            }
-        }
-        impl<V> Drop for $struct<V> {
-            fn drop(&mut self) {
-                if self.owned {
-                    unsafe { ffi::NewtonDestroyCollision(self.collision) }
-                }
-            }
-        })+
+#[derive(Debug)]
+pub struct NewtonCollision<V> {
+    world: Rc<WorldRef>,
+    pub(crate) collision: *mut ffi::NewtonCollision,
+
+    info: Rc<CollisionInfo>,
+
+    _ph: PhantomData<V>,
+}
+
+impl<V> Drop for NewtonCollision<V> {
+    fn drop(&mut self) {
+        unsafe { ffi::NewtonDestroyCollision(self.collision) }
     }
 }
 
-primitives! {
-    #[derive(Debug)]
-    pub struct NewtonCuboid<V: NewtonConfig> => NewtonCreateBox(dx, dy, dz);
+fn create_collision<V>(
+    world: &NewtonWorld<V>,
+    collision: *mut ffi::NewtonCollision,
+    params: CollisionParams,
+) -> NewtonCollision<V>
+where
+    V: NewtonConfig,
+{
+    assert_config!(V);
+    unsafe {
+        let info = Rc::new(CollisionInfo {
+            scale: (1.0, 1.0, 1.0),
+            params,
+        });
 
-    #[derive(Debug)]
-    pub struct NewtonSphere<V: NewtonConfig> => NewtonCreateSphere(radius);
+        //ffi::NewtonCollisionSetUserData(mem::transmute(Rc::downgrade(&info)));
 
-    #[derive(Debug)]
-    pub struct NewtonCapsule<V: NewtonConfig> => NewtonCreateCapsule(radius0, radius1, height);
+        NewtonCollision {
+            world: Rc::clone(&world.world),
+            collision,
+            info,
+            _ph: PhantomData,
+        }
+    }
+}
 
-    #[derive(Debug)]
-    pub struct NewtonCone<V: NewtonConfig> => NewtonCreateCone(radius, height);
+impl<V: NewtonConfig> NewtonCollision<V> {
+    pub fn cuboid(
+        world: &NewtonWorld<V>,
+        dx: f32,
+        dy: f32,
+        dz: f32,
+        offset: Option<V::Matrix4>,
+    ) -> NewtonCollision<V> {
+        unsafe {
+            create_collision(
+                &world,
+                ffi::NewtonCreateBox(
+                    world.world.0,
+                    dx,
+                    dy,
+                    dz,
+                    0,
+                    mem::transmute(offset.as_ref()),
+                ),
+                CollisionParams::Cuboid { dx, dy, dz },
+            )
+        }
+    }
 
-    #[derive(Debug)]
-    pub struct NewtonCylinder<V: NewtonConfig> => NewtonCreateCylinder(radius0, radius1, height);
+    pub fn sphere(
+        world: &NewtonWorld<V>,
+        radius: f32,
+        offset: Option<V::Matrix4>,
+    ) -> NewtonCollision<V> {
+        unsafe {
+            create_collision(
+                &world,
+                ffi::NewtonCreateSphere(world.world.0, radius, 0, mem::transmute(offset.as_ref())),
+                CollisionParams::Sphere { radius },
+            )
+        }
+    }
+
+    pub fn capsule(
+        world: &NewtonWorld<V>,
+        radius0: f32,
+        radius1: f32,
+        height: f32,
+        offset: Option<V::Matrix4>,
+    ) -> NewtonCollision<V> {
+        assert_config!(V);
+        unsafe {
+            create_collision(
+                &world,
+                ffi::NewtonCreateCapsule(
+                    world.world.0,
+                    radius0,
+                    radius1,
+                    height,
+                    0,
+                    mem::transmute(offset.as_ref()),
+                ),
+                CollisionParams::Capsule {
+                    radius0,
+                    radius1,
+                    height,
+                },
+            )
+        }
+    }
+
+    pub fn body(&self, matrix: V::Matrix4) -> NewtonBody<V> {
+        body::create_dynamic_body(self.world.clone(), self.collision, matrix)
+    }
 }

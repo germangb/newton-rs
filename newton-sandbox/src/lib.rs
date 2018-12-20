@@ -29,7 +29,6 @@ impl newton::NewtonConfig for SandboxData {
     type Vector4 = math::Vector4<f32>;
     type Matrix4 = math::Matrix4<f32>;
     type Quaternion = math::Quaternion<f32>;
-    type Collision = ();
 }
 
 pub trait EventHandler {
@@ -42,7 +41,7 @@ impl EventHandler for () {}
 
 pub type NewtonWorld = newton::world::NewtonWorld<SandboxData>;
 pub type NewtonBody = newton::body::NewtonBody<SandboxData>;
-pub type NewtonCuboid = newton::collision::NewtonCuboid<SandboxData>;
+pub type NewtonCollision = newton::collision::NewtonCollision<SandboxData>;
 
 #[macro_export]
 macro_rules! rgba {
@@ -174,6 +173,7 @@ impl Sandbox {
                 } else {
                     Mode::Fill
                 };
+
                 renderer.render(Primitive::Box, mode, color, transform, Some(&mut stats));
             }
         }

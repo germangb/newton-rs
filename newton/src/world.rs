@@ -35,6 +35,7 @@ where
     V: NewtonConfig,
 {
     pub fn new() -> NewtonWorld<V> {
+        assert_config!(V);
         unsafe {
             let world = ffi::NewtonCreate();
 

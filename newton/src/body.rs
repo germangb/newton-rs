@@ -3,6 +3,8 @@ use crate::ffi;
 use crate::world::WorldRef;
 use crate::NewtonConfig;
 
+use crate::collision::NewtonCollision;
+use crate::world::NewtonWorld;
 use std::marker::PhantomData;
 use std::mem;
 use std::rc::{Rc, Weak};
@@ -27,93 +29,8 @@ pub(crate) struct UserData<V> {
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum SleepState {
-    Sleeping = 1,
     Awake = 0,
-}
-
-enum BodyMass<V: NewtonConfig> {
-    Compute,
-    PrincipalAxis { ix: f32, iy: f32, iz: f32 },
-    FullMatrix { matrix: V::Matrix4 },
-}
-
-pub struct NewtonBodyBuilder<V: NewtonConfig> {
-    world: Rc<WorldRef>,
-    matrix: V::Matrix4,
-    collision: *mut ffi::NewtonCollision,
-    mass: Option<(f32, BodyMass<V>)>,
-}
-
-impl<V: NewtonConfig> NewtonBodyBuilder<V> {
-    pub(crate) fn new(
-        world: Rc<WorldRef>,
-        collision: *mut ffi::NewtonCollision,
-        matrix: V::Matrix4,
-    ) -> NewtonBodyBuilder<V> {
-        NewtonBodyBuilder {
-            world,
-            matrix,
-            collision,
-            mass: None,
-        }
-    }
-
-    /// Compute mass properties from the shape itself
-    pub fn mass_compute(mut self, mass: f32) -> NewtonBodyBuilder<V> {
-        self.mass = Some((mass, BodyMass::Compute));
-        self
-    }
-
-    /// Set the principal components of the Inerta matrix
-    pub fn mass_matrix(mut self, mass: f32, (ix, iy, iz): (f32, f32, f32)) -> NewtonBodyBuilder<V> {
-        self.mass = Some((mass, BodyMass::PrincipalAxis { ix, iy, iz }));
-        self
-    }
-
-    /// Set the full Inertia matrix
-    pub fn mass_matrix_full(mut self, mass: f32, inertia: V::Matrix4) -> NewtonBodyBuilder<V> {
-        self.mass = Some((mass, BodyMass::FullMatrix { matrix: inertia }));
-        self
-    }
-
-    pub fn build(self) -> NewtonBody<V> {
-        unsafe {
-            // XXX fix pointer
-            let body = ffi::NewtonCreateDynamicBody(
-                self.world.0,
-                self.collision,
-                mem::transmute(&self.matrix),
-            );
-
-            match self.mass {
-                Some((m, BodyMass::Compute)) => {
-                    ffi::NewtonBodySetMassProperties(body, m, self.collision)
-                }
-                Some((m, BodyMass::PrincipalAxis { ix, iy, iz })) => {
-                    ffi::NewtonBodySetMassMatrix(body, m, ix, iy, iz)
-                }
-                Some((m, BodyMass::FullMatrix { matrix })) => {
-                    // XXX pointers
-                    let mat_ptr = &matrix as *const _ as *const f32;
-                    ffi::NewtonBodySetFullMassMatrix(body, m, mat_ptr);
-                }
-                _ => {}
-            }
-
-            let body = Rc::new(NewtonBodyInner {
-                world: self.world,
-                body,
-                _ph: PhantomData,
-            });
-
-            let datum = mem::transmute(Box::new(UserData {
-                body: Rc::downgrade(&body),
-            }));
-            ffi::NewtonBodySetUserData(body.body, datum);
-
-            body
-        }
-    }
+    Sleeping = 1,
 }
 
 // XXX pointers
@@ -121,6 +38,12 @@ impl<V> NewtonBodyInner<V>
 where
     V: NewtonConfig,
 {
+    pub fn set_mass(&self, mass: f32, collision: &NewtonCollision<V>) {
+        unsafe {
+            ffi::NewtonBodySetMassProperties(self.body, mass, collision.collision);
+        }
+    }
+
     pub fn set_update<C: callback::ForceAndTorque<V>>(&self) {
         unsafe {
             ffi::NewtonBodySetForceAndTorqueCallback(self.body, Some(cb_apply_force::<V, C>));
@@ -231,5 +154,32 @@ impl<V> Drop for NewtonBodyInner<V> {
             let _: Box<UserData<V>> = Box::from_raw(ffi::NewtonBodyGetUserData(self.body) as _);
             ffi::NewtonDestroyBody(self.body);
         }
+    }
+}
+
+pub(crate) fn create_dynamic_body<V>(
+    world: Rc<WorldRef>,
+    collision: *mut ffi::NewtonCollision,
+    matrix: V::Matrix4,
+) -> NewtonBody<V>
+where
+    V: NewtonConfig,
+{
+    assert_config!(V);
+
+    unsafe {
+        let body = ffi::NewtonCreateDynamicBody(world.0, collision, mem::transmute(&matrix));
+        let body = Rc::new(NewtonBodyInner {
+            world,
+            body,
+            _ph: PhantomData,
+        });
+
+        let datum = mem::transmute(Box::new(UserData {
+            body: Rc::downgrade(&body),
+        }));
+        ffi::NewtonBodySetUserData(body.body, datum);
+
+        body
     }
 }
