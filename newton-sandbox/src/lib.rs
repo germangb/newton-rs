@@ -2,12 +2,15 @@ pub mod math;
 mod renderer;
 
 use std::marker::PhantomData;
+use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use newton::body::SleepState;
+use newton::collision::CollisionParams;
 
 use cgmath::prelude::*;
+use cgmath::Angle;
 use cgmath::{perspective, Deg, Matrix4, Point3, Vector3};
 
 use self::renderer::{Mode, Primitive, RenderStats, Renderer};
@@ -17,7 +20,7 @@ use imgui::{ImGui, ImGuiCond, ImString, Ui};
 
 pub use self::renderer::Color;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum SandboxData {}
 impl newton::NewtonConfig for SandboxData {
     const GRAVITY: math::Vector3<f32> = math::Vector3 {
@@ -69,6 +72,12 @@ pub use sdl2::mouse::MouseButton;
 pub struct Sandbox {
     handler: Option<Box<EventHandler>>,
 
+    // camera movement
+    mouse_down: bool,
+    radius: f32,
+    alpha: Deg<f32>,
+    delta: Deg<f32>,
+
     // window
     width: usize,
     height: usize,
@@ -96,6 +105,12 @@ impl Sandbox {
     pub fn new() -> Sandbox {
         Sandbox {
             handler: None,
+
+            mouse_down: false,
+            radius: 16.0,
+            alpha: Deg(0.0),
+            delta: Deg(0.0),
+
             background: rgba!(1.0, 1.0, 1.0),
 
             simulate: false,
@@ -151,55 +166,64 @@ impl Sandbox {
             drawcalls: 0,
         };
 
-        if self.bodies {
+        if self.bodies || self.aabb {
             renderer.set_lighting(self.lighting);
 
             for body in bodies.iter() {
-                let mut transform = Matrix4::identity();
-                unsafe {
-                    // XXX pointers
-                    std::ptr::copy(
-                        &body.matrix() as *const _ as *const f32,
-                        &mut transform[0][0] as *mut f32,
-                        16,
-                    );
+                if self.bodies {
+                    let mut transform = body.matrix();
+                    let color = match body.sleep_state() {
+                        SleepState::Sleeping => self.sleep_color,
+                        SleepState::Awake => self.awake_color,
+                    };
+                    let mode = if self.wireframe {
+                        Mode::Wireframe
+                    } else {
+                        Mode::Fill
+                    };
+
+                    match body.collision().params() {
+                        CollisionParams::Cuboid { dx, dy, dz } => {
+                            transform = transform * Matrix4::from_nonuniform_scale(dx, dy, dz);
+                            renderer.render(
+                                Primitive::Box,
+                                mode,
+                                color,
+                                transform,
+                                Some(&mut stats),
+                            );
+                        }
+                        CollisionParams::Sphere { radius } => {
+                            transform = transform * Matrix4::from_scale(radius);
+                            renderer.render(
+                                Primitive::Sphere,
+                                mode,
+                                color,
+                                transform,
+                                Some(&mut stats),
+                            );
+                        }
+                        CollisionParams::Cone { radius, height } => {
+                            transform =
+                                transform * Matrix4::from_nonuniform_scale(height, radius, radius);
+                            renderer.render(
+                                Primitive::Cone,
+                                mode,
+                                color,
+                                transform,
+                                Some(&mut stats),
+                            );
+                        }
+                        _ => {}
+                    }
                 }
-                let color = match body.sleep_state() {
-                    SleepState::Sleeping => self.sleep_color,
-                    SleepState::Awake => self.awake_color,
-                };
-                let mode = if self.wireframe {
-                    Mode::Wireframe
-                } else {
-                    Mode::Fill
-                };
 
-                renderer.render(Primitive::Box, mode, color, transform, Some(&mut stats));
-            }
-        }
+                if self.aabb {
+                    let (min, max) = body.aabb();
+                    let position = body.position();
 
-        if self.aabb {
-            // aabb
-            // XXX pointers
-            for body in bodies.iter() {
-                unsafe {
-                    let mut aabb: (Vector3<f32>, Vector3<f32>) = std::mem::zeroed();
-                    let mut position: Vector3<f32> = std::mem::zeroed();
-
-                    std::ptr::copy(
-                        &body.position() as *const _ as *const f32,
-                        &mut position as *mut _ as *mut f32,
-                        3,
-                    );
-                    std::ptr::copy(
-                        &body.aabb() as *const _ as *const f32,
-                        &mut aabb as *mut _ as *mut f32,
-                        6,
-                    );
-
-                    let scale = aabb.1 - aabb.0;
-
-                    let mut transform = Matrix4::from_translation(position)
+                    let scale = max - min;
+                    let transform = Matrix4::from_translation(position)
                         * Matrix4::from_nonuniform_scale(scale.x, scale.y, scale.z);
 
                     renderer.render(
@@ -216,10 +240,22 @@ impl Sandbox {
         stats
     }
 
-    pub fn run<B>(mut self, world: NewtonWorld, bodies: B)
-    where
-        B: Fn() -> Vec<NewtonBody>,
-    {
+    pub fn handle_event(&mut self, event: &Event) {
+        match (self.mouse_down, event) {
+            (_, Event::MouseWheel { y, .. }) => {
+                self.radius -= (*y as f32) * 0.75;
+            }
+            (_, Event::MouseButtonDown { .. }) => self.mouse_down = true,
+            (_, Event::MouseButtonUp { .. }) => self.mouse_down = false,
+            (true, Event::MouseMotion { xrel, yrel, .. }) => {
+                self.alpha -= Deg((*xrel as f32) * 0.5);
+                self.delta += Deg((*yrel as f32) * 0.5);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn run(mut self, world: NewtonWorld, bodies: Vec<NewtonBody>) {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
@@ -250,7 +286,6 @@ impl Sandbox {
         );
 
         renderer.set_projection(proj);
-        renderer.set_view(view);
 
         let mut imgui = ImGui::init();
         let mut imgui_sdl2 = imgui_sdl2::ImguiSdl2::new(&mut imgui);
@@ -274,6 +309,7 @@ impl Sandbox {
                     | &Event::MouseButtonUp { .. }
                     | Event::MouseMotion { .. }
                     | &Event::MouseWheel { .. } => {
+                        self.handle_event(&event);
                         if let Some(ref mut h) = self.handler {
                             h.event(&event);
                         }
@@ -290,13 +326,25 @@ impl Sandbox {
                 self.elapsed += step;
             }
 
+            let view = Matrix4::look_at(
+                Point3::new(
+                    self.radius * Deg::cos(self.delta) * Deg::sin(self.alpha),
+                    self.radius * Deg::sin(self.delta),
+                    self.radius * Deg::cos(self.delta) * Deg::cos(self.alpha),
+                ),
+                Point3::new(0.0, 0.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            );
+
+            renderer.set_view(view);
+
             unsafe {
                 gl::Enable(gl::DEPTH_TEST);
                 gl::Disable(gl::STENCIL_TEST);
                 gl::Disable(gl::SCISSOR_TEST);
             }
 
-            let stats = self.render(&renderer, &bodies());
+            let stats = self.render(&renderer, &bodies);
 
             unsafe {
                 gl::Disable(gl::DEPTH_TEST);
@@ -353,6 +401,7 @@ impl Sandbox {
                     );
                     ui.slider_float(im_str!("Time scale"), &mut self.time_scale, 0.1, 2.0)
                         .build();
+                    ui.checkbox(im_str!("Simulate"), &mut self.simulate);
                     ui.separator();
                     ui.label_text(
                         im_str!("Bodies"),

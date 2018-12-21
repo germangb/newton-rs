@@ -28,8 +28,6 @@ pub mod joint;
 pub mod mesh;
 pub mod world;
 
-use self::body::NewtonBody;
-
 pub trait NewtonConfig: std::fmt::Debug {
     /// Default gravity
     const GRAVITY: Self::Vector3;

@@ -9,23 +9,27 @@ macro_rules! check {
 }
 
 mod capsule;
+mod cone;
 mod cube;
 mod cylinder;
 mod program;
 mod sphere;
 
+use self::cone::Cone;
 use self::cube::Cube;
 use self::program::Program;
+use self::sphere::Sphere;
 
 use cgmath::prelude::*;
 use cgmath::Matrix4;
 
 use std::cell::Cell;
 
-#[repr(u8)]
 #[derive(Hash, Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Primitive {
-    Box = 0,
+    Box,
+    Sphere,
+    Cone,
     Cylinder,
     Capsule,
 }
@@ -39,6 +43,8 @@ pub enum Mode {
 pub struct Renderer {
     program: Program,
     cube: Cube,
+    sphere: Sphere,
+    cone: Cone,
     // cache
     primitive: Cell<Option<Primitive>>,
     mode: Cell<Option<Mode>>,
@@ -66,6 +72,8 @@ impl Renderer {
         let render = Renderer {
             program: Program::new(),
             cube: Cube::new(),
+            sphere: Sphere::new(),
+            cone: Cone::new(),
             primitive: Cell::new(None),
             mode: Cell::new(None),
         };
@@ -165,6 +173,38 @@ impl Renderer {
 
                     if let Some(ref mut stats) = stats {
                         stats.tris += self.cube.tris();
+                        stats.drawcalls += 1;
+                    }
+                }
+                Primitive::Sphere => {
+                    if self.primitive.get() != Some(primitive) {
+                        check!(gl::BindVertexArray(self.sphere.vao));
+                    }
+                    check!(gl::DrawElements(
+                        gl::TRIANGLES,
+                        self.sphere.indices() as _,
+                        gl::UNSIGNED_INT,
+                        std::ptr::null()
+                    ));
+
+                    if let Some(ref mut stats) = stats {
+                        stats.tris += self.sphere.tris();
+                        stats.drawcalls += 1;
+                    }
+                }
+                Primitive::Cone => {
+                    if self.primitive.get() != Some(primitive) {
+                        check!(gl::BindVertexArray(self.cone.vao));
+                    }
+                    check!(gl::DrawElements(
+                        gl::TRIANGLES,
+                        self.cone.indices() as _,
+                        gl::UNSIGNED_INT,
+                        std::ptr::null()
+                    ));
+
+                    if let Some(ref mut stats) = stats {
+                        stats.tris += self.cone.tris();
                         stats.drawcalls += 1;
                     }
                 }

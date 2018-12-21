@@ -3,20 +3,20 @@ use lazy_static::*;
 use gl;
 use gl::types::*;
 
-const RAW_DATA: &[u8] = include_bytes!("assets/sphere.bin");
+const RAW_DATA: &[u8] = include_bytes!("assets/cone.bin");
 
 lazy_static! {
-    pub static ref INDEX: &'static [u8] = &RAW_DATA[..2688];
-    pub static ref VERTEX: &'static [u8] = &RAW_DATA[2688..];
+    pub static ref INDEX: &'static [u8] = &RAW_DATA[..360];
+    pub static ref VERTEX: &'static [u8] = &RAW_DATA[360..];
 }
 
-pub(crate) struct Sphere {
+pub(crate) struct Cone {
     pub(crate) vbo: GLuint,
     pub(crate) ebo: GLuint,
     pub(crate) vao: GLuint,
 }
 
-impl Drop for Sphere {
+impl Drop for Cone {
     fn drop(&mut self) {
         unsafe {
             check!(gl::DeleteBuffers(1, &self.vbo));
@@ -26,12 +26,12 @@ impl Drop for Sphere {
     }
 }
 
-impl Sphere {
-    pub fn new() -> Sphere {
+impl Cone {
+    pub fn new() -> Cone {
         unsafe {
             let vbo = create_buffer(gl::ARRAY_BUFFER, *VERTEX);
             let ebo = create_buffer(gl::ELEMENT_ARRAY_BUFFER, *INDEX);
-            Sphere {
+            Cone {
                 vbo,
                 ebo,
                 vao: create_vao(vbo, ebo),
@@ -44,7 +44,7 @@ impl Sphere {
     }
 
     pub fn indices(&self) -> usize {
-        672
+        90
     }
 }
 
@@ -78,7 +78,7 @@ unsafe fn create_vao(vbo: GLuint, ebo: GLuint) -> GLuint {
         3 << 2,
         0 as _
     ));
-    let offset = std::ptr::null::<u8>().offset(8448 - 2688) as _;
+    let offset = std::ptr::null::<u8>().offset(1128 - 360) as _;
     check!(gl::VertexAttribPointer(
         1,
         3,

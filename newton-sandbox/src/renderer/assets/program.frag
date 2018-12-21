@@ -10,7 +10,7 @@ uniform int u_lighting;
 void main() {
     float shade = 1.0;
     if (u_lighting == 1) {
-        shade = dot(v_normal, vec3(0.0, 0.0, 1.0));
+        shade = dot(v_normal, normalize(vec3(1.0, 4.0, 2.0)));
         shade = shade * 0.5 + 0.5;
     }
 
