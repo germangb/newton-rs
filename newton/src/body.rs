@@ -22,13 +22,14 @@ impl<C> Drop for NewtonBodyPtr<C> {
     }
 }
 
+/// A reference counted body
 #[derive(Debug, Clone)]
 pub struct NewtonBody<V> {
     pub(crate) world: Rc<NewtonWorldPtr<V>>,
     pub(crate) collision: Rc<NewtonCollisionPtr<V>>,
     pub(crate) body: Rc<NewtonBodyPtr<V>>,
 
-    raw: *mut ffi::NewtonBody,
+    pub(crate) raw: *mut ffi::NewtonBody,
 }
 
 pub(crate) struct UserData<C> {
@@ -37,6 +38,7 @@ pub(crate) struct UserData<C> {
     pub(crate) collision: Weak<NewtonCollisionPtr<C>>,
 }
 
+/// Indicates if the body is in a Sleeping or Awake state
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum SleepState {
@@ -44,6 +46,7 @@ pub enum SleepState {
     Sleeping = 1,
 }
 
+/// Type returned by the `mass` with info on the mass and moments of inertia of a given body
 #[derive(Debug, Copy, Clone)]
 pub struct Mass {
     /// Body mass
@@ -67,7 +70,13 @@ where
         }
     }
 
-    pub fn set_mass(&self, mass: f32, collision: &NewtonCollision<C>) {
+    pub fn set_mass(&self, mass: f32) {
+        unsafe {
+            ffi::NewtonBodySetMassProperties(self.raw, mass, ffi::NewtonBodyGetCollision(self.raw));
+        }
+    }
+
+    pub fn set_mass_collision(&self, mass: f32, collision: &NewtonCollision<C>) {
         unsafe {
             ffi::NewtonBodySetMassProperties(self.raw, mass, collision.collision.0);
         }
@@ -187,8 +196,6 @@ pub(crate) fn create_dynamic_body<V>(
 where
     V: NewtonConfig,
 {
-    assert_config!(V);
-
     unsafe {
         let body = ffi::NewtonCreateDynamicBody(world_ptr.0, collision.0, mem::transmute(&matrix));
         let body_ptr = Rc::new(NewtonBodyPtr(body, PhantomData));

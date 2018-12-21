@@ -6,8 +6,9 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use newton::body::SleepState;
 use newton::collision::CollisionParams;
+use newton::NewtonConfig;
+use newton::SleepState;
 
 use cgmath::prelude::*;
 use cgmath::Angle;
@@ -16,13 +17,16 @@ use cgmath::{perspective, Deg, Matrix4, Point3, Vector3};
 use self::renderer::{Mode, Primitive, RenderStats, Renderer};
 
 use imgui::im_str;
-use imgui::{ImGui, ImGuiCond, ImString, Ui};
+use imgui::{ImGui, ImGuiCond, ImStr, ImString, Ui};
+
+/// Reexport of imgui-rs
+pub use imgui;
 
 pub use self::renderer::Color;
 
 #[derive(Debug, Clone)]
 pub enum SandboxData {}
-impl newton::NewtonConfig for SandboxData {
+unsafe impl NewtonConfig for SandboxData {
     const GRAVITY: math::Vector3<f32> = math::Vector3 {
         x: 0.0,
         y: -9.81,
@@ -34,11 +38,10 @@ impl newton::NewtonConfig for SandboxData {
     type Quaternion = math::Quaternion<f32>;
 }
 
-pub trait EventHandler {
+pub trait SandboxHandler {
+    fn imgui(&mut self, imgui: &Ui) {}
     fn event(&mut self, event: &Event) {}
 }
-
-impl EventHandler for () {}
 
 // re-export newton types
 
@@ -70,13 +73,14 @@ pub use sdl2::keyboard::{Keycode, Mod, Scancode};
 pub use sdl2::mouse::MouseButton;
 
 pub struct Sandbox {
-    handler: Option<Box<EventHandler>>,
+    handler: Option<Box<SandboxHandler>>,
 
     // camera movement
     mouse_down: bool,
     radius: f32,
     alpha: Deg<f32>,
     delta: Deg<f32>,
+    follow: Option<usize>,
 
     // window
     width: usize,
@@ -94,11 +98,18 @@ pub struct Sandbox {
     elapsed: Duration,
     time_scale: f32,
 
+    solid: bool,
     wireframe: bool,
+
     aabb: bool,
     constraints: bool,
     bodies: bool,
     stats: bool,
+
+    // aabb
+    render_render_aabb: bool,
+    min: Vector3<f32>,
+    max: Vector3<f32>,
 }
 
 impl Sandbox {
@@ -107,15 +118,16 @@ impl Sandbox {
             handler: None,
 
             mouse_down: false,
-            radius: 16.0,
-            alpha: Deg(0.0),
-            delta: Deg(0.0),
+            radius: 24.0,
+            alpha: Deg(20.0),
+            delta: Deg(30.0),
 
             background: rgba!(1.0, 1.0, 1.0),
 
             simulate: false,
             elapsed: Duration::new(0, 0),
             time_scale: 1.0,
+            follow: None,
 
             awake_color: rgba!(1.0, 0.0, 1.0),
             sleep_color: rgba!(1.0, 1.0, 1.0),
@@ -124,17 +136,22 @@ impl Sandbox {
             width: 800,
             height: 600,
 
-            wireframe: false,
+            solid: true,
+            wireframe: true,
             keyboard: false,
-            aabb: true,
+            aabb: false,
             constraints: false,
             bodies: true,
 
             stats: true,
+
+            render_render_aabb: true,
+            min: Vector3::new(-8.0, -8.0, -8.0),
+            max: Vector3::new(8.0, 8.0, 8.0),
         }
     }
 
-    pub fn size(mut self, width: usize, height: usize) -> Self {
+    pub fn window_size(mut self, width: usize, height: usize) -> Self {
         self.width = width;
         self.height = height;
         self
@@ -146,104 +163,119 @@ impl Sandbox {
     }
     */
 
-    pub fn background_color(&mut self, background: Color) {
+    pub fn background_color(mut self, background: Color) -> Self {
         self.background = background;
+        self
     }
 
-    pub fn set_wireframe(&mut self, wireframe: bool) {
+    pub fn render_wireframe(mut self, wireframe: bool) -> Self {
         self.wireframe = wireframe;
+        self
     }
 
-    pub fn set_aabb(&mut self, aabb: bool) {
+    pub fn render_solid(mut self, solid: bool) -> Self {
+        self.solid = solid;
+        self
+    }
+
+    pub fn render_aabb(mut self, aabb: bool) -> Self {
         self.aabb = aabb;
+        self
     }
 
-    fn render(&self, renderer: &Renderer, bodies: &[NewtonBody]) -> RenderStats {
-        renderer.reset();
+    pub fn simulate(mut self, sim: bool) -> Self {
+        self.simulate = sim;
+        self
+    }
 
-        let mut stats = RenderStats {
-            tris: 0,
-            drawcalls: 0,
-        };
+    pub fn aabb(mut self, min: Vector3<f32>, max: Vector3<f32>) -> Self {
+        self.min = min;
+        self.max = max;
+        self
+    }
 
-        if self.bodies || self.aabb {
-            renderer.set_lighting(self.lighting);
+    pub fn render_render_aabb(&self, renderer: &Renderer, stats: &mut RenderStats) {
+        let scale = self.max - self.min;
+        let position = (self.max + self.min) * 0.5;
+        let transform = Matrix4::from_translation(position)
+            * Matrix4::from_nonuniform_scale(scale.x, scale.y, scale.z);
 
-            for body in bodies.iter() {
-                if self.bodies {
-                    let mut transform = body.matrix();
-                    let color = match body.sleep_state() {
-                        SleepState::Sleeping => self.sleep_color,
-                        SleepState::Awake => self.awake_color,
-                    };
-                    let mode = if self.wireframe {
-                        Mode::Wireframe
-                    } else {
-                        Mode::Fill
-                    };
+        //renderer.set_linewidth(3.0);
 
-                    match body.collision().params() {
-                        CollisionParams::Cuboid { dx, dy, dz } => {
-                            transform = transform * Matrix4::from_nonuniform_scale(dx, dy, dz);
-                            renderer.render(
-                                Primitive::Box,
-                                mode,
-                                color,
-                                transform,
-                                Some(&mut stats),
-                            );
-                        }
-                        CollisionParams::Sphere { radius } => {
-                            transform = transform * Matrix4::from_scale(radius);
-                            renderer.render(
-                                Primitive::Sphere,
-                                mode,
-                                color,
-                                transform,
-                                Some(&mut stats),
-                            );
-                        }
-                        CollisionParams::Cone { radius, height } => {
-                            transform =
-                                transform * Matrix4::from_nonuniform_scale(height, radius, radius);
-                            renderer.render(
-                                Primitive::Cone,
-                                mode,
-                                color,
-                                transform,
-                                Some(&mut stats),
-                            );
-                        }
-                        _ => {}
-                    }
+        renderer.set_lighting(false);
+        renderer.render(
+            Primitive::Box,
+            Mode::Fill,
+            rgba!(1.0),
+            transform,
+            Some(stats),
+        );
+        renderer.set_lighting(self.lighting);
+    }
+
+    fn render_aabb_(&self, renderer: &Renderer, bodies: &[NewtonBody], stats: &mut RenderStats) {
+        for body in bodies.iter() {
+            let (min, max) = body.aabb();
+            let position = body.position();
+
+            let scale = max - min;
+            let transform = Matrix4::from_translation(position)
+                * Matrix4::from_nonuniform_scale(scale.x, scale.y, scale.z);
+
+            renderer.render(
+                Primitive::Box,
+                Mode::Wireframe,
+                rgba!(0.0),
+                transform,
+                Some(stats),
+            );
+        }
+    }
+
+    fn render_bodies(
+        &self,
+        renderer: &Renderer,
+        bodies: &[NewtonBody],
+        follow: Option<usize>,
+        mode: Mode,
+        awake_color: Color,
+        sleeping_color: Color,
+        stats: &mut RenderStats,
+    ) {
+        for (i, body) in bodies.iter().enumerate() {
+            let mut transform = body.matrix();
+            let color = match (body.sleep_state(), follow) {
+                (_, Some(n)) if n == i => rgba!(1.0, 1.0, 0.4),
+                (SleepState::Sleeping, _) => sleeping_color,
+                (SleepState::Awake, _) => awake_color,
+            };
+
+            match body.collision().params() {
+                CollisionParams::Cuboid { dx, dy, dz } => {
+                    transform = transform * Matrix4::from_nonuniform_scale(dx, dy, dz);
+                    renderer.render(Primitive::Box, mode, color, transform, Some(stats));
                 }
-
-                if self.aabb {
-                    let (min, max) = body.aabb();
-                    let position = body.position();
-
-                    let scale = max - min;
-                    let transform = Matrix4::from_translation(position)
-                        * Matrix4::from_nonuniform_scale(scale.x, scale.y, scale.z);
-
-                    renderer.render(
-                        Primitive::Box,
-                        Mode::Wireframe,
-                        rgba!(0.0),
-                        transform,
-                        Some(&mut stats),
-                    );
+                CollisionParams::Sphere { radius } => {
+                    transform = transform * Matrix4::from_scale(radius);
+                    renderer.render(Primitive::Sphere, mode, color, transform, Some(stats));
                 }
+                CollisionParams::Cone { radius, height } => {
+                    transform = transform * Matrix4::from_nonuniform_scale(height, radius, radius);
+                    renderer.render(Primitive::Cone, mode, color, transform, Some(stats));
+                }
+                CollisionParams::Cylinder { radius, height } => {
+                    transform = transform * Matrix4::from_nonuniform_scale(height, radius, radius);
+                    renderer.render(Primitive::Cylinder, mode, color, transform, Some(stats));
+                }
+                _ => {}
             }
         }
-
-        stats
     }
 
     pub fn handle_event(&mut self, event: &Event) {
         match (self.mouse_down, event) {
             (_, Event::MouseWheel { y, .. }) => {
-                self.radius -= (*y as f32) * 0.75;
+                self.radius -= (*y as f32) * self.radius * 0.2;
             }
             (_, Event::MouseButtonDown { .. }) => self.mouse_down = true,
             (_, Event::MouseButtonUp { .. }) => self.mouse_down = false,
@@ -255,7 +287,7 @@ impl Sandbox {
         }
     }
 
-    pub fn run(mut self, world: NewtonWorld, bodies: Vec<NewtonBody>) {
+    pub fn run<H: SandboxHandler>(mut self, world: NewtonWorld, mut handler: Option<H>) {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
@@ -279,11 +311,6 @@ impl Sandbox {
 
         let aspect = (self.width as f32) / (self.height as f32);
         let proj = perspective(Deg(55.0_f32), aspect, 0.01, 1000.0);
-        let view = Matrix4::look_at(
-            Point3::new(12.0, 6.0, 16.0f32),
-            Point3::new(0.0, 0.0, 0.0),
-            Vector3::new(0.0, 1.0, 0.0),
-        );
 
         renderer.set_projection(proj);
 
@@ -318,6 +345,8 @@ impl Sandbox {
                 }
             }
 
+            let bodies: Vec<_> = world.bodies_in_aabb(self.min, self.max);
+
             if self.simulate {
                 let step = (1_000_000_000.0f32 / 60.0) * self.time_scale;
                 let step = Duration::new(0, step as u32);
@@ -326,17 +355,24 @@ impl Sandbox {
                 self.elapsed += step;
             }
 
+            let center = self
+                .follow
+                .and_then(|i| bodies.get(i))
+                .map(|b| b.position())
+                .map(|p| Point3::new(p.x, p.y, p.z))
+                .unwrap_or(Point3::new(0.0, 0.0, 0.0));
+
             let view = Matrix4::look_at(
                 Point3::new(
-                    self.radius * Deg::cos(self.delta) * Deg::sin(self.alpha),
-                    self.radius * Deg::sin(self.delta),
-                    self.radius * Deg::cos(self.delta) * Deg::cos(self.alpha),
+                    center.x + self.radius * Deg::cos(self.delta) * Deg::sin(self.alpha),
+                    center.y + self.radius * Deg::sin(self.delta),
+                    center.z + self.radius * Deg::cos(self.delta) * Deg::cos(self.alpha),
                 ),
-                Point3::new(0.0, 0.0, 0.0),
+                center,
                 Vector3::new(0.0, 1.0, 0.0),
             );
 
-            renderer.set_view(view);
+            renderer.reset(self.background);
 
             unsafe {
                 gl::Enable(gl::DEPTH_TEST);
@@ -344,7 +380,49 @@ impl Sandbox {
                 gl::Disable(gl::SCISSOR_TEST);
             }
 
-            let stats = self.render(&renderer, &bodies);
+            renderer.set_view(view);
+
+            let mut stats = RenderStats {
+                tris: 0,
+                drawcalls: 0,
+            };
+
+            if self.render_render_aabb {
+                unsafe { gl::DepthMask(gl::FALSE) };
+                self.render_render_aabb(&renderer, &mut stats);
+                unsafe { gl::DepthMask(gl::TRUE) };
+            }
+
+            if self.solid {
+                renderer.set_lighting(self.lighting);
+                self.render_bodies(
+                    &renderer,
+                    &bodies,
+                    self.follow,
+                    Mode::Fill,
+                    self.awake_color,
+                    self.sleep_color,
+                    &mut stats,
+                );
+            }
+            if self.wireframe {
+                renderer.set_lighting(false);
+                renderer.set_linewidth(3.0);
+                self.render_bodies(
+                    &renderer,
+                    &bodies,
+                    None,
+                    Mode::Wireframe,
+                    rgba!(0.0),
+                    rgba!(0.0),
+                    &mut stats,
+                );
+            }
+            if self.aabb {
+                renderer.set_lighting(false);
+                renderer.set_linewidth(1.0);
+                self.render_aabb_(&renderer, &bodies, &mut stats)
+            }
 
             unsafe {
                 gl::Disable(gl::DEPTH_TEST);
@@ -353,14 +431,25 @@ impl Sandbox {
             }
 
             let ui = imgui_sdl2.frame(&window, &mut imgui, &event_pump);
-            self.do_imgui(&ui, &world, &stats);
+            self.set_up_imgui(&ui, &world, &bodies, &stats);
+
+            if let Some(ref mut h) = handler {
+                h.imgui(&ui)
+            }
+
             imgui_renderer.render(ui);
 
             window.gl_swap_window();
         }
     }
 
-    fn do_imgui(&mut self, ui: &imgui::Ui, world: &NewtonWorld, stats: &RenderStats) {
+    fn set_up_imgui(
+        &mut self,
+        ui: &imgui::Ui,
+        world: &NewtonWorld,
+        bodies: &[NewtonBody],
+        stats: &RenderStats,
+    ) {
         ui.main_menu_bar(|| {
             ui.menu(im_str!("Simulation")).build(|| {
                 ui.menu_item(im_str!("Simulate"))
@@ -379,6 +468,9 @@ impl Sandbox {
                     .selected(&mut self.constraints)
                     .build();
                 ui.separator();
+                ui.menu_item(im_str!("Solid"))
+                    .selected(&mut self.solid)
+                    .build();
                 ui.menu_item(im_str!("Wireframe"))
                     .selected(&mut self.wireframe)
                     .build();
@@ -408,6 +500,21 @@ impl Sandbox {
                         &ImString::new(format!("{}", world.body_count())),
                     );
                     ui.label_text(im_str!("Constraints"), im_str!("0"));
+                    ui.separator();
+
+                    let bodies: Vec<_> = bodies
+                        .iter()
+                        .map(|b| ImString::from(format!("{:?}", b)))
+                        .collect();
+                    let refs: Vec<_> = bodies.iter().map(|b| ImStr::new(b)).collect();
+
+                    let mut selected = self.follow.as_mut().map(|f| *f).unwrap_or(0) as _;
+                    if ui.list_box(im_str!("Bodies"), &mut selected, &refs[..], 16) {
+                        if let Some(f) = self.follow.as_mut() {
+                            *f = selected as usize;
+                        }
+                    }
+
                     ui.separator();
                     ui.label_text(
                         im_str!("Triangles"),

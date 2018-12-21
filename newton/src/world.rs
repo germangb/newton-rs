@@ -2,7 +2,9 @@ use crate::body::{NewtonBody, UserData as BodyUserData};
 use crate::ffi;
 use crate::NewtonConfig;
 
+use crate::body;
 use std::cell::RefCell;
+use std::iter::FromIterator;
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
@@ -30,7 +32,6 @@ where
     C: NewtonConfig,
 {
     pub fn new() -> NewtonWorld<C> {
-        assert_config!(C);
         unsafe {
             let raw = ffi::NewtonCreate();
 
@@ -38,6 +39,54 @@ where
                 world: Rc::new(NewtonWorldPtr(raw, PhantomData)),
                 raw,
             }
+        }
+    }
+
+    // FIXME messy and not very flexible...
+    pub fn bodies_in_aabb<B>(&self, min: C::Vector3, max: C::Vector3) -> B
+    where
+        B: FromIterator<NewtonBody<C>>,
+    {
+        unsafe {
+            let mut bodies = Vec::<NewtonBody<C>>::new();
+            ffi::NewtonWorldForEachBodyInAABBDo(
+                self.raw,
+                mem::transmute(&min),
+                mem::transmute(&max),
+                Some(bodies_in_aabb::<C>),
+                mem::transmute(&mut bodies),
+            );
+
+            return B::from_iter(bodies.into_iter());
+        }
+
+        unsafe extern "C" fn bodies_in_aabb<C>(
+            body: *const ffi::NewtonBody,
+            user_data: *const ::std::os::raw::c_void,
+        ) -> i32 {
+            let bodies: &mut Vec<NewtonBody<C>> = mem::transmute(user_data);
+            let udata: Box<body::UserData<C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+
+            match (
+                Weak::upgrade(&udata.world),
+                Weak::upgrade(&udata.body),
+                Weak::upgrade(&udata.collision),
+            ) {
+                (Some(world), Some(body), Some(collision)) => {
+                    let raw = body.0;
+                    bodies.push(NewtonBody {
+                        world,
+                        body,
+                        collision,
+                        raw,
+                    });
+                }
+                _ => {}
+            }
+
+            //mem::forget(bodies);
+            mem::forget(udata);
+            1
         }
     }
 

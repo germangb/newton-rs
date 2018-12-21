@@ -28,17 +28,27 @@ primitive! {
             indices => 672,
         }
     }
+
+    mod cylinder {
+        struct Cylinder {
+            path => "assets/cylinder.bin",
+            offset0 => 720,
+            offset1 => 1872,
+            indices => 180,
+        }
+    }
 }
 
 mod capsule;
 //mod cone;
 //mod cube;
-mod cylinder;
+//mod cylinder;
 mod program;
 //mod sphere;
 
 use self::cone::Cone;
 use self::cube::Cube;
+use self::cylinder::Cylinder;
 use self::program::Program;
 use self::sphere::Sphere;
 
@@ -67,6 +77,7 @@ pub struct Renderer {
     cube: Cube,
     sphere: Sphere,
     cone: Cone,
+    cylinder: Cylinder,
     // cache
     primitive: Cell<Option<Primitive>>,
     mode: Cell<Option<Mode>>,
@@ -96,12 +107,24 @@ impl Renderer {
             cube: Cube::new(),
             sphere: Sphere::new(),
             cone: Cone::new(),
+            cylinder: Cylinder::new(),
             primitive: Cell::new(None),
             mode: Cell::new(None),
         };
 
-        render.reset();
+        render.reset(Color {
+            r: 1.0,
+            g: 0.0,
+            b: 0.0,
+            a: 1.0,
+        });
         render
+    }
+
+    pub fn set_linewidth(&self, width: f32) {
+        unsafe {
+            check!(gl::LineWidth(width));
+        }
     }
 
     pub fn set_view(&self, view: Matrix4<f32>) {
@@ -230,20 +253,36 @@ impl Renderer {
                         stats.drawcalls += 1;
                     }
                 }
-                _ => unreachable!(),
+                Primitive::Cylinder => {
+                    if self.primitive.get() != Some(primitive) {
+                        check!(gl::BindVertexArray(self.cylinder.vao));
+                    }
+                    check!(gl::DrawElements(
+                        gl::TRIANGLES,
+                        self.cylinder.indices() as _,
+                        gl::UNSIGNED_INT,
+                        std::ptr::null()
+                    ));
+
+                    if let Some(ref mut stats) = stats {
+                        stats.tris += self.cylinder.tris();
+                        stats.drawcalls += 1;
+                    }
+                }
+                _ => unimplemented!(),
             }
 
             self.primitive.set(Some(primitive));
         }
     }
 
-    pub fn reset(&self) {
+    pub fn reset(&self, color: Color) {
         self.primitive.set(None);
         self.mode.set(None);
         unsafe {
             check!(gl::Enable(gl::DEPTH_TEST));
             check!(gl::BindVertexArray(0));
-            check!(gl::ClearColor(1.0, 1.0, 1.0, 0.0));
+            check!(gl::ClearColor(color.r, color.g, color.b, color.a));
             check!(gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
             check!(gl::UseProgram(self.program.program));
         }
