@@ -1,19 +1,41 @@
-macro_rules! check {
-    ($gl:expr) => {{
-        gl::GetError();
-        let result = $gl;
-        let error = gl::GetError();
-        assert_eq!(gl::NO_ERROR, error);
-        result
-    }};
+#[macro_use]
+mod macros;
+
+primitive! {
+    mod cube {
+        struct Cube {
+            path => "assets/cube.bin",
+            offset0 => 144,
+            offset1 => 432,
+            indices => 36,
+        }
+    }
+
+    mod cone {
+        struct Cone {
+            path => "assets/cone.bin",
+            offset0 => 360,
+            offset1 => 1128,
+            indices => 90,
+        }
+    }
+
+    mod sphere {
+        struct Sphere {
+            path => "assets/sphere.bin",
+            offset0 => 2688,
+            offset1 => 8448,
+            indices => 672,
+        }
+    }
 }
 
 mod capsule;
-mod cone;
-mod cube;
+//mod cone;
+//mod cube;
 mod cylinder;
 mod program;
-mod sphere;
+//mod sphere;
 
 use self::cone::Cone;
 use self::cube::Cube;
