@@ -18,15 +18,47 @@ use std::os::raw;
 
 pub type ShapeId = i32;
 
-#[derive(Debug)]
-pub enum NewtonCollision<C> {
-    Box(CollisionBox<C>),
-    Sphere(CollisionSphere<C>),
-    // TODO
-    Cylinder,
-    Cone(CollisionCone<C>),
-    // TODO
-    Capsule,
+macro_rules! collision_enum {
+    (
+        #[$($meta:meta)+]
+        pub enum $typee:ident<$gen:ident> {
+            $(
+                $enumm:ident ( $structt:ty  ) ,
+            )+
+        }
+    ) => {
+        #[$($meta)+]
+        pub enum $typee <$gen> {
+            $(
+                $enumm ( $structt ) ,
+            )+
+        }
+
+        $(impl<C> From<$structt> for $typee <C> {
+            fn from(collision: $structt) -> Self {
+                NewtonCollision::$enumm(collision)
+            }
+        }
+
+        impl<'a, C: Clone> From<&'a $structt> for $typee <C> {
+            fn from(collision: &'a $structt) -> Self {
+                NewtonCollision::$enumm(collision.clone())
+            }
+        })+
+    }
+}
+
+collision_enum! {
+    #[derive(Debug)]
+    pub enum NewtonCollision<C> {
+        Box(CollisionBox<C>),
+        Sphere(CollisionSphere<C>),
+        // TODO
+        //Cylinder,
+        Cone(CollisionCone<C>),
+        // TODO
+        //Capsule,
+    }
 }
 
 macro_rules! collisions {
@@ -69,30 +101,6 @@ pub struct SphereParams {
 pub struct ConeParams {
     pub radius: f32,
     pub height: f32,
-}
-
-macro_rules! from_into {
-    ($(
-        NewtonCollision::$variant:ident ( $col:ty ) ,
-    )+) => {$(
-        impl<C> From<$col> for NewtonCollision<C> {
-            fn from(collision: $col) -> Self {
-                NewtonCollision::$variant(collision)
-            }
-        }
-
-        impl<'a, C: Clone> From<&'a $col> for NewtonCollision<C> {
-            fn from(collision: &'a $col) -> Self {
-                NewtonCollision::$variant(collision.clone())
-            }
-        }
-    )+}
-}
-
-from_into! {
-    NewtonCollision::Box(CollisionBox<C>),
-    NewtonCollision::Sphere(CollisionSphere<C>),
-    NewtonCollision::Cone(CollisionCone<C>),
 }
 
 macro_rules! collision_methods {
