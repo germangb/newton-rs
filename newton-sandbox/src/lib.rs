@@ -6,7 +6,7 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use newton::collision::CollisionParams;
+use newton::collision::NewtonCollision;
 use newton::NewtonConfig;
 use newton::SleepState;
 
@@ -47,7 +47,9 @@ pub trait SandboxHandler {
 
 pub type NewtonWorld = newton::world::NewtonWorld<SandboxData>;
 pub type NewtonBody = newton::body::NewtonBody<SandboxData>;
-pub type NewtonCollision = newton::collision::NewtonCollision<SandboxData>;
+pub type BoxCollision = newton::collision::CollisionBox<SandboxData>;
+pub type SphereCollision = newton::collision::CollisionSphere<SandboxData>;
+pub type ConeCollision = newton::collision::CollisionCone<SandboxData>;
 
 #[macro_export]
 macro_rules! rgba {
@@ -250,24 +252,29 @@ impl Sandbox {
                 (SleepState::Awake, _) => awake_color,
             };
 
-            match body.collision().params() {
-                CollisionParams::Cuboid { dx, dy, dz } => {
-                    transform = transform * Matrix4::from_nonuniform_scale(dx, dy, dz);
+            match body.collision() {
+                NewtonCollision::Box(b) => {
+                    let params = b.params();
+                    transform =
+                        transform * Matrix4::from_nonuniform_scale(params.x, params.y, params.z);
                     renderer.render(Primitive::Box, mode, color, transform, Some(stats));
                 }
-                CollisionParams::Sphere { radius } => {
-                    transform = transform * Matrix4::from_scale(radius);
+                NewtonCollision::Sphere(s) => {
+                    let params = s.params();
+                    transform = transform * Matrix4::from_scale(params.radius);
                     renderer.render(Primitive::Sphere, mode, color, transform, Some(stats));
                 }
-                CollisionParams::Cone { radius, height } => {
-                    transform = transform * Matrix4::from_nonuniform_scale(height, radius, radius);
+                NewtonCollision::Cone(s) => {
+                    let params = s.params();
+                    transform = transform
+                        * Matrix4::from_nonuniform_scale(
+                            params.height,
+                            params.radius,
+                            params.radius,
+                        );
                     renderer.render(Primitive::Cone, mode, color, transform, Some(stats));
                 }
-                CollisionParams::Cylinder { radius, height } => {
-                    transform = transform * Matrix4::from_nonuniform_scale(height, radius, radius);
-                    renderer.render(Primitive::Cylinder, mode, color, transform, Some(stats));
-                }
-                _ => {}
+                _ => unimplemented!(),
             }
         }
     }

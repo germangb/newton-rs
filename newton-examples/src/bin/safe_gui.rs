@@ -5,22 +5,15 @@ use newton_sandbox::Sandbox;
 
 use newton_sandbox::imgui::{im_str, ImGuiCond, Ui};
 use newton_sandbox::math::*;
-use newton_sandbox::{NewtonBody, NewtonCollision, NewtonWorld, SandboxHandler};
+use newton_sandbox::{
+    BoxCollision, ConeCollision, NewtonBody, NewtonWorld, SandboxHandler, SphereCollision,
+};
 
 use newton::callback::Gravity;
 
 struct MyHandler {
-    collisions: [NewtonCollision; 4],
+    world: NewtonWorld,
     bodies: Vec<NewtonBody>,
-}
-
-impl MyHandler {
-    fn spawn_body(&mut self, shape: NewtonCollision) {
-        let body = shape.body(Matrix4::from_translation(Vector3::new(0.0, 16.0, 0.0)));
-        body.set_update::<Gravity>();
-        body.set_mass(1.0);
-        self.bodies.push(body);
-    }
 }
 
 impl SandboxHandler for MyHandler {
@@ -29,65 +22,117 @@ impl SandboxHandler for MyHandler {
             .size((300.0, 200.0), ImGuiCond::FirstUseEver)
             .build(|| {
                 if ui.button(im_str!("Spawn Box"), (128.0, 24.0)) {
-                    self.spawn_body(self.collisions[0].clone())
-                }
-                if ui.button(im_str!("Spawn Cylinder"), (128.0, 24.0)) {
-                    self.spawn_body(self.collisions[3].clone())
+                    let cube = BoxCollision::new(&self.world, 1.0, 1.0, 1.0, 0, None);
+                    let body = NewtonBody::new(
+                        &self.world,
+                        &cube,
+                        Matrix4::from_translation(Vector3::new(0.5, 4.0, 0.0)),
+                    );
+                    body.set_update::<Gravity>();
+                    body.set_mass(1.0);
+
+                    self.bodies.push(body);
                 }
                 if ui.button(im_str!("Spawn Sphere"), (128.0, 24.0)) {
-                    self.spawn_body(self.collisions[2].clone())
+                    let sphere = SphereCollision::new(&self.world, 0.8, 0, None);
+                    let body = NewtonBody::new(
+                        &self.world,
+                        &sphere,
+                        Matrix4::from_translation(Vector3::new(0.5, 4.0, 0.0)),
+                    );
+                    body.set_update::<Gravity>();
+                    body.set_mass(1.0);
+
+                    self.bodies.push(body);
                 }
                 if ui.button(im_str!("Spawn Cone"), (128.0, 24.0)) {
-                    self.spawn_body(self.collisions[1].clone())
+                    let cone = ConeCollision::new(&self.world, 1.0, 1.0, 0, None);
+                    let body = NewtonBody::new(
+                        &self.world,
+                        &cone,
+                        Matrix4::from_translation(Vector3::new(0.5, 4.0, 0.0)),
+                    );
+                    body.set_update::<Gravity>();
+                    body.set_mass(1.0);
+
+                    self.bodies.push(body);
                 }
             });
     }
 }
 
 fn create_container(world: &NewtonWorld, bodies: &mut Vec<NewtonBody>) {
-    let floor = NewtonCollision::cuboid(&world, 16.0, 0.2, 16.0, 0, None);
-    bodies.push(floor.body(Matrix4::from_translation(Vector3::new(0.0, 0.0, 0.0))));
+    let floor = BoxCollision::new(&world, 16.0, 0.2, 16.0, 0, None);
+    bodies.push(NewtonBody::new(
+        &world,
+        &floor,
+        Matrix4::from_translation(Vector3::new(0.0, 0.0, 0.0)),
+    ));
 
-    let wall = NewtonCollision::cuboid(&world, 16.0, 2.0, 0.2, 0, None);
-    bodies.push(wall.body(Matrix4::from_translation(Vector3::new(0.0, 1.0, 8.0))));
-    bodies.push(wall.body(Matrix4::from_translation(Vector3::new(0.0, 1.0, -8.0))));
+    let wall = BoxCollision::new(&world, 16.0, 2.0, 0.2, 0, None);
+    bodies.push(NewtonBody::new(
+        &world,
+        &wall,
+        Matrix4::from_translation(Vector3::new(0.0, 1.0, 8.0)),
+    ));
+    bodies.push(NewtonBody::new(
+        &world,
+        &wall,
+        Matrix4::from_translation(Vector3::new(0.0, 1.0, -8.0)),
+    ));
 
-    let wall = NewtonCollision::cuboid(&world, 0.2, 2.0, 16.0, 0, None);
-    bodies.push(wall.body(Matrix4::from_translation(Vector3::new(8.0, 1.0, 0.0))));
-    bodies.push(wall.body(Matrix4::from_translation(Vector3::new(-8.0, 1.0, 0.0))));
+    let wall = BoxCollision::new(&world, 0.2, 2.0, 16.0, 0, None);
+    bodies.push(NewtonBody::new(
+        &world,
+        &wall,
+        Matrix4::from_translation(Vector3::new(8.0, 1.0, 0.0)),
+    ));
+    bodies.push(NewtonBody::new(
+        &world,
+        &wall,
+        Matrix4::from_translation(Vector3::new(-8.0, 1.0, 0.0)),
+    ));
 }
 
 fn main() {
     let world = NewtonWorld::new();
 
-    let shapes = [
-        NewtonCollision::cuboid(&world, 1.0, 1.0, 1.0, 0, None),
-        NewtonCollision::cone(&world, 1.0, 1.0, 0, None),
-        NewtonCollision::sphere(&world, 0.6, 0, None),
-        NewtonCollision::cylinder(&world, 1.0, 1.0, 0, None),
-    ];
+    let shapes = [BoxCollision::new(&world, 1.0, 1.0, 1.0, 0, None)];
 
-    let polys = shapes[0].polygons(Matrix4::identity());
+    //let polys = shapes[0].polygons(Matrix4::identity());
     //println!("{:#?}", polys);
 
     let mut bodies: Vec<_> = [(0.623, 0.245), (-0.123, -0.145), (0.023, -0.245)]
         .iter()
         .cycle()
-        .take(24)
+        .take(4)
         .enumerate()
         .map(|(i, &(x, z))| Vector3::new(x, 4.0 + (i as f32) * 1.2, z))
         .map(Matrix4::from_translation)
         .enumerate()
         .map(|(i, m)| {
-            let body = shapes[i % 4].body(m);
+            /*
+            let body = NewtonBody::new()
             body.set_mass(1.0);
             body.set_update::<Gravity>();
             body
+            */
         })
         .collect();
 
+    let mut bodies = Vec::new();
+
     // create a floor and some walls to contain the bodies
     create_container(&world, &mut bodies);
+
+    let ball = SphereCollision::new(&world, 1.0, 0, None);
+    let body = NewtonBody::new(
+        &world,
+        &ball,
+        Matrix4::from_translation(Vector3::new(1.0, 4.0, 0.0)),
+    );
+    body.set_update::<Gravity>();
+    body.set_mass(1.0);
 
     Sandbox::new()
         .window_size(1280, 720)
@@ -103,11 +148,5 @@ fn main() {
         )
         // Don't start simulation right away
         .simulate(false)
-        .run(
-            world,
-            Some(MyHandler {
-                collisions: shapes,
-                bodies,
-            }),
-        );
+        .run(world.clone(), Some(MyHandler { world, bodies }));
 }

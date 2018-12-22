@@ -11,7 +11,7 @@ void main() {
     float shade = 1.0;
     if (u_lighting == 1) {
         shade = dot(v_normal, normalize(vec3(1.0, 4.0, 2.0)));
-        shade = shade * 0.5 + 0.5;
+        shade = mix(0.25, 1.0, shade * 0.5 + 0.5);
     }
 
     frag_color = vec4(u_color.rgb * shade * shade, u_color.a);

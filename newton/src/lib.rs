@@ -5,11 +5,11 @@ pub mod callback;
 pub mod collision;
 pub mod joint;
 pub mod mesh;
+mod pointer;
 pub mod world;
 
 pub use crate::body::{Mass, NewtonBody, SleepState};
 pub use crate::callback::{DoNothing, Gravity};
-pub use crate::collision::NewtonCollision;
 pub use crate::world::NewtonWorld;
 
 /// Trait to adapt the types returned by the Newton APIs to each application.

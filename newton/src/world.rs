@@ -1,25 +1,12 @@
-use crate::body::{NewtonBody, UserData as BodyUserData};
+use crate::body::{self, NewtonBody, UserData as BodyUserData};
 use crate::ffi;
+use crate::pointer::*;
 use crate::NewtonConfig;
 
-use crate::body;
-use std::cell::RefCell;
-use std::iter::FromIterator;
 use std::marker::PhantomData;
-use std::mem;
-use std::ptr;
 use std::rc::{Rc, Weak};
 use std::time::Duration;
-
-#[doc(hidden)]
-#[derive(Debug)]
-pub struct NewtonWorldPtr<C>(pub(crate) *mut ffi::NewtonWorld, PhantomData<C>);
-
-impl<C> Drop for NewtonWorldPtr<C> {
-    fn drop(&mut self) {
-        unsafe { ffi::NewtonDestroy(self.0) }
-    }
-}
+use std::{mem, ptr};
 
 #[derive(Debug, Clone)]
 pub struct NewtonWorld<C> {
@@ -43,10 +30,7 @@ where
     }
 
     // FIXME messy and not very flexible...
-    pub fn bodies_in_aabb<B>(&self, min: C::Vector3, max: C::Vector3) -> B
-    where
-        B: FromIterator<NewtonBody<C>>,
-    {
+    pub fn bodies_in_aabb(&self, min: C::Vector3, max: C::Vector3) -> Vec<NewtonBody<C>> {
         unsafe {
             let mut bodies = Vec::<NewtonBody<C>>::new();
             ffi::NewtonWorldForEachBodyInAABBDo(
@@ -57,7 +41,7 @@ where
                 mem::transmute(&mut bodies),
             );
 
-            return B::from_iter(bodies.into_iter());
+            return bodies;
         }
 
         unsafe extern "C" fn bodies_in_aabb<C>(
@@ -67,15 +51,10 @@ where
             let bodies: &mut Vec<NewtonBody<C>> = mem::transmute(user_data);
             let udata: Box<body::UserData<C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
 
-            match (
-                Weak::upgrade(&udata.world),
-                Weak::upgrade(&udata.body),
-                Weak::upgrade(&udata.collision),
-            ) {
-                (Some(world), Some(body), Some(collision)) => {
+            match (Weak::upgrade(&udata.body), Weak::upgrade(&udata.collision)) {
+                (Some(body), Some(collision)) => {
                     let raw = body.0;
                     bodies.push(NewtonBody {
-                        world,
                         body,
                         collision,
                         raw,

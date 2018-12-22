@@ -1,31 +1,19 @@
 use crate::callback;
 use crate::ffi;
-use crate::world::NewtonWorldPtr;
+use crate::pointer::*;
 use crate::NewtonConfig;
 
-use crate::collision::{NewtonCollision, NewtonCollisionPtr};
+use crate::collision::NewtonCollision;
+use crate::collision::{CollisionBox, CollisionCone, CollisionSphere};
 use crate::world::NewtonWorld;
 use std::marker::PhantomData;
 use std::mem;
 use std::rc::{Rc, Weak};
-
-#[doc(hidden)]
-#[derive(Debug)]
-pub struct NewtonBodyPtr<C>(pub(crate) *mut ffi::NewtonBody, PhantomData<C>);
-
-impl<C> Drop for NewtonBodyPtr<C> {
-    fn drop(&mut self) {
-        unsafe {
-            let _: Box<UserData<C>> = Box::from_raw(ffi::NewtonBodyGetUserData(self.0) as _);
-            ffi::NewtonDestroyBody(self.0)
-        }
-    }
-}
+use std::time::Duration;
 
 /// A reference counted body
 #[derive(Debug, Clone)]
 pub struct NewtonBody<V> {
-    pub(crate) world: Rc<NewtonWorldPtr<V>>,
     pub(crate) collision: Rc<NewtonCollisionPtr<V>>,
     pub(crate) body: Rc<NewtonBodyPtr<V>>,
 
@@ -33,7 +21,6 @@ pub struct NewtonBody<V> {
 }
 
 pub(crate) struct UserData<C> {
-    pub(crate) world: Weak<NewtonWorldPtr<C>>,
     pub(crate) body: Weak<NewtonBodyPtr<C>>,
     pub(crate) collision: Weak<NewtonCollisionPtr<C>>,
 }
@@ -55,17 +42,78 @@ pub struct Mass {
     pub inertia: (f32, f32, f32),
 }
 
+macro_rules! match_rule {
+    // used in `new` method
+    (
+        ( $collision:ident , $world:ident, $matrix:ident ) => $( $var:ident ),+
+    ) => {
+        match &$collision {
+            $(
+                &NewtonCollision::$var(ref b) => (
+                    ffi::NewtonCreateDynamicBody($world.raw, b.raw, mem::transmute(&$matrix)),
+                    b.collision.clone(),
+                ),
+            )+
+            _ => unimplemented!(),
+        }
+    };
+    // used in `collision` method
+    (
+        ($selfi:ident, $raw:expr) =>
+        $( $enumi:ident -> $structi:tt ,)+
+    ) => {{
+        match ffi::NewtonCollisionGetType($raw) {
+            $(
+                $structi ::<C>::TYPE_ID => NewtonCollision:: $enumi ($structi {
+                    collision: $selfi.collision.clone(),
+                    raw: $raw,
+                }),
+            )+
+            _ => unreachable!(),
+        }
+    }}
+}
+
 // XXX pointers
 impl<C> NewtonBody<C>
 where
     C: NewtonConfig,
 {
+    pub fn new<N>(world: &NewtonWorld<C>, collision: N, matrix: C::Matrix4) -> Self
+    where
+        N: Into<NewtonCollision<C>>,
+    {
+        unsafe {
+            let collision = collision.into();
+            let (raw, collision) = match_rule! { (collision, world, matrix) =>
+                Box,
+                Sphere,
+                Cone
+            };
+
+            let body = Rc::new(NewtonBodyPtr(raw, PhantomData));
+            let datum = Box::new(UserData {
+                body: Rc::downgrade(&body),
+                collision: Rc::downgrade(&collision),
+            });
+
+            ffi::NewtonBodySetUserData(raw, mem::transmute(datum));
+            NewtonBody {
+                collision,
+                body,
+                raw,
+            }
+        }
+    }
+
     pub fn collision(&self) -> NewtonCollision<C> {
         unsafe {
-            NewtonCollision {
-                collision: self.collision.clone(),
+            let raw = ffi::NewtonBodyGetCollision(self.raw);
 
-                raw: ffi::NewtonBodyGetCollision(self.raw),
+            match_rule! { (self, raw) =>
+                Box -> CollisionBox,
+                Sphere -> CollisionSphere,
+                Cone -> CollisionCone,
             }
         }
     }
@@ -73,12 +121,6 @@ where
     pub fn set_mass(&self, mass: f32) {
         unsafe {
             ffi::NewtonBodySetMassProperties(self.raw, mass, ffi::NewtonBodyGetCollision(self.raw));
-        }
-    }
-
-    pub fn set_mass_collision(&self, mass: f32, collision: &NewtonCollision<C>) {
-        unsafe {
-            ffi::NewtonBodySetMassProperties(self.raw, mass, collision.collision.0);
         }
     }
 
@@ -188,36 +230,6 @@ where
     }
 }
 
-pub(crate) fn create_dynamic_body<V>(
-    world_ptr: Rc<NewtonWorldPtr<V>>,
-    collision: Rc<NewtonCollisionPtr<V>>,
-    matrix: V::Matrix4,
-) -> NewtonBody<V>
-where
-    V: NewtonConfig,
-{
-    unsafe {
-        let body = ffi::NewtonCreateDynamicBody(world_ptr.0, collision.0, mem::transmute(&matrix));
-        let body_ptr = Rc::new(NewtonBodyPtr(body, PhantomData));
-
-        let datum = Box::new(UserData {
-            body: Rc::downgrade(&body_ptr),
-            world: Rc::downgrade(&world_ptr),
-            collision: Rc::downgrade(&collision),
-        });
-
-        let body = NewtonBody {
-            world: world_ptr,
-            body: body_ptr,
-            collision,
-            raw: body,
-        };
-
-        ffi::NewtonBodySetUserData(body.raw, mem::transmute(datum));
-        body
-    }
-}
-
 extern "C" fn force_torque_callback<V, C>(
     body: *const ffi::NewtonBody,
     timestep: f32,
@@ -228,28 +240,22 @@ extern "C" fn force_torque_callback<V, C>(
 {
     unsafe {
         let udata: Box<UserData<V>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
-
-        match (
-            Weak::upgrade(&udata.world),
-            Weak::upgrade(&udata.body),
-            Weak::upgrade(&udata.collision),
-        ) {
-            (Some(world), Some(body), Some(collision)) => {
+        match (Weak::upgrade(&udata.body), Weak::upgrade(&udata.collision)) {
+            (Some(body), Some(collision)) => {
                 let raw = body.0;
+                let nanos = timestep.fract() * 1_000_000_000.0_f32;
                 C::force_and_torque(
                     NewtonBody {
-                        world,
                         body,
                         collision,
                         raw,
                     },
-                    timestep,
+                    Duration::new(timestep as u64, nanos as u32),
                 );
             }
             _ => {}
         }
 
-        // TODO is it ok to forget the pointer here?
         mem::forget(udata);
     }
 }
