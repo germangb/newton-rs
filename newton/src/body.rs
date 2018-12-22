@@ -5,7 +5,7 @@ use crate::userdata::*;
 use crate::NewtonConfig;
 
 use crate::collision::NewtonCollision;
-use crate::collision::{CollisionBox, CollisionCone, CollisionSphere};
+use crate::collision::{CollisionBox, CollisionCone, CollisionCylinder, CollisionSphere};
 use crate::world::NewtonWorld;
 use std::marker::PhantomData;
 use std::mem;
@@ -83,10 +83,11 @@ where
             let (raw, collision) = match_rule! { (collision, world, matrix) =>
                 Box,
                 Sphere,
-                Cone
+                Cone,
+                Cylinder
             };
 
-            let body = Rc::new(NewtonBodyPtr(raw, PhantomData));
+            let body = Rc::new(NewtonBodyPtr(raw, world.world.clone()));
             let datum = Box::new(BodyUserData {
                 body: Rc::downgrade(&body),
                 collision: Rc::downgrade(&collision),
@@ -109,6 +110,7 @@ where
                 Box -> CollisionBox,
                 Sphere -> CollisionSphere,
                 Cone -> CollisionCone,
+                Cylinder -> CollisionCylinder,
             }
         }
     }

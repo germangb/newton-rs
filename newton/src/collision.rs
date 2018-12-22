@@ -56,8 +56,7 @@ collision_enum! {
     pub enum NewtonCollision<C> {
         Box(CollisionBox<C>),
         Sphere(CollisionSphere<C>),
-        // TODO
-        //Cylinder,
+        Cylinder(CollisionCylinder<C>),
         Cone(CollisionCone<C>),
         // TODO
         //Capsule,
@@ -89,6 +88,9 @@ collisions! {
     /// A reference-counted cone collision
     #[derive(Debug, Clone)]
     pub struct CollisionCone<C>;
+
+    #[derive(Debug, Clone)]
+    pub struct CollisionCylinder<C>;
 }
 
 #[derive(Debug)]
@@ -109,6 +111,13 @@ pub struct ConeParams {
     pub height: f32,
 }
 
+#[derive(Debug)]
+pub struct CylinderParams {
+    pub radius0: f32,
+    pub radius1: f32,
+    pub height: f32,
+}
+
 macro_rules! collision_methods {
     (fn new ( $($param:ident),+ ) -> ffi::$ffi:ident) => {
         pub fn new(
@@ -124,7 +133,7 @@ macro_rules! collision_methods {
                     shape_id,
                     mem::transmute(offset.as_ref()),
                 );
-                let collision = Rc::new(NewtonCollisionPtr(raw, world.world.clone(), PhantomData));
+                let collision = Rc::new(NewtonCollisionPtr(raw, world.world.clone()));
                 Self { collision, raw }
             }
         }
@@ -217,6 +226,28 @@ impl<C: NewtonConfig> CollisionCone<C> {
             ConeParams {
                 radius: info.__bindgen_anon_1.m_cone.m_radio,
                 height: info.__bindgen_anon_1.m_cone.m_height,
+            }
+        }
+    }
+}
+
+impl<C: NewtonConfig> CollisionCylinder<C> {
+    collision_methods!(fn new(radius0, radius1, height) -> ffi::NewtonCreateCylinder);
+    collision_methods!(fn scale);
+    collision_methods!(fn offset, C::Matrix4);
+    collision_methods!(fn type_id, ffi::SERIALIZE_ID_CYLINDER);
+
+    pub fn params(&self) -> CylinderParams {
+        unsafe {
+            let mut info = mem::zeroed();
+
+            ffi::NewtonCollisionGetInfo(self.raw, &mut info);
+            assert_eq!(ffi::SERIALIZE_ID_CYLINDER as i32, info.m_collisionType);
+
+            CylinderParams {
+                radius0: info.__bindgen_anon_1.m_cylinder.m_radio0,
+                radius1: info.__bindgen_anon_1.m_cylinder.m_radio1,
+                height: info.__bindgen_anon_1.m_cylinder.m_height,
             }
         }
     }

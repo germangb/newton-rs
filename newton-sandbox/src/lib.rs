@@ -47,9 +47,11 @@ pub trait SandboxHandler {
 
 pub type NewtonWorld = newton::world::NewtonWorld<SandboxData>;
 pub type NewtonBody = newton::body::NewtonBody<SandboxData>;
-pub type BoxCollision = newton::collision::CollisionBox<SandboxData>;
-pub type SphereCollision = newton::collision::CollisionSphere<SandboxData>;
-pub type ConeCollision = newton::collision::CollisionCone<SandboxData>;
+
+pub type CollisionBox = newton::collision::CollisionBox<SandboxData>;
+pub type CollisionSphere = newton::collision::CollisionSphere<SandboxData>;
+pub type CollisionCone = newton::collision::CollisionCone<SandboxData>;
+pub type CollisionCylinder = newton::collision::CollisionCylinder<SandboxData>;
 
 #[macro_export]
 macro_rules! rgba {
@@ -273,6 +275,16 @@ impl Sandbox {
                             params.radius,
                         );
                     renderer.render(Primitive::Cone, mode, color, transform, Some(stats));
+                }
+                NewtonCollision::Cylinder(s) => {
+                    let params = s.params();
+                    transform = transform
+                        * Matrix4::from_nonuniform_scale(
+                            params.height,
+                            params.radius0,
+                            params.radius0,
+                        );
+                    renderer.render(Primitive::Cylinder, mode, color, transform, Some(stats));
                 }
                 _ => unimplemented!(),
             }

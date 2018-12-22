@@ -18,6 +18,7 @@ impl<V> ForceAndTorque<V> for Gravity
 where
     V: NewtonConfig,
 {
+    // TODO use generic to multiply mass
     fn force_and_torque(body: NewtonBody<V>, _: Duration) {
         body.set_force(V::GRAVITY)
     }
