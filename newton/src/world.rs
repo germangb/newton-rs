@@ -1,6 +1,7 @@
-use crate::body::{self, NewtonBody, UserData as BodyUserData};
+use crate::body::{self, NewtonBody};
 use crate::ffi;
 use crate::pointer::*;
+use crate::userdata::*;
 use crate::NewtonConfig;
 
 use std::marker::PhantomData;
@@ -49,7 +50,7 @@ where
             user_data: *const ::std::os::raw::c_void,
         ) -> i32 {
             let bodies: &mut Vec<NewtonBody<C>> = mem::transmute(user_data);
-            let udata: Box<body::UserData<C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+            let udata: Box<BodyUserData<C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
 
             match (Weak::upgrade(&udata.body), Weak::upgrade(&udata.collision)) {
                 (Some(body), Some(collision)) => {

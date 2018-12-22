@@ -1,11 +1,13 @@
 pub extern crate newton_sys as ffi;
 
+mod pointer;
+mod userdata;
+
 pub mod body;
 pub mod callback;
 pub mod collision;
 pub mod joint;
 pub mod mesh;
-mod pointer;
 pub mod world;
 
 pub use crate::body::{Mass, NewtonBody, SleepState};

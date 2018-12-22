@@ -1,6 +1,7 @@
 use crate::callback;
 use crate::ffi;
 use crate::pointer::*;
+use crate::userdata::*;
 use crate::NewtonConfig;
 
 use crate::collision::NewtonCollision;
@@ -18,11 +19,6 @@ pub struct NewtonBody<V> {
     pub(crate) body: Rc<NewtonBodyPtr<V>>,
 
     pub(crate) raw: *mut ffi::NewtonBody,
-}
-
-pub(crate) struct UserData<C> {
-    pub(crate) body: Weak<NewtonBodyPtr<C>>,
-    pub(crate) collision: Weak<NewtonCollisionPtr<C>>,
 }
 
 /// Indicates if the body is in a Sleeping or Awake state
@@ -74,7 +70,6 @@ macro_rules! match_rule {
     }}
 }
 
-// XXX pointers
 impl<C> NewtonBody<C>
 where
     C: NewtonConfig,
@@ -92,7 +87,7 @@ where
             };
 
             let body = Rc::new(NewtonBodyPtr(raw, PhantomData));
-            let datum = Box::new(UserData {
+            let datum = Box::new(BodyUserData {
                 body: Rc::downgrade(&body),
                 collision: Rc::downgrade(&collision),
             });
@@ -239,7 +234,7 @@ extern "C" fn force_torque_callback<V, C>(
     C: callback::ForceAndTorque<V>,
 {
     unsafe {
-        let udata: Box<UserData<V>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+        let udata: Box<BodyUserData<V>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
         match (Weak::upgrade(&udata.body), Weak::upgrade(&udata.collision)) {
             (Some(body), Some(collision)) => {
                 let raw = body.0;

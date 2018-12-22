@@ -20,16 +20,18 @@ pub type ShapeId = i32;
 
 macro_rules! collision_enum {
     (
-        #[$($meta:meta)+]
+        $(#[$($meta:meta)+])*
         pub enum $typee:ident<$gen:ident> {
             $(
+                $(#[$($metai:meta)+])*
                 $enumm:ident ( $structt:ty  ) ,
             )+
         }
     ) => {
-        #[$($meta)+]
+        $(#[$($meta)+])*
         pub enum $typee <$gen> {
             $(
+                $(#[$($metai)+])*
                 $enumm ( $structt ) ,
             )+
         }
@@ -49,6 +51,7 @@ macro_rules! collision_enum {
 }
 
 collision_enum! {
+    /// Enum to wrap multiple collision types
     #[derive(Debug)]
     pub enum NewtonCollision<C> {
         Box(CollisionBox<C>),
@@ -63,10 +66,10 @@ collision_enum! {
 
 macro_rules! collisions {
     ($(
-        #[$($meta:meta)+]
+        $(#[$($meta:meta)+])*
         pub struct $struct_ident:ident<C>;
     )+) => {$(
-        #[$($meta)+]
+        $(#[$($meta)+])*
         pub struct $struct_ident<C> {
             pub(crate) collision: Rc<NewtonCollisionPtr<C>>,
             pub(crate) raw: *mut ffi::NewtonCollision,
@@ -75,12 +78,15 @@ macro_rules! collisions {
 }
 
 collisions! {
+    /// A reference-counted box collision
     #[derive(Debug, Clone)]
     pub struct CollisionBox<C>;
 
+    /// A reference-counted sphere collision
     #[derive(Debug, Clone)]
     pub struct CollisionSphere<C>;
 
+    /// A reference-counted cone collision
     #[derive(Debug, Clone)]
     pub struct CollisionCone<C>;
 }
