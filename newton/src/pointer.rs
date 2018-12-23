@@ -1,6 +1,6 @@
 use crate::body;
-use crate::ffi;
 use crate::userdata::*;
+use ffi;
 
 use std::marker::PhantomData;
 use std::mem;

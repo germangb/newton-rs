@@ -1,8 +1,10 @@
 #[macro_use]
-extern crate newton_sandbox;
+extern crate newton;
 
-use newton_sandbox::math::*;
-use newton_sandbox::{Event, Handler, Sandbox};
+use newton::sandbox::cgmath::prelude::*;
+use newton::sandbox::cgmath::*;
+
+use newton::sandbox::{Event, Sandbox, SandboxHandler};
 
 #[derive(Clone)]
 enum Either<A, B> {
@@ -12,10 +14,12 @@ enum Either<A, B> {
 
 struct Example {}
 
-impl Handler for Example {}
+impl SandboxHandler for Example {}
 
 fn main() {
     let mut sandbox = sandbox();
+
+    let transform = [(-0.51_f32, -0.41_f32), (-0.25, 0.17), (0.35, -0.12)];
 
     let collision = [
         Either::A(newton::BoxCollision::new(
@@ -35,10 +39,7 @@ fn main() {
         )),
     ];
 
-    let transform = [(-0.51_f32, -0.41_f32), (-0.25, 0.17), (0.35, -0.12)];
-
     let collision = collision.iter().cloned().cycle();
-
     let transform = transform
         .iter()
         .cycle()
@@ -69,8 +70,8 @@ fn sandbox() -> Sandbox {
     let mut sandbox = Sandbox::new(Example {});
 
     sandbox
-        .window_size(1280, 720)
-        .background_color(rgba!(1.0))
+        .window_size(1280, 666)
+        .background_color(color!(1.0))
         // default rendering params
         .render_solid(true)
         .render_wireframe(true)

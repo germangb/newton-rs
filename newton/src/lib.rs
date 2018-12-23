@@ -1,7 +1,8 @@
-pub extern crate newton_sys as ffi;
-
 mod pointer;
 mod userdata;
+
+#[cfg(feature = "sandbox")]
+pub mod sandbox;
 
 pub mod body;
 pub mod callback;

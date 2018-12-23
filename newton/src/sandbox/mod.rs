@@ -1,4 +1,3 @@
-pub mod math;
 mod renderer;
 
 use std::cell::RefCell;
@@ -7,50 +6,43 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use newton::collision::Collision;
-use newton::NewtonApp;
-use newton::SleepState;
+use crate::collision::Collision;
+use crate::Body;
+use crate::NewtonApp;
+use crate::SleepState;
+use crate::World;
 
 use cgmath::prelude::*;
 use cgmath::Angle;
-use cgmath::{perspective, Deg, Matrix4, Point3, Vector3};
+use cgmath::{perspective, Deg, Matrix4, Point3, Quaternion, Vector3};
 
 use self::renderer::{Mode, Primitive, RenderStats, Renderer};
 
 use imgui::im_str;
 use imgui::{ImGui, ImGuiCond, ImStr, ImString, Ui};
 
-/// Reexport of imgui-rs
+pub use cgmath;
 pub use imgui;
 
 pub use self::renderer::Color;
 
-#[derive(Debug, Clone)]
-pub enum SandboxData {}
-unsafe impl NewtonApp for SandboxData {
-    type Vector = math::Vector3<f32>;
-    type Matrix = math::Matrix4<f32>;
-    type Quaternion = math::Quaternion<f32>;
-}
-
+#[doc(hidden)]
 #[derive(Debug, Clone)]
 pub struct SandboxApp;
 unsafe impl NewtonApp for SandboxApp {
-    type Vector = math::Vector3<f32>;
-    type Matrix = math::Matrix4<f32>;
-    type Quaternion = math::Quaternion<f32>;
+    type Vector = Vector3<f32>;
+    type Matrix = Matrix4<f32>;
+    type Quaternion = Quaternion<f32>;
 }
 
-pub trait Handler {
+pub trait SandboxHandler {
     fn event(&mut self, event: &Event) {}
 }
 
-//pub type NewtonWorld = newton::world::NewtonWorld<SandboxData>;
-
 #[macro_export]
-macro_rules! rgba {
+macro_rules! color {
     ($r:expr, $g:expr, $b:expr, $a:expr) => {
-        $crate::Color {
+        $crate::sandbox::Color {
             r: $r,
             g: $g,
             b: $b,
@@ -58,10 +50,10 @@ macro_rules! rgba {
         }
     };
     ($r:expr, $g:expr, $b:expr) => {
-        rgba!($r, $g, $b, 1.0)
+        color!($r, $g, $b, 1.0)
     };
     ($r:expr) => {
-        rgba!($r, $r, $r)
+        color!($r, $r, $r)
     };
 }
 
@@ -72,8 +64,8 @@ pub use sdl2::mouse::MouseButton;
 use std::collections::HashMap;
 
 pub struct Sandbox {
-    handler: Box<Handler>,
-    world: newton::World<SandboxApp>,
+    handler: Box<SandboxHandler>,
+    world: World<SandboxApp>,
 
     // camera movement
     mouse_down: bool,
@@ -107,24 +99,24 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    pub fn new<H: 'static + Handler>(handler: H) -> Self {
+    pub fn new<H: 'static + SandboxHandler>(handler: H) -> Self {
         Sandbox {
             handler: Box::new(handler),
-            world: newton::World::new(SandboxApp),
+            world: World::new(SandboxApp),
 
             mouse_down: false,
             radius: 24.0,
             alpha: Deg(20.0),
             delta: Deg(30.0),
 
-            background: rgba!(1.0, 1.0, 1.0),
+            background: color!(1.0, 1.0, 1.0),
 
             simulate: false,
             elapsed: Duration::new(0, 0),
             time_scale: 1.0,
 
-            awake_color: rgba!(1.0, 0.5, 1.0),
-            sleep_color: rgba!(1.0, 1.0, 1.0),
+            awake_color: color!(1.0, 0.5, 1.0),
+            sleep_color: color!(1.0, 1.0, 1.0),
             lighting: true,
 
             width: 800,
@@ -141,7 +133,7 @@ impl Sandbox {
         }
     }
 
-    pub fn world(&self) -> &newton::World<SandboxApp> {
+    pub fn world(&self) -> &World<SandboxApp> {
         &self.world
     }
 
@@ -185,7 +177,7 @@ impl Sandbox {
     fn render_aabb_(
         &self,
         renderer: &Renderer,
-        bodies: &[newton::Body<SandboxApp>],
+        bodies: &[Body<SandboxApp>],
         stats: &mut RenderStats,
     ) {
         for body in bodies.iter() {
@@ -199,7 +191,7 @@ impl Sandbox {
             renderer.render(
                 Primitive::Box,
                 Mode::Wireframe,
-                rgba!(0.0),
+                color!(0.0),
                 transform,
                 Some(stats),
             );
@@ -209,7 +201,7 @@ impl Sandbox {
     fn render_bodies(
         &self,
         renderer: &Renderer,
-        bodies: &HashMap<*const (), newton::Body<SandboxApp>>,
+        bodies: &HashMap<*const (), Body<SandboxApp>>,
         mode: Mode,
         awake_color: Color,
         sleeping_color: Color,
@@ -310,7 +302,7 @@ impl Sandbox {
         }
     }
 
-    pub fn run(mut self, bodies: Vec<newton::Body<SandboxApp>>) {
+    pub fn run(mut self, bodies: Vec<Body<SandboxApp>>) {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
@@ -423,8 +415,8 @@ impl Sandbox {
                     &renderer,
                     &bodies_map,
                     Mode::Wireframe,
-                    rgba!(0.0),
-                    rgba!(0.0),
+                    color!(0.0),
+                    color!(0.0),
                     &mut stats,
                 );
             }
@@ -451,7 +443,7 @@ impl Sandbox {
     fn set_up_imgui(
         &mut self,
         ui: &imgui::Ui,
-        bodies: &Vec<newton::Body<SandboxApp>>,
+        bodies: &Vec<Body<SandboxApp>>,
         stats: &RenderStats,
     ) {
         ui.main_menu_bar(|| {

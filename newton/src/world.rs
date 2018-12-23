@@ -1,5 +1,6 @@
+use ffi;
+
 use crate::body::{self, Body};
-use crate::ffi;
 use crate::pointer::*;
 use crate::userdata::*;
 use crate::NewtonApp;

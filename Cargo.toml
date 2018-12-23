@@ -1,2 +1,2 @@
 [workspace]
-members = ["newton", "newton-sys", "newton-sandbox", "newton-examples"]
+members = ["newton", "newton-sys", "newton-examples"]

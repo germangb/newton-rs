@@ -5,5 +5,4 @@ authors = ["german gomez <germangb42@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-newton = { path = "../newton" }
-newton-sandbox = { path = "../newton-sandbox" }
+newton = { path = "../newton", features = ["sandbox"] }

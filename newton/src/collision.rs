@@ -4,8 +4,8 @@ use crate::pointer::*;
 use crate::world;
 use crate::NewtonApp;
 
-use crate::ffi;
-use crate::ffi::NewtonCollisionInfoRecord;
+use ffi;
+use ffi::NewtonCollisionInfoRecord;
 
 use std::cell::Cell;
 use std::marker::PhantomData;
