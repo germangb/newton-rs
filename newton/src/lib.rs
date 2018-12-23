@@ -16,16 +16,16 @@ pub use crate::callback::{DoNothing, Gravity};
 pub use crate::body::{Body, Mass, SleepState};
 pub use crate::world::World;
 
-pub use crate::collision::Capsule;
-pub use crate::collision::Cone;
-pub use crate::collision::Cuboid;
-pub use crate::collision::Cylinder;
-pub use crate::collision::Sphere;
+pub use crate::collision::BoxCollision;
+pub use crate::collision::CapsuleCollision;
+pub use crate::collision::ConeCollision;
+pub use crate::collision::CylinderCollision;
+pub use crate::collision::SphereCollision;
 
 /// Trait to adapt the types returned by the Newton APIs to each application.
 ///
 /// This trait is marked `unsafe` because the Rust compiler may change the memory layout of the types.
-pub unsafe trait NewtonConfig: std::fmt::Debug {
+pub unsafe trait NewtonApp: std::fmt::Debug {
     /// 3D vector type.
     type Vector: Copy;
     /// 4x4 Matrix type

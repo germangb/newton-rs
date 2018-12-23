@@ -1,5 +1,5 @@
 use crate::body::Body;
-use crate::NewtonConfig;
+use crate::NewtonApp;
 
 use std::time::Duration;
 
@@ -16,7 +16,7 @@ pub enum DoNothing {}
 
 impl<V> ForceAndTorque<V> for Gravity
 where
-    V: NewtonConfig,
+    V: NewtonApp,
 {
     // TODO use generic to multiply mass
     fn force_and_torque(body: Body<V>, _: Duration) {

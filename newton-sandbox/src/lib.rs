@@ -7,8 +7,8 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use newton::collision::NewtonCollision;
-use newton::NewtonConfig;
+use newton::collision::Collision;
+use newton::NewtonApp;
 use newton::SleepState;
 
 use cgmath::prelude::*;
@@ -27,7 +27,7 @@ pub use self::renderer::Color;
 
 #[derive(Debug, Clone)]
 pub enum SandboxData {}
-unsafe impl NewtonConfig for SandboxData {
+unsafe impl NewtonApp for SandboxData {
     type Vector = math::Vector3<f32>;
     type Matrix = math::Matrix4<f32>;
     type Quaternion = math::Quaternion<f32>;
@@ -35,7 +35,7 @@ unsafe impl NewtonConfig for SandboxData {
 
 #[derive(Debug, Clone)]
 pub struct SandboxApp;
-unsafe impl NewtonConfig for SandboxApp {
+unsafe impl NewtonApp for SandboxApp {
     type Vector = math::Vector3<f32>;
     type Matrix = math::Matrix4<f32>;
     type Quaternion = math::Quaternion<f32>;
@@ -223,18 +223,18 @@ impl Sandbox {
             };
 
             match body.collision() {
-                NewtonCollision::Box(b) => {
+                Collision::Box(b) => {
                     let params = b.params();
                     transform =
                         transform * Matrix4::from_nonuniform_scale(params.x, params.y, params.z);
                     renderer.render(Primitive::Box, mode, color, transform, Some(stats));
                 }
-                NewtonCollision::Sphere(s) => {
+                Collision::Sphere(s) => {
                     let params = s.params();
                     transform = transform * Matrix4::from_scale(params.radius);
                     renderer.render(Primitive::Sphere, mode, color, transform, Some(stats));
                 }
-                NewtonCollision::Cone(s) => {
+                Collision::Cone(s) => {
                     let params = s.params();
                     transform = transform
                         * Matrix4::from_nonuniform_scale(
@@ -244,7 +244,7 @@ impl Sandbox {
                         );
                     renderer.render(Primitive::Cone, mode, color, transform, Some(stats));
                 }
-                NewtonCollision::Cylinder(s) => {
+                Collision::Cylinder(s) => {
                     let params = s.params();
                     transform = transform
                         * Matrix4::from_nonuniform_scale(
@@ -254,7 +254,7 @@ impl Sandbox {
                         );
                     renderer.render(Primitive::Cylinder, mode, color, transform, Some(stats));
                 }
-                NewtonCollision::Capsule(s) => {
+                Collision::Capsule(s) => {
                     let params = s.params();
                     transform = transform
                         * Matrix4::from_nonuniform_scale(

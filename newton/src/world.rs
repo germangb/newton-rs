@@ -2,7 +2,7 @@ use crate::body::{self, Body};
 use crate::ffi;
 use crate::pointer::*;
 use crate::userdata::*;
-use crate::NewtonConfig;
+use crate::NewtonApp;
 
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
@@ -17,7 +17,7 @@ pub struct World<C> {
 
 impl<C> World<C>
 where
-    C: NewtonConfig,
+    C: NewtonApp,
 {
     pub fn new(app: C) -> Self {
         unsafe {

@@ -2,10 +2,13 @@ use crate::callback;
 use crate::ffi;
 use crate::pointer::*;
 use crate::userdata::*;
-use crate::NewtonConfig;
+use crate::NewtonApp;
 
-use crate::collision::NewtonCollision;
-use crate::collision::{Capsule, Cone, Cuboid, Cylinder, Sphere};
+use crate::collision::Collision;
+use crate::collision::IntoCollision;
+use crate::collision::{
+    BoxCollision, CapsuleCollision, ConeCollision, CylinderCollision, SphereCollision,
+};
 use crate::world::World;
 use crate::Gravity;
 use std::marker::PhantomData;
@@ -60,7 +63,7 @@ macro_rules! match_rule {
     ) => {{
         match ffi::NewtonCollisionGetType($raw) {
             $(
-                $structi ::<A>::TYPE_ID => NewtonCollision:: $enumi ($structi {
+                $structi ::<A>::TYPE_ID => Collision:: $enumi ($structi {
                     collision: $selfi.collision.clone(),
                     raw: $raw,
                 }),
@@ -72,12 +75,12 @@ macro_rules! match_rule {
 
 impl<A> Body<A>
 where
-    A: NewtonConfig,
+    A: NewtonApp,
 {
     // TODO refactor this mess
     pub fn from<C>(collision: C, matrix: A::Matrix) -> Self
     where
-        C: Into<NewtonCollision<A>>,
+        C: IntoCollision<A>,
     {
         unsafe {
             let collision = collision.into();
@@ -103,16 +106,16 @@ where
         }
     }
 
-    pub fn collision(&self) -> NewtonCollision<A> {
+    pub fn collision(&self) -> Collision<A> {
         unsafe {
             let raw = ffi::NewtonBodyGetCollision(self.raw);
 
             match_rule! { (self, raw) =>
-                Box -> Cuboid,
-                Sphere -> Sphere,
-                Cone -> Cone,
-                Cylinder -> Cylinder,
-                Capsule -> Capsule,
+                Box -> BoxCollision,
+                Sphere -> SphereCollision,
+                Cone -> ConeCollision,
+                Cylinder -> CylinderCollision,
+                Capsule -> CapsuleCollision,
             }
         }
     }
@@ -229,7 +232,7 @@ extern "C" fn force_torque_callback<V>(
     timestep: f32,
     _thread_idx: i32,
 ) where
-    V: NewtonConfig,
+    V: NewtonApp,
 {
     unsafe {
         ffi::NewtonBodySetForce(body, [0.0, -10.0, 0.0].as_ptr());

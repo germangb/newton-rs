@@ -18,8 +18,21 @@ fn main() {
     let mut sandbox = sandbox();
 
     let collision = [
-        Either::A(newton::Cuboid::new(sandbox.world(), 1.0, 1.0, 1.0, 0, None)),
-        Either::B(newton::Cone::new(sandbox.world(), 1.0, 2.0, 0, None)),
+        Either::A(newton::BoxCollision::new(
+            sandbox.world(),
+            1.0,
+            1.0,
+            1.0,
+            0,
+            None,
+        )),
+        Either::B(newton::ConeCollision::new(
+            sandbox.world(),
+            1.0,
+            2.0,
+            0,
+            None,
+        )),
     ];
 
     let transform = [(-0.51_f32, -0.41_f32), (-0.25, 0.17), (0.35, -0.12)];
@@ -46,7 +59,7 @@ fn main() {
         })
         .collect();
 
-    let floor = newton::Cuboid::new(sandbox.world(), 16.0, 1.0, 16.0, 0, None);
+    let floor = newton::BoxCollision::new(sandbox.world(), 16.0, 1.0, 16.0, 0, None);
     bodies.push(newton::Body::from(floor, Matrix4::identity()));
 
     sandbox.run(bodies);

@@ -2,7 +2,7 @@ pub use crate::body::Body;
 use crate::ffi;
 use crate::pointer::*;
 pub use crate::world::World;
-use crate::NewtonConfig;
+use crate::NewtonApp;
 
 use std::mem;
 use std::rc::Rc;
@@ -23,9 +23,18 @@ macro_rules! constraints {
 constraints! {
     #[derive(Debug, Clone)]
     pub struct BallJoint<C>;
+
+    #[derive(Debug, Clone)]
+    pub struct HingeJoint<C>;
+
+    #[derive(Debug, Clone)]
+    pub struct CrokscrewJoint<C>;
+
+    #[derive(Debug, Clone)]
+    pub struct SliderJoint<C>;
 }
 
-impl<C: NewtonConfig> BallJoint<C> {
+impl<C: NewtonApp> BallJoint<C> {
     pub fn new(child: &Body<C>, parent: &Body<C>, pivot: C::Vector) -> Self {
         unsafe {
             let raw = ffi::NewtonConstraintCreateBall(

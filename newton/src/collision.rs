@@ -2,7 +2,7 @@ use crate::body;
 use crate::body::Body;
 use crate::pointer::*;
 use crate::world;
-use crate::NewtonConfig;
+use crate::NewtonApp;
 
 use crate::ffi;
 use crate::ffi::NewtonCollisionInfoRecord;
@@ -40,7 +40,7 @@ macro_rules! collision_enum {
             pub(crate) fn pointer(&self) -> &Rc<NewtonCollisionPtr<$gen>> {
                 match &self {
                     $(
-                        &NewtonCollision::$enumm (ref c) => &c.collision,
+                        &Collision::$enumm (ref c) => &c.collision,
                     )+
                 }
             }
@@ -48,29 +48,32 @@ macro_rules! collision_enum {
             pub fn as_ref(&self) -> *mut ffi::NewtonCollision {
                 match &self {
                     $(
-                        &NewtonCollision::$enumm (ref c) => c.raw,
+                        &Collision::$enumm (ref c) => c.raw,
                     )+
                 }
             }
         }
 
-        $(impl<C> From<$structt> for $typee <C> {
-            fn from(collision: $structt) -> Self {
-                NewtonCollision::$enumm(collision)
+        $(impl<C> IntoCollision<C> for $structt {
+            fn into(self) -> Collision<C> {
+                Collision::$enumm(self)
             }
         })+
     }
 }
 
+pub trait IntoCollision<C> {
+    fn into(self) -> Collision<C>;
+}
+
 collision_enum! {
-    /// Enum to wrap multiple collision types
     #[derive(Debug)]
-    pub enum NewtonCollision<C> {
-        Box(Cuboid<C>),
-        Sphere(Sphere<C>),
-        Cylinder(Cylinder<C>),
-        Cone(Cone<C>),
-        Capsule(Capsule<C>),
+    pub enum Collision<C> {
+        Box(BoxCollision<C>),
+        Sphere(SphereCollision<C>),
+        Cylinder(CylinderCollision<C>),
+        Cone(ConeCollision<C>),
+        Capsule(CapsuleCollision<C>),
     }
 }
 
@@ -89,19 +92,19 @@ macro_rules! collisions {
 
 collisions! {
     #[derive(Debug, Clone)]
-    pub struct Cuboid<C>;
+    pub struct BoxCollision<C>;
 
     #[derive(Debug, Clone)]
-    pub struct Sphere<C>;
+    pub struct SphereCollision<C>;
 
     #[derive(Debug, Clone)]
-    pub struct Cone<C>;
+    pub struct ConeCollision<C>;
 
     #[derive(Debug, Clone)]
-    pub struct Cylinder<C>;
+    pub struct CylinderCollision<C>;
 
     #[derive(Debug, Clone)]
-    pub struct Capsule<C>;
+    pub struct CapsuleCollision<C>;
 }
 
 #[derive(Debug)]
@@ -191,7 +194,7 @@ macro_rules! collision_methods {
     };
 }
 
-impl<C: NewtonConfig> Cuboid<C> {
+impl<C: NewtonApp> BoxCollision<C> {
     collision_methods!(fn new(dx, dy, dz) -> ffi::NewtonCreateBox);
     collision_methods!(fn scale);
     collision_methods!(fn offset, C::Matrix);
@@ -214,7 +217,7 @@ impl<C: NewtonConfig> Cuboid<C> {
     }
 }
 
-impl<C: NewtonConfig> Sphere<C> {
+impl<C: NewtonApp> SphereCollision<C> {
     collision_methods!(fn new(radius) -> ffi::NewtonCreateSphere);
     collision_methods!(fn scale);
     collision_methods!(fn offset, C::Matrix);
@@ -235,7 +238,7 @@ impl<C: NewtonConfig> Sphere<C> {
     }
 }
 
-impl<C: NewtonConfig> Cone<C> {
+impl<C: NewtonApp> ConeCollision<C> {
     collision_methods!(fn new(radius, height) -> ffi::NewtonCreateCone);
     collision_methods!(fn scale);
     collision_methods!(fn offset, C::Matrix);
@@ -257,7 +260,7 @@ impl<C: NewtonConfig> Cone<C> {
     }
 }
 
-impl<C: NewtonConfig> Cylinder<C> {
+impl<C: NewtonApp> CylinderCollision<C> {
     collision_methods!(fn new(radius0, radius1, height) -> ffi::NewtonCreateCylinder);
     collision_methods!(fn scale);
     collision_methods!(fn offset, C::Matrix);
@@ -280,7 +283,7 @@ impl<C: NewtonConfig> Cylinder<C> {
     }
 }
 
-impl<C: NewtonConfig> Capsule<C> {
+impl<C: NewtonApp> CapsuleCollision<C> {
     collision_methods!(fn new(radius0, radius1, height) -> ffi::NewtonCreateCapsule);
     collision_methods!(fn scale);
     collision_methods!(fn offset, C::Matrix);
