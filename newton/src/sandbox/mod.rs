@@ -6,9 +6,9 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use crate::body::SleepState;
 use crate::collision::Collision;
 use crate::NewtonApp;
-use crate::SleepState;
 
 /*
 use crate::Body;
@@ -39,21 +39,21 @@ unsafe impl NewtonApp for SandboxApp {
     type Quaternion = Quaternion<f32>;
 }
 
-pub type World = crate::World<SandboxApp>;
-pub type DynamicBody = crate::DynamicBody<SandboxApp>;
+pub type World = crate::world::World<SandboxApp>;
+pub type DynamicBody = crate::body::DynamicBody<SandboxApp>;
 
-pub type BoxCollision = crate::BoxCollision<SandboxApp>;
-pub type SphereCollision = crate::SphereCollision<SandboxApp>;
-pub type CapsuleCollision = crate::CapsuleCollision<SandboxApp>;
-pub type CylinderCollision = crate::CylinderCollision<SandboxApp>;
-pub type ConeCollision = crate::ConeCollision<SandboxApp>;
+pub type BoxCollision = crate::collision::BoxCollision<SandboxApp>;
+pub type SphereCollision = crate::collision::SphereCollision<SandboxApp>;
+pub type CapsuleCollision = crate::collision::CapsuleCollision<SandboxApp>;
+pub type CylinderCollision = crate::collision::CylinderCollision<SandboxApp>;
+pub type ConeCollision = crate::collision::ConeCollision<SandboxApp>;
 
-pub type BallJoint = crate::BallJoint<SandboxApp>;
-pub type SliderJoint = crate::SliderJoint<SandboxApp>;
-pub type HingeJoint = crate::HingeJoint<SandboxApp>;
-pub type UniversalJoint = crate::UniversalJoint<SandboxApp>;
-pub type CorkscrewJoint = crate::CorkscrewJoint<SandboxApp>;
-pub type UpVectorJoint = crate::UpVectorJoint<SandboxApp>;
+pub type BallJoint = crate::joint::BallJoint<SandboxApp>;
+pub type SliderJoint = crate::joint::SliderJoint<SandboxApp>;
+pub type HingeJoint = crate::joint::HingeJoint<SandboxApp>;
+pub type UniversalJoint = crate::joint::UniversalJoint<SandboxApp>;
+pub type CorkscrewJoint = crate::joint::CorkscrewJoint<SandboxApp>;
+pub type UpVectorJoint = crate::joint::UpVectorJoint<SandboxApp>;
 
 pub trait Handler {
     fn pre_update(&mut self) {}
@@ -87,7 +87,7 @@ use std::collections::HashMap;
 
 pub struct Sandbox {
     //handler: Box<Handler>,
-    world: crate::World<SandboxApp>,
+    world: World,
 
     // camera movement
     mouse_down: bool,
@@ -124,7 +124,7 @@ impl Sandbox {
     pub fn new() -> Self {
         Sandbox {
             //handler: Box::new(handler),
-            world: crate::World::new(crate::BroadPhaseAlgorithm::Default, SandboxApp),
+            world: World::new(crate::world::BroadPhaseAlgorithm::Default, SandboxApp),
 
             mouse_down: false,
             radius: 24.0,
@@ -155,7 +155,7 @@ impl Sandbox {
         }
     }
 
-    pub fn world(&self) -> &crate::World<SandboxApp> {
+    pub fn world(&self) -> &World {
         &self.world
     }
 
@@ -196,12 +196,7 @@ impl Sandbox {
         self
     }
 
-    fn render_aabb_(
-        &self,
-        renderer: &Renderer,
-        bodies: &[crate::DynamicBody<SandboxApp>],
-        stats: &mut RenderStats,
-    ) {
+    fn render_aabb_(&self, renderer: &Renderer, bodies: &[DynamicBody], stats: &mut RenderStats) {
         for body in bodies.iter() {
             let (min, max) = body.aabb();
             let position = body.position();
@@ -223,7 +218,7 @@ impl Sandbox {
     fn render_bodies(
         &self,
         renderer: &Renderer,
-        bodies: &HashMap<*const (), crate::DynamicBody<SandboxApp>>,
+        bodies: &HashMap<*const (), DynamicBody>,
         mode: Mode,
         awake_color: Color,
         sleeping_color: Color,
@@ -337,7 +332,7 @@ impl Sandbox {
         }
     }
 
-    pub fn run<H: Handler>(mut self, bodies: Vec<crate::DynamicBody<SandboxApp>>, mut handler: H) {
+    pub fn run<H: Handler>(mut self, bodies: Vec<DynamicBody>, mut handler: H) {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
@@ -477,12 +472,7 @@ impl Sandbox {
         }
     }
 
-    fn set_up_imgui(
-        &mut self,
-        ui: &imgui::Ui,
-        bodies: &Vec<crate::DynamicBody<SandboxApp>>,
-        stats: &RenderStats,
-    ) {
+    fn set_up_imgui(&mut self, ui: &imgui::Ui, bodies: &Vec<DynamicBody>, stats: &RenderStats) {
         ui.main_menu_bar(|| {
             ui.menu(im_str!("Simulation")).build(|| {
                 ui.menu_item(im_str!("Simulate"))

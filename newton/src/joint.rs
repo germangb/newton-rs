@@ -44,19 +44,27 @@ constraints! {
 
 macro_rules! joint_method {
     (fn new( $($vec:ident),+ ) -> ffi:: $ffi:ident) => {
-        pub fn new(child: &DynamicBody<C>, parent: &DynamicBody<C>, $($vec: C::Vector),+ ) -> Self {
+        pub fn new(child: &$crate::body::Body<C>, parent: &$crate::body::Body<C>, $($vec: C::Vector),+ ) -> Self {
             unsafe {
+                let child_body_ref = match &child {
+                    &$crate::body::Body::Dynamic($crate::body::DynamicBody { ref body, .. }) => body.clone(),
+                    &$crate::body::Body::Kinematic($crate::body::KinematicBody { ref body, .. }) => body.clone(),
+                };
+                let parent_body_ref = match &parent {
+                    &$crate::body::Body::Dynamic($crate::body::DynamicBody { ref body, .. }) => body.clone(),
+                    &$crate::body::Body::Kinematic($crate::body::KinematicBody { ref body, .. }) => body.clone(),
+                };
                 let raw = ffi::$ffi(
-                    (child.body.1).0,
+                    (child_body_ref.1).0,
                     $(mem::transmute(&$vec),)+
-                    child.raw,
-                    parent.raw,
+                    child_body_ref.0,
+                    parent_body_ref.0,
                 );
                 Self {
                     joint: Rc::new(NewtonJointPtr(
                         raw,
-                        Rc::downgrade(&child.body),
-                        Rc::downgrade(&parent.body),
+                        Rc::downgrade(&child_body_ref),
+                        Rc::downgrade(&parent_body_ref),
                     )),
                     raw,
                 }
@@ -72,18 +80,23 @@ macro_rules! joint_method {
         }
     };
     (single fn new( $($vec:ident),+ ) -> ffi:: $ffi:ident) => {
-        pub fn new(body: &DynamicBody<C>, $($vec: C::Vector),+ ) -> Self {
+        pub fn new(body: &$crate::body::Body<C>, $($vec: C::Vector),+ ) -> Self {
             unsafe {
+                let body_ref = match &body {
+                    &$crate::body::Body::Dynamic($crate::body::DynamicBody { ref body, .. }) => body.clone(),
+                    &$crate::body::Body::Kinematic($crate::body::KinematicBody { ref body, .. }) => body.clone(),
+                };
+
                 let raw = ffi::$ffi(
-                    (body.body.1).0,
+                    (body_ref.1).0,
                     $(mem::transmute(&$vec),)+
-                    body.raw,
+                    body_ref.0,
                 );
                 Self {
                     joint: Rc::new(NewtonJointPtr(
                         raw,
-                        Rc::downgrade(&body.body),
-                        Rc::downgrade(&body.body),
+                        Rc::downgrade(&body_ref),
+                        Rc::downgrade(&body_ref),
                     )),
                     raw,
                 }

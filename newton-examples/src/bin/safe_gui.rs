@@ -33,9 +33,9 @@ fn main() {
     let world = sandbox.world();
 
     let collision = [
-        newton::BoxCollision::new(world, 1.0, 1.0, 1.0, 0, None).into_collision(),
-        newton::ConeCollision::new(world, 1.0, 2.0, 0, None).into_collision(),
-        newton::SphereCollision::new(world, 0.8, 0, None).into_collision(),
+        newton::collision::BoxCollision::new(world, 1.0, 1.0, 1.0, 0, None).into_collision(),
+        newton::collision::ConeCollision::new(world, 1.0, 2.0, 0, None).into_collision(),
+        newton::collision::SphereCollision::new(world, 0.8, 0, None).into_collision(),
     ];
 
     let collision = collision.iter().cloned().cycle();
@@ -50,13 +50,13 @@ fn main() {
         .zip(transform)
         .take(24)
         .map(|(c, m)| {
-            let body = newton::DynamicBody::from(c, m);
+            let body = newton::body::DynamicBody::from(c, m);
             body.set_mass(1.0);
             body
         })
         .collect();
 
-    let floor = newton::BoxCollision::new(sandbox.world(), 16.0, 1.0, 16.0, 0, None);
+    let floor = newton::collision::BoxCollision::new(sandbox.world(), 16.0, 1.0, 16.0, 0, None);
     //let floor = newton::DynamicBody::from(floor, Matrix4::identity());
     //bodies.push(floor);
 
@@ -64,24 +64,26 @@ fn main() {
     let mut params = newton::collision::HeightFieldParams::<f32>::new(32, 32);
     params.set_vertical_scale(0.0);
     //params.set_horizontal_scale(8.0, 8.0);
-    let heightfield = newton::HeightFieldCollision::new(
+    let heightfield = newton::collision::HeightFieldCollision::new(
         &world,
         params,
         0,
         Some(Matrix4::from_translation(Vector3::new(-16.0, 0.0, -16.0))),
     );
 
-    let heightfield = newton::DynamicBody::from(heightfield, Matrix4::identity());
+    let heightfield = newton::body::DynamicBody::from(heightfield, Matrix4::identity());
     heightfield.set_mass(1.0);
     bodies.push(heightfield);
 
-    let capsule = newton::CapsuleCollision::new(sandbox.world(), 1.0, 1.0, 1.0, 0, None);
+    let capsule = newton::collision::CapsuleCollision::new(sandbox.world(), 1.0, 1.0, 1.0, 0, None);
     let t =
         Matrix4::from_translation(Vector3::new(4.0, 4.0, 0.0)) * Matrix4::from_angle_z(Deg(45.0));
     let capsule = DynamicBody::from(capsule, t);
     bodies.push(capsule.clone());
 
-    let up = newton::UpVectorJoint::new(&capsule, Vector3::new(0.0, 1.0, 0.0));
+    let capsule = capsule.into_body();
+    let up = newton::joint::UpVectorJoint::new(&capsule, Vector3::new(0.0, 1.0, 0.0));
+    let capsule = capsule.dynamic().unwrap();
 
     capsule.set_mass(1.0);
     sandbox.run(

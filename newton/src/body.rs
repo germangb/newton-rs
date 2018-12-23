@@ -1,6 +1,6 @@
 use ffi;
 
-use crate::callback;
+//use crate::callback;
 use crate::pointer::*;
 use crate::userdata::*;
 use crate::NewtonApp;
@@ -12,7 +12,7 @@ use crate::collision::{
     SphereCollision,
 };
 use crate::world::World;
-use crate::Gravity;
+//use crate::Gravity;
 use std::marker::PhantomData;
 use std::mem;
 use std::rc::{Rc, Weak};
@@ -51,6 +51,12 @@ impl<C> Body<C> {
         match &self {
             &Body::Kinematic(_) => true,
             _ => false,
+        }
+    }
+    pub fn as_raw(&self) -> *mut ffi::NewtonBody {
+        match &self {
+            &Body::Dynamic(DynamicBody { ref raw, .. }) => *raw,
+            &Body::Kinematic(KinematicBody { ref raw, .. }) => *raw,
         }
     }
 }
