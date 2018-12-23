@@ -10,11 +10,11 @@ use newton::collision::CollisionBox;
 use std::time::Duration;
 
 fn main() {
-    let world = NewtonWorld::new();
+    let world = NewtonWorld::create();
 
-    let body = NewtonBody::new(
+    let body = NewtonBody::create(
         &world,
-        CollisionBox::new(&world, 1.0, 1.0, 1.0, 0, None),
+        CollisionBox::create(&world, 1.0, 1.0, 1.0, 0, None),
         Matrix4::identity(),
     );
 

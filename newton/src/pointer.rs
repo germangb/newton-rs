@@ -3,7 +3,8 @@ use crate::ffi;
 use crate::userdata::*;
 
 use std::marker::PhantomData;
-use std::rc::Rc;
+use std::mem;
+use std::rc::{Rc, Weak};
 
 #[derive(Debug)]
 pub struct NewtonWorldPtr<C>(pub(crate) *mut ffi::NewtonWorld, pub(crate) PhantomData<C>);
@@ -22,7 +23,10 @@ pub struct NewtonCollisionPtr<C>(
 
 impl<C> Drop for NewtonWorldPtr<C> {
     fn drop(&mut self) {
-        unsafe { ffi::NewtonDestroy(self.0) }
+        unsafe {
+            let _: Rc<C> = mem::transmute(ffi::NewtonWorldGetUserData(self.0));
+            ffi::NewtonDestroy(self.0);
+        }
     }
 }
 
@@ -38,5 +42,24 @@ impl<C> Drop for NewtonBodyPtr<C> {
 impl<V> Drop for NewtonCollisionPtr<V> {
     fn drop(&mut self) {
         unsafe { ffi::NewtonDestroyCollision(self.0) }
+    }
+}
+
+#[derive(Debug)]
+pub struct NewtonJointPtr<C>(
+    pub(crate) *mut ffi::NewtonJoint,
+    pub(crate) Weak<NewtonBodyPtr<C>>,
+    pub(crate) Weak<NewtonBodyPtr<C>>,
+);
+
+impl<V> Drop for NewtonJointPtr<V> {
+    fn drop(&mut self) {
+        let parent = Weak::upgrade(&self.1);
+        let child = Weak::upgrade(&self.2);
+
+        if let Some(b) = parent.and(child) {
+            let world: *mut ffi::NewtonWorld = (b.1).0;
+            unsafe { ffi::NewtonDestroyJoint(world, self.0) }
+        }
     }
 }

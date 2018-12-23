@@ -1,7 +1,7 @@
 use crate::body;
-use crate::body::NewtonBody;
+use crate::body::Body;
 use crate::pointer::*;
-use crate::world::NewtonWorld;
+use crate::world;
 use crate::NewtonConfig;
 
 use crate::ffi;
@@ -36,15 +36,27 @@ macro_rules! collision_enum {
             )+
         }
 
-        $(impl<C> From<$structt> for $typee <C> {
-            fn from(collision: $structt) -> Self {
-                NewtonCollision::$enumm(collision)
+        impl<$gen> $typee<$gen> {
+            pub(crate) fn pointer(&self) -> &Rc<NewtonCollisionPtr<$gen>> {
+                match &self {
+                    $(
+                        &NewtonCollision::$enumm (ref c) => &c.collision,
+                    )+
+                }
+            }
+
+            pub fn as_ref(&self) -> *mut ffi::NewtonCollision {
+                match &self {
+                    $(
+                        &NewtonCollision::$enumm (ref c) => c.raw,
+                    )+
+                }
             }
         }
 
-        impl<'a, C: Clone> From<&'a $structt> for $typee <C> {
-            fn from(collision: &'a $structt) -> Self {
-                NewtonCollision::$enumm(collision.clone())
+        $(impl<C> From<$structt> for $typee <C> {
+            fn from(collision: $structt) -> Self {
+                NewtonCollision::$enumm(collision)
             }
         })+
     }
@@ -54,12 +66,11 @@ collision_enum! {
     /// Enum to wrap multiple collision types
     #[derive(Debug)]
     pub enum NewtonCollision<C> {
-        Box(CollisionBox<C>),
-        Sphere(CollisionSphere<C>),
-        Cylinder(CollisionCylinder<C>),
-        Cone(CollisionCone<C>),
-        // TODO
-        //Capsule,
+        Box(Cuboid<C>),
+        Sphere(Sphere<C>),
+        Cylinder(Cylinder<C>),
+        Cone(Cone<C>),
+        Capsule(Capsule<C>),
     }
 }
 
@@ -77,20 +88,20 @@ macro_rules! collisions {
 }
 
 collisions! {
-    /// A reference-counted box collision
     #[derive(Debug, Clone)]
-    pub struct CollisionBox<C>;
-
-    /// A reference-counted sphere collision
-    #[derive(Debug, Clone)]
-    pub struct CollisionSphere<C>;
-
-    /// A reference-counted cone collision
-    #[derive(Debug, Clone)]
-    pub struct CollisionCone<C>;
+    pub struct Cuboid<C>;
 
     #[derive(Debug, Clone)]
-    pub struct CollisionCylinder<C>;
+    pub struct Sphere<C>;
+
+    #[derive(Debug, Clone)]
+    pub struct Cone<C>;
+
+    #[derive(Debug, Clone)]
+    pub struct Cylinder<C>;
+
+    #[derive(Debug, Clone)]
+    pub struct Capsule<C>;
 }
 
 #[derive(Debug)]
@@ -118,13 +129,20 @@ pub struct CylinderParams {
     pub height: f32,
 }
 
+#[derive(Debug)]
+pub struct CapsuleParams {
+    pub radius0: f32,
+    pub radius1: f32,
+    pub height: f32,
+}
+
 macro_rules! collision_methods {
-    (fn new ( $($param:ident),+ ) -> ffi::$ffi:ident) => {
-        pub fn new(
-            world: &NewtonWorld<C>,
+    (fn $method:ident ( $($param:ident),+ ) -> ffi::$ffi:ident) => {
+        pub fn $method(
+            world: &world::World<C>,
             $($param: f32,)+
             shape_id: ShapeId,
-            offset: Option<C::Matrix4>,
+            offset: Option<C::Matrix>,
         ) -> Self {
             unsafe {
                 let raw = ffi::$ffi(
@@ -166,13 +184,19 @@ macro_rules! collision_methods {
         /// Internal type ID of the collision.
         pub const TYPE_ID: i32 = $value as i32;
     };
+    (fn as_raw) => {
+        pub fn as_raw(&self) -> *mut ffi::NewtonCollision {
+            self.raw
+        }
+    };
 }
 
-impl<C: NewtonConfig> CollisionBox<C> {
+impl<C: NewtonConfig> Cuboid<C> {
     collision_methods!(fn new(dx, dy, dz) -> ffi::NewtonCreateBox);
     collision_methods!(fn scale);
-    collision_methods!(fn offset, C::Matrix4);
+    collision_methods!(fn offset, C::Matrix);
     collision_methods!(fn type_id, ffi::SERIALIZE_ID_BOX);
+    collision_methods!(fn as_raw);
 
     pub fn params(&self) -> BoxParams {
         unsafe {
@@ -190,11 +214,12 @@ impl<C: NewtonConfig> CollisionBox<C> {
     }
 }
 
-impl<C: NewtonConfig> CollisionSphere<C> {
+impl<C: NewtonConfig> Sphere<C> {
     collision_methods!(fn new(radius) -> ffi::NewtonCreateSphere);
     collision_methods!(fn scale);
-    collision_methods!(fn offset, C::Matrix4);
+    collision_methods!(fn offset, C::Matrix);
     collision_methods!(fn type_id, ffi::SERIALIZE_ID_SPHERE);
+    collision_methods!(fn as_raw);
 
     pub fn params(&self) -> SphereParams {
         unsafe {
@@ -210,11 +235,12 @@ impl<C: NewtonConfig> CollisionSphere<C> {
     }
 }
 
-impl<C: NewtonConfig> CollisionCone<C> {
+impl<C: NewtonConfig> Cone<C> {
     collision_methods!(fn new(radius, height) -> ffi::NewtonCreateCone);
     collision_methods!(fn scale);
-    collision_methods!(fn offset, C::Matrix4);
+    collision_methods!(fn offset, C::Matrix);
     collision_methods!(fn type_id, ffi::SERIALIZE_ID_CONE);
+    collision_methods!(fn as_raw);
 
     pub fn params(&self) -> ConeParams {
         unsafe {
@@ -231,11 +257,12 @@ impl<C: NewtonConfig> CollisionCone<C> {
     }
 }
 
-impl<C: NewtonConfig> CollisionCylinder<C> {
+impl<C: NewtonConfig> Cylinder<C> {
     collision_methods!(fn new(radius0, radius1, height) -> ffi::NewtonCreateCylinder);
     collision_methods!(fn scale);
-    collision_methods!(fn offset, C::Matrix4);
+    collision_methods!(fn offset, C::Matrix);
     collision_methods!(fn type_id, ffi::SERIALIZE_ID_CYLINDER);
+    collision_methods!(fn as_raw);
 
     pub fn params(&self) -> CylinderParams {
         unsafe {
@@ -248,6 +275,29 @@ impl<C: NewtonConfig> CollisionCylinder<C> {
                 radius0: info.__bindgen_anon_1.m_cylinder.m_radio0,
                 radius1: info.__bindgen_anon_1.m_cylinder.m_radio1,
                 height: info.__bindgen_anon_1.m_cylinder.m_height,
+            }
+        }
+    }
+}
+
+impl<C: NewtonConfig> Capsule<C> {
+    collision_methods!(fn new(radius0, radius1, height) -> ffi::NewtonCreateCapsule);
+    collision_methods!(fn scale);
+    collision_methods!(fn offset, C::Matrix);
+    collision_methods!(fn type_id, ffi::SERIALIZE_ID_CAPSULE);
+    collision_methods!(fn as_raw);
+
+    pub fn params(&self) -> CapsuleParams {
+        unsafe {
+            let mut info = mem::zeroed();
+
+            ffi::NewtonCollisionGetInfo(self.raw, &mut info);
+            assert_eq!(ffi::SERIALIZE_ID_CAPSULE as i32, info.m_collisionType);
+
+            CapsuleParams {
+                radius0: info.__bindgen_anon_1.m_capsule.m_radio0,
+                radius1: info.__bindgen_anon_1.m_capsule.m_radio1,
+                height: info.__bindgen_anon_1.m_capsule.m_height,
             }
         }
     }

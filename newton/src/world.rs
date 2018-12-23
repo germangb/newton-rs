@@ -1,4 +1,4 @@
-use crate::body::{self, NewtonBody};
+use crate::body::{self, Body};
 use crate::ffi;
 use crate::pointer::*;
 use crate::userdata::*;
@@ -10,20 +10,29 @@ use std::time::Duration;
 use std::{mem, ptr};
 
 #[derive(Debug, Clone)]
-pub struct NewtonWorld<C> {
+pub struct World<C> {
     pub(crate) world: Rc<NewtonWorldPtr<C>>,
     pub(crate) raw: *mut ffi::NewtonWorld,
 }
 
-impl<C> NewtonWorld<C>
+impl<C> World<C>
 where
     C: NewtonConfig,
 {
-    pub fn new() -> NewtonWorld<C> {
+    pub fn new(app: C) -> Self {
+        unsafe {
+            let raw = ffi::NewtonCreate();
+            let world = Rc::new(NewtonWorldPtr(raw, PhantomData));
+            ffi::NewtonWorldSetUserData(raw, mem::transmute(Rc::downgrade(&world)));
+            World { world, raw }
+        }
+    }
+
+    pub fn create() -> World<C> {
         unsafe {
             let raw = ffi::NewtonCreate();
 
-            NewtonWorld {
+            World {
                 world: Rc::new(NewtonWorldPtr(raw, PhantomData)),
                 raw,
             }
@@ -31,9 +40,9 @@ where
     }
 
     // FIXME messy and not very flexible...
-    pub fn bodies_in_aabb(&self, min: C::Vector3, max: C::Vector3) -> Vec<NewtonBody<C>> {
+    pub fn bodies_in_aabb(&self, min: C::Vector, max: C::Vector) -> Vec<Body<C>> {
         unsafe {
-            let mut bodies = Vec::<NewtonBody<C>>::new();
+            let mut bodies = Vec::<Body<C>>::new();
             ffi::NewtonWorldForEachBodyInAABBDo(
                 self.raw,
                 mem::transmute(&min),
@@ -49,13 +58,13 @@ where
             body: *const ffi::NewtonBody,
             user_data: *const ::std::os::raw::c_void,
         ) -> i32 {
-            let bodies: &mut Vec<NewtonBody<C>> = mem::transmute(user_data);
+            let bodies: &mut Vec<Body<C>> = mem::transmute(user_data);
             let udata: Box<BodyUserData<C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
 
             match (Weak::upgrade(&udata.body), Weak::upgrade(&udata.collision)) {
                 (Some(body), Some(collision)) => {
                     let raw = body.0;
-                    bodies.push(NewtonBody {
+                    bodies.push(Body {
                         body,
                         collision,
                         raw,

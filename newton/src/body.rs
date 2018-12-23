@@ -5,8 +5,9 @@ use crate::userdata::*;
 use crate::NewtonConfig;
 
 use crate::collision::NewtonCollision;
-use crate::collision::{CollisionBox, CollisionCone, CollisionCylinder, CollisionSphere};
-use crate::world::NewtonWorld;
+use crate::collision::{Capsule, Cone, Cuboid, Cylinder, Sphere};
+use crate::world::World;
+use crate::Gravity;
 use std::marker::PhantomData;
 use std::mem;
 use std::rc::{Rc, Weak};
@@ -14,7 +15,7 @@ use std::time::Duration;
 
 /// A reference counted body
 #[derive(Debug, Clone)]
-pub struct NewtonBody<V> {
+pub struct Body<V> {
     pub(crate) collision: Rc<NewtonCollisionPtr<V>>,
     pub(crate) body: Rc<NewtonBodyPtr<V>>,
 
@@ -50,7 +51,6 @@ macro_rules! match_rule {
                     b.collision.clone(),
                 ),
             )+
-            _ => unimplemented!(),
         }
     };
     // used in `collision` method
@@ -60,7 +60,7 @@ macro_rules! match_rule {
     ) => {{
         match ffi::NewtonCollisionGetType($raw) {
             $(
-                $structi ::<C>::TYPE_ID => NewtonCollision:: $enumi ($structi {
+                $structi ::<A>::TYPE_ID => NewtonCollision:: $enumi ($structi {
                     collision: $selfi.collision.clone(),
                     raw: $raw,
                 }),
@@ -70,31 +70,32 @@ macro_rules! match_rule {
     }}
 }
 
-impl<C> NewtonBody<C>
+impl<A> Body<A>
 where
-    C: NewtonConfig,
+    A: NewtonConfig,
 {
-    pub fn new<N>(world: &NewtonWorld<C>, collision: N, matrix: C::Matrix4) -> Self
+    // TODO refactor this mess
+    pub fn from<C>(collision: C, matrix: A::Matrix) -> Self
     where
-        N: Into<NewtonCollision<C>>,
+        C: Into<NewtonCollision<A>>,
     {
         unsafe {
             let collision = collision.into();
-            let (raw, collision) = match_rule! { (collision, world, matrix) =>
-                Box,
-                Sphere,
-                Cone,
-                Cylinder
-            };
+            let collision = collision.pointer().clone(); // Rc<CollisionPtr>
 
-            let body = Rc::new(NewtonBodyPtr(raw, world.world.clone()));
+            let raw =
+                ffi::NewtonCreateDynamicBody((collision.1).0, collision.0, mem::transmute(&matrix));
+            let body = Rc::new(NewtonBodyPtr(raw, (collision.1).clone()));
+
             let datum = Box::new(BodyUserData {
                 body: Rc::downgrade(&body),
                 collision: Rc::downgrade(&collision),
             });
 
             ffi::NewtonBodySetUserData(raw, mem::transmute(datum));
-            NewtonBody {
+            ffi::NewtonBodySetForceAndTorqueCallback(raw, Some(force_torque_callback::<A>));
+
+            Body {
                 collision,
                 body,
                 raw,
@@ -102,15 +103,16 @@ where
         }
     }
 
-    pub fn collision(&self) -> NewtonCollision<C> {
+    pub fn collision(&self) -> NewtonCollision<A> {
         unsafe {
             let raw = ffi::NewtonBodyGetCollision(self.raw);
 
             match_rule! { (self, raw) =>
-                Box -> CollisionBox,
-                Sphere -> CollisionSphere,
-                Cone -> CollisionCone,
-                Cylinder -> CollisionCylinder,
+                Box -> Cuboid,
+                Sphere -> Sphere,
+                Cone -> Cone,
+                Cylinder -> Cylinder,
+                Capsule -> Capsule,
             }
         }
     }
@@ -118,15 +120,6 @@ where
     pub fn set_mass(&self, mass: f32) {
         unsafe {
             ffi::NewtonBodySetMassProperties(self.raw, mass, ffi::NewtonBodyGetCollision(self.raw));
-        }
-    }
-
-    pub fn set_update<F>(&self)
-    where
-        F: callback::ForceAndTorque<C>,
-    {
-        unsafe {
-            ffi::NewtonBodySetForceAndTorqueCallback(self.raw, Some(force_torque_callback::<C, F>));
         }
     }
 
@@ -147,7 +140,7 @@ where
         }
     }
 
-    pub fn matrix(&self) -> C::Matrix4 {
+    pub fn matrix(&self) -> A::Matrix {
         unsafe {
             let mut mat = mem::zeroed();
             ffi::NewtonBodyGetMatrix(self.raw, mem::transmute(&mut mat));
@@ -155,7 +148,7 @@ where
         }
     }
 
-    pub fn set_force(&self, force: C::Vector3) {
+    pub fn set_force(&self, force: A::Vector) {
         unsafe { ffi::NewtonBodySetForce(self.raw, mem::transmute(&force)) }
     }
 
@@ -163,7 +156,7 @@ where
         unsafe { ffi::NewtonBodySetLinearDamping(self.raw, damp) }
     }
 
-    pub fn center_of_mass(&self) -> C::Vector3 {
+    pub fn center_of_mass(&self) -> A::Vector {
         unsafe {
             unsafe {
                 let mut pos = mem::zeroed();
@@ -173,7 +166,7 @@ where
         }
     }
 
-    pub fn position(&self) -> C::Vector3 {
+    pub fn position(&self) -> A::Vector {
         unsafe {
             let mut pos = mem::zeroed();
             ffi::NewtonBodyGetPosition(self.raw, mem::transmute(&mut pos));
@@ -181,7 +174,7 @@ where
         }
     }
 
-    pub fn point_velocity(&self, point: C::Vector3) -> C::Vector3 {
+    pub fn point_velocity(&self, point: A::Vector) -> A::Vector {
         unsafe {
             let mut v = mem::zeroed();
             ffi::NewtonBodyGetPointVelocity(
@@ -193,7 +186,7 @@ where
         }
     }
 
-    pub fn linear_velocity(&self) -> C::Vector3 {
+    pub fn linear_velocity(&self) -> A::Vector {
         unsafe {
             let mut v = mem::zeroed();
             ffi::NewtonBodyGetVelocity(self.raw, mem::transmute(&mut v));
@@ -201,7 +194,7 @@ where
         }
     }
 
-    pub fn rotation(&self) -> C::Quaternion {
+    pub fn rotation(&self) -> A::Quaternion {
         unsafe {
             let mut rotation = mem::zeroed();
             ffi::NewtonBodyGetRotation(self.raw, mem::transmute(&mut rotation));
@@ -209,10 +202,10 @@ where
         }
     }
 
-    pub fn aabb(&self) -> (C::Vector3, C::Vector3) {
+    pub fn aabb(&self) -> (A::Vector, A::Vector) {
         unsafe {
-            let mut p0: C::Vector3 = mem::zeroed();
-            let mut p1: C::Vector3 = mem::zeroed();
+            let mut p0: A::Vector = mem::zeroed();
+            let mut p1: A::Vector = mem::zeroed();
             ffi::NewtonBodyGetAABB(self.raw, mem::transmute(&mut p0), mem::transmute(&mut p1));
             (p0, p1)
         }
@@ -225,17 +218,22 @@ where
     pub fn sleep_state(&self) -> SleepState {
         unsafe { mem::transmute(ffi::NewtonBodyGetSleepState(self.raw)) }
     }
+
+    pub fn as_raw(&self) -> *const ffi::NewtonBody {
+        self.raw
+    }
 }
 
-extern "C" fn force_torque_callback<V, C>(
+extern "C" fn force_torque_callback<V>(
     body: *const ffi::NewtonBody,
     timestep: f32,
     _thread_idx: i32,
 ) where
     V: NewtonConfig,
-    C: callback::ForceAndTorque<V>,
 {
     unsafe {
+        ffi::NewtonBodySetForce(body, [0.0, -10.0, 0.0].as_ptr());
+        /*
         let udata: Box<BodyUserData<V>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
         match (Weak::upgrade(&udata.body), Weak::upgrade(&udata.collision)) {
             (Some(body), Some(collision)) => {
@@ -254,5 +252,6 @@ extern "C" fn force_torque_callback<V, C>(
         }
 
         mem::forget(udata);
+        */
     }
 }

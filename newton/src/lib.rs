@@ -10,22 +10,26 @@ pub mod joint;
 pub mod mesh;
 pub mod world;
 
-pub use crate::body::{Mass, NewtonBody, SleepState};
+// TODO kill
 pub use crate::callback::{DoNothing, Gravity};
-pub use crate::world::NewtonWorld;
+
+pub use crate::body::{Body, Mass, SleepState};
+pub use crate::world::World;
+
+pub use crate::collision::Capsule;
+pub use crate::collision::Cone;
+pub use crate::collision::Cuboid;
+pub use crate::collision::Cylinder;
+pub use crate::collision::Sphere;
 
 /// Trait to adapt the types returned by the Newton APIs to each application.
 ///
 /// This trait is marked `unsafe` because the Rust compiler may change the memory layout of the types.
 pub unsafe trait NewtonConfig: std::fmt::Debug {
-    /// Default gravity
-    const GRAVITY: Self::Vector3;
     /// 3D vector type.
-    type Vector3: Copy;
-    /// 4D vector type
-    type Vector4: Copy;
+    type Vector: Copy;
     /// 4x4 Matrix type
-    type Matrix4: Copy;
+    type Matrix: Copy;
     /// Quaternion type
     type Quaternion: Copy;
 }
