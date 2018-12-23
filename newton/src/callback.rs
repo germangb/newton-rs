@@ -1,11 +1,11 @@
-use crate::body::Body;
+use crate::body::DynamicBody;
 use crate::NewtonApp;
 
 use std::time::Duration;
 
 /// Implementation of the `ffi::NewtonApplyForceAndTorque` callback
 pub trait ForceAndTorque<V> {
-    fn force_and_torque(body: Body<V>, step: Duration);
+    fn force_and_torque(body: DynamicBody<V>, step: Duration);
 }
 
 /// Force and torque callback where gravity is applied to the body.
@@ -19,11 +19,11 @@ where
     V: NewtonApp,
 {
     // TODO use generic to multiply mass
-    fn force_and_torque(body: Body<V>, _: Duration) {
+    fn force_and_torque(body: DynamicBody<V>, _: Duration) {
         //body.set_force(V::GRAVITY)
     }
 }
 
 impl<V> ForceAndTorque<V> for DoNothing {
-    fn force_and_torque(_: Body<V>, _: Duration) {}
+    fn force_and_torque(_: DynamicBody<V>, _: Duration) {}
 }

@@ -9,19 +9,34 @@ pub mod callback;
 pub mod collision;
 pub mod joint;
 pub mod mesh;
+pub mod prelude;
 pub mod world;
 
 // TODO kill
 pub use crate::callback::{DoNothing, Gravity};
 
-pub use crate::body::{Body, Mass, SleepState};
+pub use crate::body::Body;
+pub use crate::body::DynamicBody;
+pub use crate::body::KinematicBody;
+pub use crate::body::{Mass, SleepState};
+
+pub use crate::world::BroadPhaseAlgorithm;
 pub use crate::world::World;
 
 pub use crate::collision::BoxCollision;
 pub use crate::collision::CapsuleCollision;
+pub use crate::collision::Collision;
 pub use crate::collision::ConeCollision;
 pub use crate::collision::CylinderCollision;
+pub use crate::collision::HeightFieldCollision;
 pub use crate::collision::SphereCollision;
+
+pub use crate::joint::BallJoint;
+pub use crate::joint::CorkscrewJoint;
+pub use crate::joint::HingeJoint;
+pub use crate::joint::SliderJoint;
+pub use crate::joint::UniversalJoint;
+pub use crate::joint::UpVectorJoint;
 
 /// Trait to adapt the types returned by the Newton APIs to each application.
 ///

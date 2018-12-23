@@ -1,6 +1,7 @@
 use ffi;
 
 use crate::body::Body;
+use crate::body::DynamicBody;
 use crate::pointer::*;
 use crate::world::World;
 use crate::NewtonApp;
@@ -33,11 +34,17 @@ constraints! {
 
     #[derive(Debug, Clone)]
     pub struct SliderJoint<C>;
+
+    #[derive(Debug, Clone)]
+    pub struct UniversalJoint<C>;
+
+    #[derive(Debug, Clone)]
+    pub struct UpVectorJoint<C>;
 }
 
 macro_rules! joint_method {
     (fn new( $($vec:ident),+ ) -> ffi:: $ffi:ident) => {
-        pub fn new(child: &Body<C>, parent: &Body<C>, $($vec: C::Vector),+ ) -> Self {
+        pub fn new(child: &DynamicBody<C>, parent: &DynamicBody<C>, $($vec: C::Vector),+ ) -> Self {
             unsafe {
                 let raw = ffi::$ffi(
                     (child.body.1).0,
@@ -54,6 +61,36 @@ macro_rules! joint_method {
                     raw,
                 }
             }
+        }
+        pub fn forget(self) {
+            unimplemented!()
+        }
+        fn valid(&self) -> bool {
+            let parent = Weak::upgrade(&self.joint.1);
+            let child = Weak::upgrade(&self.joint.2);
+            parent.and(child).is_some()
+        }
+    };
+    (single fn new( $($vec:ident),+ ) -> ffi:: $ffi:ident) => {
+        pub fn new(body: &DynamicBody<C>, $($vec: C::Vector),+ ) -> Self {
+            unsafe {
+                let raw = ffi::$ffi(
+                    (body.body.1).0,
+                    $(mem::transmute(&$vec),)+
+                    body.raw,
+                );
+                Self {
+                    joint: Rc::new(NewtonJointPtr(
+                        raw,
+                        Rc::downgrade(&body.body),
+                        Rc::downgrade(&body.body),
+                    )),
+                    raw,
+                }
+            }
+        }
+        pub fn forget(self) {
+            unimplemented!()
         }
         fn valid(&self) -> bool {
             let parent = Weak::upgrade(&self.joint.1);
@@ -113,9 +150,21 @@ impl<C: NewtonApp> CorkscrewJoint<C> {
     joint_method!(fn angle(&self) -> ffi::NewtonCorkscrewGetJointAngle);
     joint_method!(fn omega(&self) -> ffi::NewtonCorkscrewGetJointOmega);
     joint_method!(euler fn force(&self) -> ffi::NewtonCorkscrewGetJointForce);
+    joint_method!(fn posit(&self) -> ffi::NewtonCorkscrewGetJointPosit);
+    joint_method!(fn veloc(&self) -> ffi::NewtonCorkscrewGetJointVeloc);
 }
 
 impl<C: NewtonApp> SliderJoint<C> {
     joint_method!(fn new(pivot, pin_dir) -> ffi::NewtonConstraintCreateSlider);
     joint_method!(euler fn force(&self) -> ffi::NewtonSliderGetJointForce);
+    joint_method!(fn posit(&self) -> ffi::NewtonSliderGetJointPosit);
+    joint_method!(fn veloc(&self) -> ffi::NewtonSliderGetJointVeloc);
+}
+
+impl<C: NewtonApp> UniversalJoint<C> {
+    joint_method!(fn new(pivot, pin_dir0, pin_dir1) -> ffi::NewtonConstraintCreateUniversal);
+}
+
+impl<C: NewtonApp> UpVectorJoint<C> {
+    joint_method!(single fn new(pin_dir) -> ffi::NewtonConstraintCreateUpVector);
 }

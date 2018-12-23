@@ -1,6 +1,6 @@
 use ffi;
 
-use crate::body::{self, Body};
+use crate::body::{self, DynamicBody};
 use crate::pointer::*;
 use crate::userdata::*;
 use crate::NewtonApp;
@@ -16,13 +16,21 @@ pub struct World<C> {
     pub(crate) raw: *mut ffi::NewtonWorld,
 }
 
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum BroadPhaseAlgorithm {
+    Default = ffi::NEWTON_BROADPHASE_DEFAULT as i32,
+    Persistent = ffi::NEWTON_BROADPHASE_PERSINTENT as i32,
+}
+
 impl<C> World<C>
 where
     C: NewtonApp,
 {
-    pub fn new(app: C) -> Self {
+    pub fn new(algorithm: BroadPhaseAlgorithm, app: C) -> Self {
         unsafe {
             let raw = ffi::NewtonCreate();
+            ffi::NewtonSelectBroadphaseAlgorithm(raw, mem::transmute(algorithm));
             let world = Rc::new(NewtonWorldPtr(raw, PhantomData));
             ffi::NewtonWorldSetUserData(raw, mem::transmute(Rc::downgrade(&world)));
             World { world, raw }
@@ -41,9 +49,9 @@ where
     }
 
     // FIXME messy and not very flexible...
-    pub fn bodies_in_aabb(&self, min: C::Vector, max: C::Vector) -> Vec<Body<C>> {
+    pub fn bodies_in_aabb(&self, min: C::Vector, max: C::Vector) -> Vec<DynamicBody<C>> {
         unsafe {
-            let mut bodies = Vec::<Body<C>>::new();
+            let mut bodies = Vec::<DynamicBody<C>>::new();
             ffi::NewtonWorldForEachBodyInAABBDo(
                 self.raw,
                 mem::transmute(&min),
@@ -59,13 +67,13 @@ where
             body: *const ffi::NewtonBody,
             user_data: *const ::std::os::raw::c_void,
         ) -> i32 {
-            let bodies: &mut Vec<Body<C>> = mem::transmute(user_data);
+            let bodies: &mut Vec<DynamicBody<C>> = mem::transmute(user_data);
             let udata: Box<BodyUserData<C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
 
             match (Weak::upgrade(&udata.body), Weak::upgrade(&udata.collision)) {
                 (Some(body), Some(collision)) => {
                     let raw = body.0;
-                    bodies.push(Body {
+                    bodies.push(DynamicBody {
                         body,
                         collision,
                         raw,
@@ -95,5 +103,9 @@ where
 
     pub fn body_count(&self) -> usize {
         unsafe { ffi::NewtonWorldGetBodyCount(self.raw) as usize }
+    }
+
+    pub fn constraint_count(&self) -> usize {
+        unsafe { ffi::NewtonWorldGetConstraintCount(self.raw) as usize }
     }
 }

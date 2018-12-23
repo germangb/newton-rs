@@ -1,42 +1,41 @@
-#[macro_use]
-extern crate newton;
-
 use newton::sandbox::cgmath::prelude::*;
 use newton::sandbox::cgmath::*;
 
-use newton::sandbox::{Event, Sandbox, SandboxHandler};
+use newton::sandbox::{BallJoint, DynamicBody, Event, Handler, Keycode, Sandbox, UpVectorJoint};
 
-#[derive(Clone)]
-enum Either<A, B> {
-    A(A),
-    B(B),
+use newton::color;
+use newton::prelude::*;
+
+struct Input {
+    w: bool,
+    a: bool,
+    s: bool,
+    d: bool,
 }
 
-struct Example {}
+struct Example {
+    input: Input,
+    capsule: DynamicBody,
+    up: Option<UpVectorJoint>,
+}
 
-impl SandboxHandler for Example {}
+impl Handler for Example {
+    fn post_update(&mut self) {
+        self.capsule.awake();
+    }
+}
 
 fn main() {
     let mut sandbox = sandbox();
 
     let transform = [(-0.51_f32, -0.41_f32), (-0.25, 0.17), (0.35, -0.12)];
 
+    let world = sandbox.world();
+
     let collision = [
-        Either::A(newton::BoxCollision::new(
-            sandbox.world(),
-            1.0,
-            1.0,
-            1.0,
-            0,
-            None,
-        )),
-        Either::B(newton::ConeCollision::new(
-            sandbox.world(),
-            1.0,
-            2.0,
-            0,
-            None,
-        )),
+        newton::BoxCollision::new(world, 1.0, 1.0, 1.0, 0, None).into_collision(),
+        newton::ConeCollision::new(world, 1.0, 2.0, 0, None).into_collision(),
+        newton::SphereCollision::new(world, 0.8, 0, None).into_collision(),
     ];
 
     let collision = collision.iter().cloned().cycle();
@@ -44,30 +43,64 @@ fn main() {
         .iter()
         .cycle()
         .enumerate()
-        .map(|(i, (x, z))| Vector3::new(*x, (i as f32) * 1.5 + 4.0, *z))
+        .map(|(i, (x, z))| Vector3::new(*x, (i as f32) * 1.5 + 8.0, *z))
         .map(Matrix4::from_translation);
 
     let mut bodies: Vec<_> = collision
         .zip(transform)
-        .take(16)
+        .take(24)
         .map(|(c, m)| {
-            let body = match c {
-                Either::A(cuboid) => newton::Body::from(cuboid, m),
-                Either::B(cone) => newton::Body::from(cone, m),
-            };
+            let body = newton::DynamicBody::from(c, m);
             body.set_mass(1.0);
             body
         })
         .collect();
 
     let floor = newton::BoxCollision::new(sandbox.world(), 16.0, 1.0, 16.0, 0, None);
-    bodies.push(newton::Body::from(floor, Matrix4::identity()));
+    //let floor = newton::DynamicBody::from(floor, Matrix4::identity());
+    //bodies.push(floor);
 
-    sandbox.run(bodies);
+    // heightfield
+    let mut params = newton::collision::HeightFieldParams::<f32>::new(32, 32);
+    params.set_vertical_scale(0.0);
+    //params.set_horizontal_scale(8.0, 8.0);
+    let heightfield = newton::HeightFieldCollision::new(
+        &world,
+        params,
+        0,
+        Some(Matrix4::from_translation(Vector3::new(-16.0, 0.0, -16.0))),
+    );
+
+    let heightfield = newton::DynamicBody::from(heightfield, Matrix4::identity());
+    heightfield.set_mass(1.0);
+    bodies.push(heightfield);
+
+    let capsule = newton::CapsuleCollision::new(sandbox.world(), 1.0, 1.0, 1.0, 0, None);
+    let t =
+        Matrix4::from_translation(Vector3::new(4.0, 4.0, 0.0)) * Matrix4::from_angle_z(Deg(45.0));
+    let capsule = DynamicBody::from(capsule, t);
+    bodies.push(capsule.clone());
+
+    let up = newton::UpVectorJoint::new(&capsule, Vector3::new(0.0, 1.0, 0.0));
+
+    capsule.set_mass(1.0);
+    sandbox.run(
+        bodies,
+        Example {
+            capsule,
+            up: Some(up),
+            input: Input {
+                w: false,
+                a: false,
+                s: false,
+                d: false,
+            },
+        },
+    );
 }
 
 fn sandbox() -> Sandbox {
-    let mut sandbox = Sandbox::new(Example {});
+    let mut sandbox = Sandbox::new();
 
     sandbox
         .window_size(1280, 666)

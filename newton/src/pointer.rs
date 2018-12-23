@@ -41,7 +41,14 @@ impl<C> Drop for NewtonBodyPtr<C> {
 
 impl<V> Drop for NewtonCollisionPtr<V> {
     fn drop(&mut self) {
-        unsafe { ffi::NewtonDestroyCollision(self.0) }
+        unsafe {
+            let ptr = ffi::NewtonCollisionGetUserData(self.0);
+            if !ptr.is_null() {
+                /// TODO FIXME standarize what is saved as userdata!!
+                let _: Box<crate::collision::HeightFieldParams<f32>> = Box::from_raw(ptr as _);
+            }
+            ffi::NewtonDestroyCollision(self.0);
+        }
     }
 }
 

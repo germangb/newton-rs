@@ -7,10 +7,13 @@ use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 use crate::collision::Collision;
-use crate::Body;
 use crate::NewtonApp;
 use crate::SleepState;
+
+/*
+use crate::Body;
 use crate::World;
+*/
 
 use cgmath::prelude::*;
 use cgmath::Angle;
@@ -23,6 +26,7 @@ use imgui::{ImGui, ImGuiCond, ImStr, ImString, Ui};
 
 pub use cgmath;
 pub use imgui;
+//pub use sdl2::event;
 
 pub use self::renderer::Color;
 
@@ -35,7 +39,25 @@ unsafe impl NewtonApp for SandboxApp {
     type Quaternion = Quaternion<f32>;
 }
 
-pub trait SandboxHandler {
+pub type World = crate::World<SandboxApp>;
+pub type DynamicBody = crate::DynamicBody<SandboxApp>;
+
+pub type BoxCollision = crate::BoxCollision<SandboxApp>;
+pub type SphereCollision = crate::SphereCollision<SandboxApp>;
+pub type CapsuleCollision = crate::CapsuleCollision<SandboxApp>;
+pub type CylinderCollision = crate::CylinderCollision<SandboxApp>;
+pub type ConeCollision = crate::ConeCollision<SandboxApp>;
+
+pub type BallJoint = crate::BallJoint<SandboxApp>;
+pub type SliderJoint = crate::SliderJoint<SandboxApp>;
+pub type HingeJoint = crate::HingeJoint<SandboxApp>;
+pub type UniversalJoint = crate::UniversalJoint<SandboxApp>;
+pub type CorkscrewJoint = crate::CorkscrewJoint<SandboxApp>;
+pub type UpVectorJoint = crate::UpVectorJoint<SandboxApp>;
+
+pub trait Handler {
+    fn pre_update(&mut self) {}
+    fn post_update(&mut self) {}
     fn event(&mut self, event: &Event) {}
 }
 
@@ -59,13 +81,13 @@ macro_rules! color {
 
 pub use sdl2::event::Event;
 pub use sdl2::event::WindowEvent;
-pub use sdl2::keyboard::{Keycode, Mod, Scancode};
+pub use sdl2::keyboard::{Keycode, Scancode};
 pub use sdl2::mouse::MouseButton;
 use std::collections::HashMap;
 
 pub struct Sandbox {
-    handler: Box<SandboxHandler>,
-    world: World<SandboxApp>,
+    //handler: Box<Handler>,
+    world: crate::World<SandboxApp>,
 
     // camera movement
     mouse_down: bool,
@@ -99,10 +121,10 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    pub fn new<H: 'static + SandboxHandler>(handler: H) -> Self {
+    pub fn new() -> Self {
         Sandbox {
-            handler: Box::new(handler),
-            world: World::new(SandboxApp),
+            //handler: Box::new(handler),
+            world: crate::World::new(crate::BroadPhaseAlgorithm::Default, SandboxApp),
 
             mouse_down: false,
             radius: 24.0,
@@ -133,7 +155,7 @@ impl Sandbox {
         }
     }
 
-    pub fn world(&self) -> &World<SandboxApp> {
+    pub fn world(&self) -> &crate::World<SandboxApp> {
         &self.world
     }
 
@@ -177,7 +199,7 @@ impl Sandbox {
     fn render_aabb_(
         &self,
         renderer: &Renderer,
-        bodies: &[Body<SandboxApp>],
+        bodies: &[crate::DynamicBody<SandboxApp>],
         stats: &mut RenderStats,
     ) {
         for body in bodies.iter() {
@@ -201,7 +223,7 @@ impl Sandbox {
     fn render_bodies(
         &self,
         renderer: &Renderer,
-        bodies: &HashMap<*const (), Body<SandboxApp>>,
+        bodies: &HashMap<*const (), crate::DynamicBody<SandboxApp>>,
         mode: Mode,
         awake_color: Color,
         sleeping_color: Color,
@@ -280,6 +302,9 @@ impl Sandbox {
                         Some(stats),
                     );
                 }
+                _ => {
+                    eprintln!("unimplemented shape");
+                }
             }
         }
     }
@@ -295,6 +320,16 @@ impl Sandbox {
                 self.alpha -= Deg((*xrel as f32) * 0.5);
                 self.delta += Deg((*yrel as f32) * 0.5);
             }
+            (
+                _,
+                Event::Window {
+                    win_event: sdl2::event::WindowEvent::Resized(w, h),
+                    ..
+                },
+            ) => {
+                self.width = *w as _;
+                self.height = *h as _;
+            }
             (_, Event::KeyDown { .. }) => {
                 //self.handler.event(&self, event);
             }
@@ -302,13 +337,14 @@ impl Sandbox {
         }
     }
 
-    pub fn run(mut self, bodies: Vec<Body<SandboxApp>>) {
+    pub fn run<H: Handler>(mut self, bodies: Vec<crate::DynamicBody<SandboxApp>>, mut handler: H) {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
         let window = video_subsystem
             .window("Window", self.width as _, self.height as _)
             .opengl()
+            .resizable()
             .position_centered()
             .build()
             .unwrap();
@@ -323,11 +359,6 @@ impl Sandbox {
         gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as _);
 
         let renderer = get_renderer();
-
-        let aspect = (self.width as f32) / (self.height as f32);
-        let proj = perspective(Deg(55.0_f32), aspect, 0.01, 1000.0);
-
-        renderer.set_projection(proj);
 
         let mut imgui = ImGui::init();
         let mut imgui_sdl2 = imgui_sdl2::ImguiSdl2::new(&mut imgui);
@@ -356,7 +387,7 @@ impl Sandbox {
                     _ => {}
                 }
 
-                self.handler.event(&event);
+                handler.event(&event);
             }
 
             let bodies_map: HashMap<_, _> = bodies
@@ -367,10 +398,16 @@ impl Sandbox {
             if self.simulate {
                 let step = (1_000_000_000.0f32 / 60.0) * self.time_scale;
                 let step = Duration::new(0, step as u32);
-                self.world.update(step);
 
+                handler.pre_update();
+                self.world.update(step);
                 self.elapsed += step;
+                handler.post_update();
             }
+
+            let aspect = (self.width as f32) / (self.height as f32);
+            let proj = perspective(Deg(55.0_f32), aspect, 0.01, 1000.0);
+            renderer.set_projection(proj);
 
             let view = Matrix4::look_at(
                 Point3::new(
@@ -381,16 +418,16 @@ impl Sandbox {
                 Point3::new(0.0, 0.0, 0.0),
                 Vector3::new(0.0, 1.0, 0.0),
             );
-
-            renderer.reset(self.background);
+            renderer.set_view(view);
 
             unsafe {
+                gl::Viewport(0, 0, self.width as _, self.height as _);
                 gl::Enable(gl::DEPTH_TEST);
                 gl::Disable(gl::STENCIL_TEST);
                 gl::Disable(gl::SCISSOR_TEST);
             }
 
-            renderer.set_view(view);
+            renderer.reset(self.background);
 
             let mut stats = RenderStats {
                 tris: 0,
@@ -443,7 +480,7 @@ impl Sandbox {
     fn set_up_imgui(
         &mut self,
         ui: &imgui::Ui,
-        bodies: &Vec<Body<SandboxApp>>,
+        bodies: &Vec<crate::DynamicBody<SandboxApp>>,
         stats: &RenderStats,
     ) {
         ui.main_menu_bar(|| {
