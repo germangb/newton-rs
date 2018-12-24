@@ -48,12 +48,12 @@ pub type CapsuleCollision = crate::collision::CapsuleCollision<SandboxApp>;
 pub type CylinderCollision = crate::collision::CylinderCollision<SandboxApp>;
 pub type ConeCollision = crate::collision::ConeCollision<SandboxApp>;
 
-pub type BallJoint = crate::joint::BallJoint<SandboxApp>;
-pub type SliderJoint = crate::joint::SliderJoint<SandboxApp>;
-pub type HingeJoint = crate::joint::HingeJoint<SandboxApp>;
-pub type UniversalJoint = crate::joint::UniversalJoint<SandboxApp>;
-pub type CorkscrewJoint = crate::joint::CorkscrewJoint<SandboxApp>;
-pub type UpVectorJoint = crate::joint::UpVectorJoint<SandboxApp>;
+pub type BallJoint = crate::constraint::BallJoint<SandboxApp>;
+pub type SliderJoint = crate::constraint::SliderJoint<SandboxApp>;
+pub type HingeJoint = crate::constraint::HingeJoint<SandboxApp>;
+pub type UniversalJoint = crate::constraint::UniversalJoint<SandboxApp>;
+pub type CorkscrewJoint = crate::constraint::CorkscrewJoint<SandboxApp>;
+pub type UpVectorJoint = crate::constraint::UpVectorJoint<SandboxApp>;
 
 pub trait Handler {
     fn pre_update(&mut self) {}
@@ -332,7 +332,7 @@ impl Sandbox {
         }
     }
 
-    pub fn run<H: Handler>(mut self, bodies: Vec<DynamicBody>, mut handler: H) {
+    pub fn run<H: Handler>(mut self, mut handler: H) {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
@@ -384,6 +384,10 @@ impl Sandbox {
 
                 handler.event(&event);
             }
+
+            // get bodies
+            let bodies: Vec<DynamicBody> =
+                self.world.bodies().filter_map(|b| b.dynamic()).collect();
 
             let bodies_map: HashMap<_, _> = bodies
                 .iter()

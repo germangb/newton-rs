@@ -22,6 +22,16 @@ macro_rules! constraints {
     )+}
 }
 
+#[derive(Debug, Clone)]
+pub enum Contraints<C> {
+    Ball(BallJoint<C>),
+    Hinge(HingeJoint<C>),
+    Corkscrew(CorkscrewJoint<C>),
+    Slider(SliderJoint<C>),
+    Universal(UniversalJoint<C>),
+    UpVector(UpVectorJoint<C>),
+}
+
 constraints! {
     #[derive(Debug, Clone)]
     pub struct BallJoint<C>;
@@ -54,8 +64,13 @@ macro_rules! joint_method {
                     &$crate::body::Body::Dynamic($crate::body::DynamicBody { ref body, .. }) => body.clone(),
                     &$crate::body::Body::Kinematic($crate::body::KinematicBody { ref body, .. }) => body.clone(),
                 };
+
+                // TODO check/test type of borrow
+                // mutably borrow world
+                let world_mut = child_body_ref.1.borrow_mut();
+
                 let raw = ffi::$ffi(
-                    (child_body_ref.1).0,
+                    world_mut.0,
                     $(mem::transmute(&$vec),)+
                     child_body_ref.0,
                     parent_body_ref.0,
@@ -63,6 +78,7 @@ macro_rules! joint_method {
                 Self {
                     joint: Rc::new(NewtonJointPtr(
                         raw,
+                        parent_body_ref.1.clone(),
                         Rc::downgrade(&child_body_ref),
                         Rc::downgrade(&parent_body_ref),
                     )),
@@ -74,8 +90,8 @@ macro_rules! joint_method {
             unimplemented!()
         }
         fn valid(&self) -> bool {
-            let parent = Weak::upgrade(&self.joint.1);
-            let child = Weak::upgrade(&self.joint.2);
+            let parent = Weak::upgrade(&self.joint.2);
+            let child = Weak::upgrade(&self.joint.3);
             parent.and(child).is_some()
         }
     };
@@ -87,14 +103,19 @@ macro_rules! joint_method {
                     &$crate::body::Body::Kinematic($crate::body::KinematicBody { ref body, .. }) => body.clone(),
                 };
 
+                // TODO check/test type of borrow
+                // mutably borrow world
+                let world_mut = body_ref.1.borrow_mut();
+
                 let raw = ffi::$ffi(
-                    (body_ref.1).0,
+                    world_mut.0,
                     $(mem::transmute(&$vec),)+
                     body_ref.0,
                 );
                 Self {
                     joint: Rc::new(NewtonJointPtr(
                         raw,
+                        body_ref.1.clone(),
                         Rc::downgrade(&body_ref),
                         Rc::downgrade(&body_ref),
                     )),
@@ -106,8 +127,8 @@ macro_rules! joint_method {
             unimplemented!()
         }
         fn valid(&self) -> bool {
-            let parent = Weak::upgrade(&self.joint.1);
-            let child = Weak::upgrade(&self.joint.2);
+            let parent = Weak::upgrade(&self.joint.2);
+            let child = Weak::upgrade(&self.joint.3);
             parent.and(child).is_some()
         }
     };

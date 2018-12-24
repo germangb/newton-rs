@@ -29,10 +29,11 @@ impl<C: NewtonApp> HeightFieldCollision<C> {
         offset: Option<C::Matrix>,
     ) -> Self {
         unsafe {
-            let world_rc = world.world.clone();
+            let world_mut = world.world.borrow_mut();
+
             let params = Box::new(params);
             let collision_raw = ffi::NewtonCreateHeightFieldCollision(
-                world_rc.0,
+                world_mut.0,
                 params.width() as raw::c_int,
                 params.height() as raw::c_int,
                 // TODO parametrize
@@ -53,7 +54,7 @@ impl<C: NewtonApp> HeightFieldCollision<C> {
             );
 
             let collision = Self {
-                collision: Rc::new(NewtonCollisionPtr(collision_raw, world_rc)),
+                collision: Rc::new(NewtonCollisionPtr(collision_raw, world.world.clone())),
                 raw: collision_raw,
             };
 

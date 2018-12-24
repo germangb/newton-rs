@@ -1,10 +1,10 @@
 use ffi;
 
-use crate::body::{self, DynamicBody};
+use crate::body::{self, Bodies, DynamicBody};
 use crate::pointer::*;
-use crate::userdata::*;
 use crate::NewtonApp;
 
+use std::cell::RefCell;
 use std::marker::PhantomData;
 use std::rc::{Rc, Weak};
 use std::time::Duration;
@@ -12,8 +12,7 @@ use std::{mem, ptr};
 
 #[derive(Debug, Clone)]
 pub struct World<C> {
-    pub(crate) world: Rc<NewtonWorldPtr<C>>,
-    pub(crate) raw: *mut ffi::NewtonWorld,
+    pub(crate) world: Rc<RefCell<NewtonWorldPtr<C>>>,
 }
 
 #[repr(i32)]
@@ -23,89 +22,56 @@ pub enum BroadPhaseAlgorithm {
     Persistent = ffi::NEWTON_BROADPHASE_PERSINTENT as i32,
 }
 
-impl<C> World<C>
-where
-    C: NewtonApp,
-{
+impl<C: NewtonApp> World<C> {
     pub fn new(algorithm: BroadPhaseAlgorithm, app: C) -> Self {
-        unsafe {
+        let world = unsafe {
             let raw = ffi::NewtonCreate();
             ffi::NewtonSelectBroadphaseAlgorithm(raw, mem::transmute(algorithm));
-            let world = Rc::new(NewtonWorldPtr(raw, PhantomData));
+
+            let world = Rc::new(RefCell::new(NewtonWorldPtr(raw, PhantomData)));
             ffi::NewtonWorldSetUserData(raw, mem::transmute(Rc::downgrade(&world)));
-            World { world, raw }
-        }
+
+            world
+        };
+
+        World { world }
     }
 
-    pub fn create() -> World<C> {
+    pub fn bodies(&self) -> Bodies<C> {
+        let world = self.world.borrow();
+        let ptr = world.0;
         unsafe {
-            let raw = ffi::NewtonCreate();
-
-            World {
-                world: Rc::new(NewtonWorldPtr(raw, PhantomData)),
-                raw,
+            Bodies {
+                world,
+                world_ptr: ptr,
+                current: ffi::NewtonWorldGetFirstBody(ptr),
+                _ph: PhantomData,
             }
-        }
-    }
-
-    // FIXME messy and not very flexible...
-    pub fn bodies_in_aabb(&self, min: C::Vector, max: C::Vector) -> Vec<DynamicBody<C>> {
-        unsafe {
-            let mut bodies = Vec::<DynamicBody<C>>::new();
-            ffi::NewtonWorldForEachBodyInAABBDo(
-                self.raw,
-                mem::transmute(&min),
-                mem::transmute(&max),
-                Some(bodies_in_aabb::<C>),
-                mem::transmute(&mut bodies),
-            );
-
-            return bodies;
-        }
-
-        unsafe extern "C" fn bodies_in_aabb<C>(
-            body: *const ffi::NewtonBody,
-            user_data: *const ::std::os::raw::c_void,
-        ) -> i32 {
-            let bodies: &mut Vec<DynamicBody<C>> = mem::transmute(user_data);
-            let udata: Box<BodyUserData<C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
-
-            match (Weak::upgrade(&udata.body), Weak::upgrade(&udata.collision)) {
-                (Some(body), Some(collision)) => {
-                    let raw = body.0;
-                    bodies.push(DynamicBody {
-                        body,
-                        collision,
-                        raw,
-                    });
-                }
-                _ => {}
-            }
-
-            //mem::forget(bodies);
-            mem::forget(udata);
-            1
         }
     }
 
     pub fn update(&self, step: Duration) {
+        let world = self.world.borrow_mut();
+        let secs = step.as_secs() as f64 + (step.subsec_nanos() as f64) / 1_000_000_000_f64;
         unsafe {
-            let secs = step.as_secs() as f64 + (step.subsec_nanos() as f64) / 1_000_000_000_f64;
-            ffi::NewtonUpdate(self.raw, secs as f32);
+            ffi::NewtonUpdate(world.0, secs as f32);
         }
     }
 
     pub fn set_substeps(&self, steps: usize) {
+        let world = self.world.borrow();
         unsafe {
-            ffi::NewtonSetNumberOfSubsteps(self.raw, steps as _);
+            ffi::NewtonSetNumberOfSubsteps(world.0, steps as _);
         }
     }
 
     pub fn body_count(&self) -> usize {
-        unsafe { ffi::NewtonWorldGetBodyCount(self.raw) as usize }
+        let world = self.world.borrow();
+        unsafe { ffi::NewtonWorldGetBodyCount(world.0) as usize }
     }
 
     pub fn constraint_count(&self) -> usize {
-        unsafe { ffi::NewtonWorldGetConstraintCount(self.raw) as usize }
+        let world = self.world.borrow();
+        unsafe { ffi::NewtonWorldGetConstraintCount(world.0) as usize }
     }
 }

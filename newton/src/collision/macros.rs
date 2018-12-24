@@ -17,6 +17,13 @@ macro_rules! collision_enum {
         }
 
         impl<$gen: $crate::NewtonApp> $typee<$gen> {
+            pub fn as_raw(&self) -> *const ffi::NewtonCollision {
+                match &self {
+                    $(
+                        &$crate::collision::Collision::$enumm (ref c) => c.raw,
+                    )+
+                }
+            }
             pub(crate) fn pointer(&self) -> &Rc<$crate::pointer::NewtonCollisionPtr<$gen>> {
                 match &self {
                     $(
@@ -62,17 +69,21 @@ macro_rules! collision_methods {
             offset: Option<C::Matrix>,
         ) -> Self {
             unsafe {
+                // TODO check type of borrow
+                let world_mut = world.world.borrow_mut();
+
                 let raw = ffi::$ffi(
-                    world.raw,
+                    world_mut.0,
                     $($param ,)+
                     shape_id,
                     ::std::mem::transmute(offset.as_ref()),
                 );
-                let collision = ::std::rc::Rc::new(NewtonCollisionPtr(raw, world.world.clone()));
+                let world = world.world.clone();
+                let collision = ::std::rc::Rc::new(NewtonCollisionPtr(raw, world));
                 Self { collision, raw }
             }
         }
-        pub fn as_raw(&self) -> *mut ffi::NewtonCollision {
+        pub fn as_raw(&self) -> *const ffi::NewtonCollision {
             self.raw
         }
     };
