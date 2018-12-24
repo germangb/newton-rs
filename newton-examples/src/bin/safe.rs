@@ -1,11 +1,53 @@
-extern crate newton;
+use newton::newton2::{Application, Types};
+use newton::newton2::world::World;
+use newton::newton2::collision::BoxCollision;
+use newton::newton2::body::DynamicBody;
 
 use std::time::Duration;
+use std::cell::RefMut;
 
-use newton::sandbox::{cgmath::prelude::*, cgmath::Matrix4, cgmath::Vector3, SandboxApp};
+use cgmath::Matrix4;
+use cgmath::prelude::*;
 
-use newton::prelude::*;
+#[derive(Debug)]
+struct App;
+impl Types for App {
+    type Vector = [f32; 3];
+    type Matrix = Matrix4<f32>;
+    type Quaternion = [f32; 4];
+}
+impl Application for App {
+    type Types = Self;
+}
 
+fn main() {
+    let world = World::<App>::new();
+    let collision = BoxCollision::new(world.borrow_mut(), 1.0, 1.0, 1.0, 0, None);
+
+    {
+        let c = collision.borrow();
+        let w = world.borrow();
+    }
+
+    // panic!
+    {
+        let w = world.borrow_mut();
+        //let c = collision.borrow();
+    }
+
+    {
+        let collision = BoxCollision::new(world.borrow_mut(), 1.0, 1.0, 1.0, 0, None);
+        let c = collision.borrow_mut();
+        let body = DynamicBody::new(c, &Matrix4::identity());
+
+        println!("bodies: {:?}", world.borrow().body_count());
+    }
+
+    println!("bodies: {:?}", world.borrow().body_count());
+
+}
+
+#[cfg(mockup)]
 fn main() {
     // We can't perform API calls on this type
     let world: World = World::new(BroadPhaseAlgorithm::Default, SandboxApp);
@@ -15,7 +57,7 @@ fn main() {
         let world_mut: RefMut<WorldInner> = world.borrow_mut();
 
         // So we can update simulation data like this:
-        // signature: BoxCollision::new()
+        // signature: BoxCollision::new(&mut WorldInner, ...)
 
         BoxCollision::new(&world_mut, 1.0, 1.0, 1.0, None)
     };
@@ -62,5 +104,24 @@ fn main() {
     // }
 
     // create a new body
-    let collision = DynamicBody::new(&)
+    //
+    // signature: DynamicBody::new(&mut Collision)
+    //
+    // We will need to store some data in the collision userdatum...
+    let body = DynamicBody::new(collision.borrow_mut(), Matrix4::identity());
+
+    {
+        let body = body.borrow_mut();
+        body.awake();
+        body.set_matrix(..);
+    }
+
+    for joint in body.borrow().joints() {
+        // ...
+
+        // panic!
+        // world.borrow_mut()
+
+        // world holds the guard...
+    }
 }
