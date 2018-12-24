@@ -1,7 +1,6 @@
 pub mod world;
 pub mod body;
 pub mod collision;
-//pub mod cell;
 
 use std::fmt::Debug;
 
