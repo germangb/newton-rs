@@ -48,7 +48,7 @@ fn main() {
 
     let mut bodies: Vec<_> = collision
         .zip(transform)
-        .take(24)
+        .take(128)
         .map(|(c, m)| {
             let body = newton::body::DynamicBody::new(c, m);
             body.set_mass(1.0);

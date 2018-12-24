@@ -150,21 +150,6 @@ pub enum SleepState {
     Sleeping = 1,
 }
 
-macro_rules! match_rule {
-    (
-        ( $collision:ident , $world:ident, $matrix:ident ) => $( $var:ident ),+
-    ) => {
-        match &$collision {
-            $(
-                &NewtonCollision::$var(ref b) => (
-                    ffi::NewtonCreateDynamicBody($world.raw, b.raw, mem::transmute(&$matrix)),
-                    b.collision.clone(),
-                ),
-            )+
-        }
-    };
-}
-
 macro_rules! impl_body {
     ($type:ident) => {
         impl<A> $type<A>

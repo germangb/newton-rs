@@ -7,38 +7,60 @@ use newton::sandbox::{cgmath::prelude::*, cgmath::Matrix4, cgmath::Vector3, Sand
 use newton::prelude::*;
 
 fn main() {
-    let world = World::new(BroadPhaseAlgorithm::Default, SandboxApp);
+    // We can't perform API calls on this type
+    let world: World = World::new(BroadPhaseAlgorithm::Default, SandboxApp);
 
-    // create a collision shape
-    let shape = BoxCollision::new(&world, 1.0, 1.0, 1.0, 0, None);
+    let collision = {
+        // Instead we need to borrow it like this:
+        let world_mut: RefMut<WorldInner> = world.borrow_mut();
 
-    // create a few bodies..
-    let body_a = DynamicBody::new(shape.clone(), Matrix4::identity());
-    let body_b = KinematicBody::new(shape, Matrix4::identity());
+        // So we can update simulation data like this:
+        // signature: BoxCollision::new()
 
-    // Create a joint
+        BoxCollision::new(&world_mut, 1.0, 1.0, 1.0, None)
+    };
+
+    // ... TODO create collision & body
+    let body;
+
+    // transform body
     {
-        let body = body_a.clone().into_body();
-        let j = UpVectorJoint::new(&body, Vector3::new(0.0, 1.0, 0.0));
-        assert_eq!(1, world.constraint_count());
+        let body = body.borrow_mut();
+
+        body.set_matrix(identity);
+        body.awake();
+        body.set_mass(1.0);
     }
 
-    assert_eq!(0, world.constraint_count());
+    // iterate world bodies
+    for (i, body) in world.borrow().bodies() {
+        let body = body.borrow();
 
-    // heightfield
-    let params = HeightFieldParams::<f32>::new(16, 16);
-    let heightfield = HeightFieldCollision::new(&world, params, 0, None);
-    let heightfield = DynamicBody::new(heightfield, Matrix4::identity());
+        println!("Position: {:?}", body.position());
+        println!("Rotation: {:?}", body.rotation());
 
-    for body in world.bodies() {
-        println!("{}", world.body_count());
-        println!("{}", world.body_count() + 1);
-        println!("{}", world.body_count() + 2);
-        println!("{:?}", body);
-
-        for body in world.bodies() {}
-        //world.update(Duration::new(1, 0));
+        // panic!
+        // body.set_position( ... );
     }
 
-    world.update(Duration::new(1, 0));
+    // Updating the world
+    //
+    // {
+    //     // this would panic!
+    //
+    //     let b = body.borrow();
+    //     world.bottow_mut().step(Duration::new(1, 0));
+    // }
+    {
+        world.borrow_mut().update(Duration::new(1, 0));
+    }
+
+    // another panic
+    // {
+    //     let world = world.borrow_mut();
+    //     let iterator = world.bodies();
+    // }
+
+    // create a new body
+    let collision = DynamicBody::new(&)
 }
