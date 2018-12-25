@@ -61,7 +61,7 @@ impl<App> Collision<App> {
 impl<F: Types, App: Application<Types = F>> Collision<App> {
     // TODO FIXME indirections
     pub fn new(
-        world: WorldRefMut<App>,
+        world: &mut NewtonWorld<App>,
         params: CollisionParams,
         shape_id: ShapeId,
         offset: Option<&F::Matrix>,
@@ -91,7 +91,7 @@ impl<F: Types, App: Application<Types = F>> Collision<App> {
                     radius1,
                     height,
                 } => ffi::NewtonCreateCylinder(
-                    world.as_raw(),
+                    world.0,
                     radius0,
                     radius1,
                     height,
@@ -103,14 +103,14 @@ impl<F: Types, App: Application<Types = F>> Collision<App> {
                     radius1,
                     height,
                 } => ffi::NewtonCreateCapsule(
-                    world.as_raw(),
+                    world.0,
                     radius0,
                     radius1,
                     height,
                     shape_id,
                     offset,
                 ),
-                &CollisionParams::Null => ffi::NewtonCreateNull(world.as_raw()),
+                &CollisionParams::Null => ffi::NewtonCreateNull(world.0),
             }
         };
 
@@ -119,6 +119,7 @@ impl<F: Types, App: Application<Types = F>> Collision<App> {
         let collision = NewtonCollision {
             world: world_rc.clone(),
             collision: collision_raw,
+            world_raw: world.0,
         };
         let collision_rc = Rc::new(RefCell::new(collision));
 
@@ -154,6 +155,7 @@ impl<F: Types, App: Application<Types = F>> Collision<App> {
 pub struct NewtonCollision<App> {
     pub(crate) world: Rc<RefCell<NewtonWorld<App>>>,
     pub(crate) collision: *mut ffi::NewtonCollision,
+    pub(crate) world_raw: *mut ffi::NewtonWorld,
 }
 
 pub(crate) struct CollisionUserDataInner<App> {

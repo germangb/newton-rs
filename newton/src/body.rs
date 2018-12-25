@@ -44,7 +44,7 @@ impl<App> Body<App> {
 }
 
 impl<F: Types, App: Application<Types = F>> Body<App> {
-    pub fn new(collision: CollisionRefMut<App>, ty: BodyType, matrix: &F::Matrix) -> Self {
+    pub fn new(collision: &mut NewtonCollision<App>, ty: BodyType, matrix: &F::Matrix) -> Self {
         unsafe {
             // get refs from userdata
             let udata: Rc<CollisionUserDataInner<App>> =
@@ -54,10 +54,10 @@ impl<F: Types, App: Application<Types = F>> Body<App> {
             let transform = mem::transmute(matrix);
             let body_raw = match ty {
                 BodyType::Dynamic => {
-                    ffi::NewtonCreateDynamicBody(collision.2, collision.as_raw(), transform)
+                    ffi::NewtonCreateDynamicBody(collision.world_raw, collision.collision, transform)
                 }
                 BodyType::Kinematic => {
-                    ffi::NewtonCreateKinematicBody(collision.2, collision.as_raw(), transform)
+                    ffi::NewtonCreateKinematicBody(collision.world_raw, collision.collision, transform)
                 }
             };
 
@@ -258,7 +258,8 @@ impl<'w, 'b, App> DerefMut for BodyRefMut<'w, 'b, App> {
 impl<App> Drop for NewtonBody<App> {
     fn drop(&mut self) {
         if self.owned {
-            let _ = self.world.borrow_mut();
+            // TODO what to do here
+            //let _ = self.world.borrow_mut();
             unsafe {
                 let body = self.body;
                 let _: Rc<BodyUserDataInner<App>> =

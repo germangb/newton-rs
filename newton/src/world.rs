@@ -24,7 +24,7 @@ pub enum BroadphaseAlgorithm {
 pub struct World<App>(Rc<RefCell<NewtonWorld<App>>>, *mut ffi::NewtonWorld);
 
 #[derive(Debug)]
-pub struct NewtonWorld<App>(*mut ffi::NewtonWorld, PhantomData<App>);
+pub struct NewtonWorld<App>(pub(crate) *mut ffi::NewtonWorld, PhantomData<App>);
 
 #[derive(Debug)]
 pub struct WorldRef<'w, App>(
