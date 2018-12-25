@@ -6,63 +6,21 @@ use std::mem;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use crate::body::SleepState;
-use crate::collision::Collision;
-use crate::NewtonApp;
-
-/*
-use crate::Body;
-use crate::World;
-*/
-
 use cgmath::prelude::*;
 use cgmath::Angle;
-use cgmath::{perspective, Deg, Matrix4, Point3, Quaternion, Vector3};
+use cgmath::{perspective, vec3, Deg, Matrix4, Point3, Quaternion, Vector3};
 
 use self::renderer::{Mode, Primitive, RenderStats, Renderer};
 
 use imgui::im_str;
 use imgui::{ImGui, ImGuiCond, ImStr, ImString, Ui};
 
+pub use self::renderer::Color;
 pub use cgmath;
 pub use imgui;
-//pub use sdl2::event;
-
-pub use self::renderer::Color;
-
-#[doc(hidden)]
-#[derive(Debug, Clone)]
-pub struct SandboxApp;
-unsafe impl NewtonApp for SandboxApp {
-    type Vector = Vector3<f32>;
-    type Matrix = Matrix4<f32>;
-    type Quaternion = Quaternion<f32>;
-}
-
-pub type World = crate::world::World<SandboxApp>;
-pub type DynamicBody = crate::body::DynamicBody<SandboxApp>;
-
-pub type BoxCollision = crate::collision::BoxCollision<SandboxApp>;
-pub type SphereCollision = crate::collision::SphereCollision<SandboxApp>;
-pub type CapsuleCollision = crate::collision::CapsuleCollision<SandboxApp>;
-pub type CylinderCollision = crate::collision::CylinderCollision<SandboxApp>;
-pub type ConeCollision = crate::collision::ConeCollision<SandboxApp>;
-
-pub type BallJoint = crate::constraint::BallJoint<SandboxApp>;
-pub type SliderJoint = crate::constraint::SliderJoint<SandboxApp>;
-pub type HingeJoint = crate::constraint::HingeJoint<SandboxApp>;
-pub type UniversalJoint = crate::constraint::UniversalJoint<SandboxApp>;
-pub type CorkscrewJoint = crate::constraint::CorkscrewJoint<SandboxApp>;
-pub type UpVectorJoint = crate::constraint::UpVectorJoint<SandboxApp>;
-
-pub trait Handler {
-    fn pre_update(&mut self) {}
-    fn post_update(&mut self) {}
-    fn event(&mut self, event: &Event) {}
-}
 
 #[macro_export]
-macro_rules! color {
+macro_rules! rgba {
     ($r:expr, $g:expr, $b:expr, $a:expr) => {
         $crate::sandbox::Color {
             r: $r,
@@ -72,10 +30,10 @@ macro_rules! color {
         }
     };
     ($r:expr, $g:expr, $b:expr) => {
-        color!($r, $g, $b, 1.0)
+        rgba!($r, $g, $b, 1.0)
     };
     ($r:expr) => {
-        color!($r, $r, $r)
+        rgba!($r, $r, $r)
     };
 }
 
@@ -85,9 +43,30 @@ pub use sdl2::keyboard::{Keycode, Scancode};
 pub use sdl2::mouse::MouseButton;
 use std::collections::HashMap;
 
+use super::body::{Body, NewtonBody};
+use super::world::{BroadphaseAlgorithm, World};
+use super::{Application, Types};
+use super::body::SleepState;
+use super::collision::CollisionParams;
+
+pub enum SandboxTypes {}
+impl Types for SandboxTypes {
+    type Vector = Vector3<f32>;
+    type Matrix = Matrix4<f32>;
+    type Quaternion = ();
+}
+impl Application for Sandbox {
+    type Types = SandboxTypes;
+
+    fn force_and_torque(body: &mut NewtonBody<Self>) {
+        body.set_force(&vec3(0.0, -9.81, 0.0));
+    }
+}
+
+#[derive(Debug)]
 pub struct Sandbox {
     //handler: Box<Handler>,
-    world: World,
+    world: World<Sandbox>,
 
     // camera movement
     mouse_down: bool,
@@ -124,21 +103,21 @@ impl Sandbox {
     pub fn new() -> Self {
         Sandbox {
             //handler: Box::new(handler),
-            world: World::new(crate::world::BroadPhaseAlgorithm::Default, SandboxApp),
+            world: World::new(BroadphaseAlgorithm::Default),
 
             mouse_down: false,
             radius: 24.0,
             alpha: Deg(20.0),
             delta: Deg(30.0),
 
-            background: color!(1.0, 1.0, 1.0),
+            background: rgba!(1.0, 1.0, 1.0),
 
             simulate: false,
             elapsed: Duration::new(0, 0),
             time_scale: 1.0,
 
-            awake_color: color!(1.0, 0.5, 1.0),
-            sleep_color: color!(1.0, 1.0, 1.0),
+            awake_color: rgba!(1.0, 0.5, 1.0),
+            sleep_color: rgba!(1.0, 1.0, 1.0),
             lighting: true,
 
             width: 800,
@@ -155,7 +134,7 @@ impl Sandbox {
         }
     }
 
-    pub fn world(&self) -> &World {
+    pub fn world(&self) -> &World<Self> {
         &self.world
     }
 
@@ -196,8 +175,9 @@ impl Sandbox {
         self
     }
 
-    fn render_aabb_(&self, renderer: &Renderer, bodies: &[DynamicBody], stats: &mut RenderStats) {
+    fn render_aabb_(&self, renderer: &Renderer, bodies: &[Body<Self>], stats: &mut RenderStats) {
         for body in bodies.iter() {
+            let body = body.borrow();
             let (min, max) = body.aabb();
             let position = body.position();
 
@@ -208,99 +188,10 @@ impl Sandbox {
             renderer.render(
                 Primitive::Box,
                 Mode::Wireframe,
-                color!(0.0),
+                rgba!(0.0),
                 transform,
                 Some(stats),
             );
-        }
-    }
-
-    fn render_bodies(
-        &self,
-        renderer: &Renderer,
-        bodies: &HashMap<*const (), DynamicBody>,
-        mode: Mode,
-        awake_color: Color,
-        sleeping_color: Color,
-        stats: &mut RenderStats,
-    ) {
-        for (i, body) in bodies.values().enumerate() {
-            let mut transform = body.matrix();
-            let color = match body.sleep_state() {
-                SleepState::Sleeping => sleeping_color,
-                SleepState::Awake => awake_color,
-            };
-
-            match body.collision() {
-                Collision::Box(b) => {
-                    let params = b.params();
-                    transform =
-                        transform * Matrix4::from_nonuniform_scale(params.x, params.y, params.z);
-                    renderer.render(Primitive::Box, mode, color, transform, Some(stats));
-                }
-                Collision::Sphere(s) => {
-                    let params = s.params();
-                    transform = transform * Matrix4::from_scale(params.radius);
-                    renderer.render(Primitive::Sphere, mode, color, transform, Some(stats));
-                }
-                Collision::Cone(s) => {
-                    let params = s.params();
-                    transform = transform
-                        * Matrix4::from_nonuniform_scale(
-                            params.height,
-                            params.radius,
-                            params.radius,
-                        );
-                    renderer.render(Primitive::Cone, mode, color, transform, Some(stats));
-                }
-                Collision::Cylinder(s) => {
-                    let params = s.params();
-                    transform = transform
-                        * Matrix4::from_nonuniform_scale(
-                            params.height,
-                            params.radius0,
-                            params.radius0,
-                        );
-                    renderer.render(Primitive::Cylinder, mode, color, transform, Some(stats));
-                }
-                Collision::Capsule(s) => {
-                    let params = s.params();
-                    transform = transform
-                        * Matrix4::from_nonuniform_scale(
-                            params.height,
-                            params.radius0,
-                            params.radius0,
-                        );
-                    renderer.render(Primitive::Cylinder, mode, color, transform, Some(stats));
-                    renderer.render(
-                        Primitive::Sphere,
-                        mode,
-                        color,
-                        transform
-                            * Matrix4::from_translation(Vector3::new(
-                                s.params().height / 2.0,
-                                0.0,
-                                0.0,
-                            )),
-                        Some(stats),
-                    );
-                    renderer.render(
-                        Primitive::Sphere,
-                        mode,
-                        color,
-                        transform
-                            * Matrix4::from_translation(Vector3::new(
-                                -s.params().height / 2.0,
-                                0.0,
-                                0.0,
-                            )),
-                        Some(stats),
-                    );
-                }
-                _ => {
-                    eprintln!("unimplemented shape");
-                }
-            }
         }
     }
 
@@ -332,7 +223,36 @@ impl Sandbox {
         }
     }
 
-    pub fn run<H: Handler>(mut self, mut handler: H) {
+    fn render_bodies(
+        &self,
+        renderer: &Renderer,
+        bodies: &[Body<Self>],
+        mode: Mode,
+        awake_color: Color,
+        sleeping_color: Color,
+        stats: &mut RenderStats,
+    ) {
+        for body in bodies {
+            let body = body.borrow();
+            let mut transform = body.matrix();
+            let color = match body.sleep_state() {
+                SleepState::Sleeping => sleeping_color,
+                SleepState::Awake => awake_color,
+            };
+
+            match *body.collision_params() {
+                CollisionParams::Box { dx, dy, dz } => {
+                    transform =
+                        transform * Matrix4::from_nonuniform_scale(dx, dy, dz);
+                    renderer.render(Primitive::Box, mode, color, transform, Some(stats));
+                }
+                _ => {
+                    eprintln!("unimplemented shape");
+                }
+            }
+        }
+    }
+    pub fn run(mut self) {
         let sdl_context = sdl2::init().unwrap();
         let video_subsystem = sdl_context.video().unwrap();
 
@@ -353,7 +273,7 @@ impl Sandbox {
 
         gl::load_with(|s| video_subsystem.gl_get_proc_address(s) as _);
 
-        let renderer = get_renderer();
+        let renderer = Renderer::new();
 
         let mut imgui = ImGui::init();
         let mut imgui_sdl2 = imgui_sdl2::ImguiSdl2::new(&mut imgui);
@@ -381,27 +301,16 @@ impl Sandbox {
                     }
                     _ => {}
                 }
-
-                handler.event(&event);
             }
 
-            // get bodies
-            let bodies: Vec<DynamicBody> =
-                self.world.bodies().filter_map(|b| b.dynamic()).collect();
-
-            let bodies_map: HashMap<_, _> = bodies
-                .iter()
-                .map(|b| (b.as_raw() as *const (), b.clone()))
-                .collect();
+            let bodies: Vec<_> = self.world.borrow().bodies().collect();
 
             if self.simulate {
                 let step = (1_000_000_000.0f32 / 60.0) * self.time_scale;
                 let step = Duration::new(0, step as u32);
 
-                handler.pre_update();
-                self.world.update(step);
+                self.world.borrow_mut().update(step);
                 self.elapsed += step;
-                handler.post_update();
             }
 
             let aspect = (self.width as f32) / (self.height as f32);
@@ -409,11 +318,9 @@ impl Sandbox {
             renderer.set_projection(proj);
 
             let view = Matrix4::look_at(
-                Point3::new(
-                    self.radius * Deg::cos(self.delta) * Deg::sin(self.alpha),
-                    self.radius * Deg::sin(self.delta),
-                    self.radius * Deg::cos(self.delta) * Deg::cos(self.alpha),
-                ),
+                Point3::new(self.radius * Deg::cos(self.delta) * Deg::sin(self.alpha),
+                            self.radius * Deg::sin(self.delta),
+                            self.radius * Deg::cos(self.delta) * Deg::cos(self.alpha)),
                 Point3::new(0.0, 0.0, 0.0),
                 Vector3::new(0.0, 1.0, 0.0),
             );
@@ -435,26 +342,22 @@ impl Sandbox {
 
             if self.solid {
                 renderer.set_lighting(self.lighting);
-                self.render_bodies(
-                    &renderer,
-                    &bodies_map,
-                    Mode::Fill,
-                    self.awake_color,
-                    self.sleep_color,
-                    &mut stats,
-                );
+                self.render_bodies(&renderer,
+                                   &bodies[..],
+                                   Mode::Fill,
+                                   self.awake_color,
+                                   self.sleep_color,
+                                   &mut stats);
             }
             if self.wireframe {
                 renderer.set_lighting(false);
                 renderer.set_linewidth(3.0);
-                self.render_bodies(
-                    &renderer,
-                    &bodies_map,
-                    Mode::Wireframe,
-                    color!(0.0),
-                    color!(0.0),
-                    &mut stats,
-                );
+                self.render_bodies(&renderer,
+                                   &bodies[..],
+                                   Mode::Wireframe,
+                                   rgba!(0.0),
+                                   rgba!(0.0),
+                                   &mut stats);
             }
             if self.aabb {
                 renderer.set_lighting(false);
@@ -476,7 +379,7 @@ impl Sandbox {
         }
     }
 
-    fn set_up_imgui(&mut self, ui: &imgui::Ui, bodies: &Vec<DynamicBody>, stats: &RenderStats) {
+    fn set_up_imgui(&mut self, ui: &imgui::Ui, bodies: &Vec<Body<Self>>, stats: &RenderStats) {
         ui.main_menu_bar(|| {
             ui.menu(im_str!("Simulation")).build(|| {
                 ui.menu_item(im_str!("Simulate"))
@@ -511,55 +414,37 @@ impl Sandbox {
         });
 
         if self.stats {
-            ui.window(im_str!("Stats"))
-                //.resizable(false)
-                //.position((0.0, 0.0), ImGuiCond::Always)
-                .always_auto_resize(true)
-                //.size((300.0, 200.0), ImGuiCond::FirstUseEver)
-                .build(|| {
-                    ui.label_text(
-                        im_str!("Elapsed"),
-                        &ImString::new(format!("{:?}", self.elapsed)),
-                    );
-                    ui.slider_float(im_str!("Time scale"), &mut self.time_scale, 0.1, 2.0)
-                        .build();
-                    ui.checkbox(im_str!("Simulate"), &mut self.simulate);
-                    ui.separator();
-                    ui.label_text(
-                        im_str!("Bodies"),
-                        &ImString::new(format!("{}", self.world.body_count())),
-                    );
-                    ui.label_text(im_str!("Constraints"), im_str!("0"));
-                    ui.separator();
-
-                    let pointer_strings: Vec<_> = bodies
-                        .iter()
-                        .map(|p| ImString::from(format!("{:?}", p.as_raw())))
-                        .collect();
-                    let pointer_ref: Vec<_> =
-                        pointer_strings.iter().map(|b| ImStr::new(b)).collect();
-
-                    ui.list_box(im_str!("Bodies"), &mut 0, &pointer_ref[..], 8);
-                    ui.list_box(im_str!("Joints"), &mut 0, &pointer_ref[..], 8);
-
-                    ui.separator();
-                    ui.label_text(
-                        im_str!("Triangles"),
-                        &ImString::new(format!("{}", stats.tris)),
-                    );
-                    ui.label_text(
-                        im_str!("Draw calls"),
-                        &ImString::new(format!("{}", stats.drawcalls)),
-                    );
-                    ui.label_text(
-                        im_str!("Frames/second"),
-                        &ImString::new(format!("{}", ui.framerate())),
-                    );
-                })
+            ui.window(im_str!("Stats")).build(|| {
+                ui.label_text(
+                    im_str!("Elapsed"),
+                    &ImString::new(format!("{:?}", self.elapsed)),
+                );
+                ui.slider_float(im_str!("Time scale"), &mut self.time_scale, 0.1, 2.0)
+                    .build();
+                ui.checkbox(im_str!("Simulate"), &mut self.simulate);
+                ui.separator();
+                ui.label_text(
+                    im_str!("Bodies"),
+                    &ImString::new(format!("{}", self.world.borrow().body_count())),
+                );
+                ui.label_text(
+                    im_str!("Constraints"),
+                    &ImString::new(format!("{}", self.world.borrow().constraint_count())),
+                );
+                ui.separator();
+                ui.label_text(
+                    im_str!("Triangles"),
+                    &ImString::new(format!("{}", stats.tris)),
+                );
+                ui.label_text(
+                    im_str!("Draw calls"),
+                    &ImString::new(format!("{}", stats.drawcalls)),
+                );
+                ui.label_text(
+                    im_str!("Frames/second"),
+                    &ImString::new(format!("{}", (ui.framerate() + 0.5) as u32)),
+                );
+            })
         }
     }
-}
-
-fn get_renderer() -> Renderer {
-    Renderer::new()
 }

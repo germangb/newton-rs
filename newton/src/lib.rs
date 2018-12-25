@@ -1,19 +1,21 @@
-mod pointer;
-
-#[cfg(feature = "sandbox")]
-pub mod sandbox;
-
 pub mod body;
 pub mod collision;
-pub mod constraint;
-pub mod mesh;
-pub mod prelude;
+#[cfg(feature = "sandbox")]
+pub mod sandbox;
 pub mod world;
 
-pub mod newton2;
+use self::body::NewtonBody;
 
-pub unsafe trait NewtonApp: std::fmt::Debug {
+use std::fmt::Debug;
+
+pub trait Types {
     type Vector: Copy;
     type Matrix: Copy;
     type Quaternion: Copy;
+}
+
+pub trait Application: Sized + Debug {
+    type Types;
+
+    fn force_and_torque(body: &mut NewtonBody<Self>) {}
 }
