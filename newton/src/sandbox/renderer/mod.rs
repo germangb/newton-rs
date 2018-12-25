@@ -39,7 +39,7 @@ primitive! {
     }
 }
 
-mod capsule;
+//mod capsule;
 //mod cone;
 //mod cube;
 //mod cylinder;
@@ -280,6 +280,8 @@ impl Renderer {
         self.primitive.set(None);
         self.mode.set(None);
         unsafe {
+            check!(gl::Enable(gl::CULL_FACE));
+            check!(gl::CullFace(gl::BACK));
             check!(gl::Enable(gl::DEPTH_TEST));
             check!(gl::BindVertexArray(0));
             check!(gl::ClearColor(color.r, color.g, color.b, color.a));

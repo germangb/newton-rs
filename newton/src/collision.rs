@@ -1,7 +1,7 @@
 use ffi;
 
 use super::world::{NewtonWorld, WorldRefMut};
-use super::{Application, Types};
+use super::Types;
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::mem;
@@ -12,11 +12,27 @@ use std::rc::{Rc, Weak};
 pub type ShapeId = raw::c_int;
 
 #[derive(Debug, Clone)]
-pub struct Collision<App>(
-    pub(crate) Rc<RefCell<NewtonWorld<App>>>,
-    pub(crate) Rc<RefCell<NewtonCollision<App>>>,
-    *mut ffi::NewtonCollision,
-);
+pub struct Collision<T>(pub(crate) Rc<RefCell<NewtonWorld<T>>>, pub(crate) Rc<RefCell<NewtonCollision<T>>>, *mut ffi::NewtonCollision);
+
+#[derive(Debug)]
+pub struct NewtonCollision<T> {
+    pub(crate) world: Rc<RefCell<NewtonWorld<T>>>,
+    pub(crate) collision: *mut ffi::NewtonCollision,
+    pub(crate) world_raw: *mut ffi::NewtonWorld,
+}
+
+#[derive(Debug)]
+pub(crate) struct CollisionUserDataInner<T> {
+    pub(crate) world: Weak<RefCell<NewtonWorld<T>>>,
+    pub(crate) collision: Weak<RefCell<NewtonCollision<T>>>,
+    pub(crate) params: Rc<CollisionParams>,
+}
+
+#[derive(Debug)]
+pub struct CollisionRef<'a, T>(pub(crate) Ref<'a, NewtonWorld<T>>, pub(crate) Ref<'a, NewtonCollision<T>>, pub(crate) *const ffi::NewtonWorld, pub(crate) *mut ffi::NewtonCollision);
+
+#[derive(Debug)]
+pub struct CollisionRefMut<'a, T>(pub(crate) RefMut<'a, NewtonWorld<T>>, pub(crate) RefMut<'a, NewtonCollision<T>>, pub(crate) *const ffi::NewtonWorld, pub(crate) *mut ffi::NewtonCollision);
 
 #[derive(Debug)]
 pub enum CollisionParams {
@@ -45,79 +61,9 @@ pub enum CollisionParams {
     Null,
 }
 
-pub fn cuboid<T: Types, App: Application<Types = T>>(
-    world: &mut NewtonWorld<App>,
-    dx: f32,
-    dy: f32,
-    dz: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
-) -> Collision<App> {
-    let params = CollisionParams::Box { dx, dy, dz };
-    Collision::new(world, params, shape_id, offset)
-}
-
-pub fn sphere<T: Types, App: Application<Types = T>>(
-    world: &mut NewtonWorld<App>,
-    radius: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
-) -> Collision<App> {
-    let params = CollisionParams::Sphere { radius };
-    Collision::new(world, params, shape_id, offset)
-}
-
-pub fn cone<T: Types, App: Application<Types = T>>(
-    world: &mut NewtonWorld<App>,
-    radius: f32,
-    height: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
-) -> Collision<App> {
-    let params = CollisionParams::Cone { radius, height };
-    Collision::new(world, params, shape_id, offset)
-}
-
-pub fn cylinder<T: Types, App: Application<Types = T>>(
-    world: &mut NewtonWorld<App>,
-    radius0: f32,
-    radius1: f32,
-    height: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
-) -> Collision<App> {
-    let params = CollisionParams::Cylinder {
-        radius0,
-        radius1,
-        height,
-    };
-    Collision::new(world, params, shape_id, offset)
-}
-
-pub fn capsule<T: Types, App: Application<Types = T>>(
-    world: &mut NewtonWorld<App>,
-    radius0: f32,
-    radius1: f32,
-    height: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
-) -> Collision<App> {
-    let params = CollisionParams::Capsule {
-        radius0,
-        radius1,
-        height,
-    };
-    Collision::new(world, params, shape_id, offset)
-}
-
-pub fn null<T: Types, App: Application<Types = T>>(world: &mut NewtonWorld<App>) -> Collision<App> {
-    let params = CollisionParams::Null;
-    Collision::new(world, params, 0, None)
-}
-
-impl<App> Collision<App> {
+impl<T> Collision<T> {
     pub unsafe fn from_raw(raw: *mut ffi::NewtonCollision) -> Self {
-        let datum: Rc<CollisionUserDataInner<App>> =
+        let datum: Rc<CollisionUserDataInner<T>> =
             mem::transmute(ffi::NewtonCollisionGetUserData(raw));
 
         let world = Weak::upgrade(&datum.world).unwrap();
@@ -128,16 +74,16 @@ impl<App> Collision<App> {
     }
 }
 
-impl<F: Types, App: Application<Types = F>> Collision<App> {
+impl<T: Types> Collision<T> {
     // TODO FIXME indirections
     pub fn new(
-        world: &mut NewtonWorld<App>,
+        world: &mut NewtonWorld<T>,
         params: CollisionParams,
         shape_id: ShapeId,
-        offset: Option<&F::Matrix>,
+        offset: Option<&T::Matrix>,
     ) -> Self {
         let world_rc = unsafe {
-            let world_ref: Weak<RefCell<NewtonWorld<App>>> =
+            let world_ref: Weak<RefCell<NewtonWorld<T>>> =
                 mem::transmute(ffi::NewtonWorldGetUserData(world.as_raw()));
             let world_ref_rc = Weak::upgrade(&world_ref).unwrap();
             mem::forget(world_ref);
@@ -192,14 +138,14 @@ impl<F: Types, App: Application<Types = F>> Collision<App> {
         Collision(world_rc, collision_rc, collision_raw)
     }
 
-    pub fn borrow(&self) -> CollisionRef<App> {
+    pub fn borrow(&self) -> CollisionRef<T> {
         let world_ref = self.0.borrow();
         let collision_ref = self.1.borrow();
         let world_ptr = world_ref.as_raw();
         CollisionRef(world_ref, collision_ref, world_ptr, self.2)
     }
 
-    pub fn borrow_mut(&self) -> CollisionRefMut<App> {
+    pub fn borrow_mut(&self) -> CollisionRefMut<T> {
         let world_ref = self.0.borrow_mut();
         let collision_ref = self.1.borrow_mut();
         let world_ptr = world_ref.as_raw();
@@ -207,36 +153,7 @@ impl<F: Types, App: Application<Types = F>> Collision<App> {
     }
 }
 
-#[derive(Debug)]
-pub struct NewtonCollision<App> {
-    pub(crate) world: Rc<RefCell<NewtonWorld<App>>>,
-    pub(crate) collision: *mut ffi::NewtonCollision,
-    pub(crate) world_raw: *mut ffi::NewtonWorld,
-}
-
-pub(crate) struct CollisionUserDataInner<App> {
-    pub(crate) world: Weak<RefCell<NewtonWorld<App>>>,
-    pub(crate) collision: Weak<RefCell<NewtonCollision<App>>>,
-    pub(crate) params: Rc<CollisionParams>,
-}
-
-#[derive(Debug)]
-pub struct CollisionRef<'w, 'c, App>(
-    pub(crate) Ref<'w, NewtonWorld<App>>,
-    pub(crate) Ref<'c, NewtonCollision<App>>,
-    pub(crate) *const ffi::NewtonWorld,
-    pub(crate) *mut ffi::NewtonCollision,
-);
-
-#[derive(Debug)]
-pub struct CollisionRefMut<'w, 'c, App>(
-    pub(crate) RefMut<'w, NewtonWorld<App>>,
-    pub(crate) RefMut<'c, NewtonCollision<App>>,
-    pub(crate) *const ffi::NewtonWorld,
-    pub(crate) *mut ffi::NewtonCollision,
-);
-
-impl<App> NewtonCollision<App> {
+impl<T> NewtonCollision<T> {
     pub fn params(&self) -> &CollisionParams {
         unimplemented!()
     }
@@ -249,36 +166,106 @@ impl<App> NewtonCollision<App> {
     }
 }
 
-impl<'w, 'c, App> Deref for CollisionRef<'w, 'c, App> {
-    type Target = NewtonCollision<App>;
+impl<'a, T> Deref for CollisionRef<'a, T> {
+    type Target = NewtonCollision<T>;
 
     fn deref(&self) -> &Self::Target {
         self.1.deref()
     }
 }
 
-impl<'w, 'c, App> Deref for CollisionRefMut<'w, 'c, App> {
-    type Target = NewtonCollision<App>;
+impl<'a, T> Deref for CollisionRefMut<'a, T> {
+    type Target = NewtonCollision<T>;
 
     fn deref(&self) -> &Self::Target {
         self.1.deref()
     }
 }
 
-impl<'w, 'c, App> DerefMut for CollisionRefMut<'w, 'c, App> {
+impl<'a, T> DerefMut for CollisionRefMut<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.1.deref_mut()
     }
 }
 
-impl<App> Drop for NewtonCollision<App> {
+impl<T> Drop for NewtonCollision<T> {
     fn drop(&mut self) {
         let collision = self.collision;
         //let _ = self.world.borrow_mut();
         unsafe {
-            let _: Rc<CollisionUserDataInner<App>> =
+            let _: Rc<CollisionUserDataInner<T>> =
                 mem::transmute(ffi::NewtonCollisionGetUserData(collision));
             ffi::NewtonDestroyCollision(collision)
         }
     }
+}
+
+pub fn cuboid<T: Types>(
+    world: &mut NewtonWorld<T>,
+    dx: f32,
+    dy: f32,
+    dz: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<T> {
+    let params = CollisionParams::Box { dx, dy, dz };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn sphere<T: Types>(
+    world: &mut NewtonWorld<T>,
+    radius: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<T> {
+    let params = CollisionParams::Sphere { radius };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn cone<T: Types>(
+    world: &mut NewtonWorld<T>,
+    radius: f32,
+    height: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<T> {
+    let params = CollisionParams::Cone { radius, height };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn cylinder<T: Types>(
+    world: &mut NewtonWorld<T>,
+    radius0: f32,
+    radius1: f32,
+    height: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<T> {
+    let params = CollisionParams::Cylinder {
+        radius0,
+        radius1,
+        height,
+    };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn capsule<T: Types>(
+    world: &mut NewtonWorld<T>,
+    radius0: f32,
+    radius1: f32,
+    height: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<T> {
+    let params = CollisionParams::Capsule {
+        radius0,
+        radius1,
+        height,
+    };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn null<T: Types>(world: &mut NewtonWorld<T>) -> Collision<T> {
+    let params = CollisionParams::Null;
+    Collision::new(world, params, 0, None)
 }

@@ -1,7 +1,6 @@
 use ffi;
 
 use super::body::{Body, BodyRef, BodyRefMut};
-use super::Application;
 
 use std::cell::RefCell;
 use std::cell::{Ref, RefMut};
@@ -13,6 +12,21 @@ use std::rc::Rc;
 use std::rc::Weak;
 use std::time::Duration;
 
+#[derive(Debug, Clone)]
+pub struct World<T>(Rc<RefCell<NewtonWorld<T>>>, *mut ffi::NewtonWorld);
+
+#[derive(Debug)]
+pub struct NewtonWorld<T>(pub(crate) *mut ffi::NewtonWorld, PhantomData<T>);
+
+#[derive(Debug)]
+pub struct WorldRef<'w, T>(pub(crate) Ref<'w, NewtonWorld<T>>, pub(crate) *mut ffi::NewtonWorld);
+
+#[derive(Debug)]
+pub struct WorldRefMut<'w, T>(pub(crate) RefMut<'w, NewtonWorld<T>>, pub(crate) *mut ffi::NewtonWorld);
+
+#[derive(Debug)]
+pub struct Bodies<'w, T>(*mut ffi::NewtonWorld, *mut ffi::NewtonBody, PhantomData<&'w T>);
+
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum BroadphaseAlgorithm {
@@ -20,37 +34,8 @@ pub enum BroadphaseAlgorithm {
     Persistent = ffi::NEWTON_BROADPHASE_PERSINTENT as _,
 }
 
-pub fn create<App>() -> World<App> {
-    World::new(BroadphaseAlgorithm::Default)
-}
-
-#[derive(Debug, Clone)]
-pub struct World<App>(Rc<RefCell<NewtonWorld<App>>>, *mut ffi::NewtonWorld);
-
-#[derive(Debug)]
-pub struct NewtonWorld<App>(pub(crate) *mut ffi::NewtonWorld, PhantomData<App>);
-
-#[derive(Debug)]
-pub struct WorldRef<'w, App>(
-    pub(crate) Ref<'w, NewtonWorld<App>>,
-    pub(crate) *mut ffi::NewtonWorld,
-);
-
-#[derive(Debug)]
-pub struct WorldRefMut<'w, App>(
-    pub(crate) RefMut<'w, NewtonWorld<App>>,
-    pub(crate) *mut ffi::NewtonWorld,
-);
-
-#[derive(Debug)]
-pub struct Bodies<'w, App>(
-    *mut ffi::NewtonWorld,
-    *mut ffi::NewtonBody,
-    PhantomData<&'w App>,
-);
-
-impl<'w, App> Iterator for Bodies<'w, App> {
-    type Item = Body<App>;
+impl<'w, T> Iterator for Bodies<'w, T> {
+    type Item = Body<T>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.1.is_null() {
@@ -64,7 +49,7 @@ impl<'w, App> Iterator for Bodies<'w, App> {
     }
 }
 
-impl<App> World<App> {
+impl<T> World<T> {
     pub fn new(broadphase: BroadphaseAlgorithm) -> Self {
         let world = unsafe {
             let world = ffi::NewtonCreate();
@@ -78,17 +63,17 @@ impl<App> World<App> {
         World(world_rc_cell, world)
     }
 
-    pub fn borrow(&self) -> WorldRef<App> {
+    pub fn borrow(&self) -> WorldRef<T> {
         WorldRef(self.0.borrow(), self.1)
     }
 
-    pub fn borrow_mut(&self) -> WorldRefMut<App> {
+    pub fn borrow_mut(&self) -> WorldRefMut<T> {
         WorldRefMut(self.0.borrow_mut(), self.1)
     }
 }
 
-impl<App> NewtonWorld<App> {
-    pub fn bodies(&self) -> Bodies<App> {
+impl<T> NewtonWorld<T> {
+    pub fn bodies(&self) -> Bodies<T> {
         let first = unsafe { ffi::NewtonWorldGetFirstBody(self.0) };
         Bodies(self.0, first, PhantomData)
     }
@@ -117,29 +102,29 @@ impl<App> NewtonWorld<App> {
     }
 }
 
-impl<'w, App> Deref for WorldRef<'w, App> {
-    type Target = NewtonWorld<App>;
+impl<'w, T> Deref for WorldRef<'w, T> {
+    type Target = NewtonWorld<T>;
 
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
 }
 
-impl<'w, App> Deref for WorldRefMut<'w, App> {
-    type Target = NewtonWorld<App>;
+impl<'w, T> Deref for WorldRefMut<'w, T> {
+    type Target = NewtonWorld<T>;
 
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
 }
 
-impl<'w, App> DerefMut for WorldRefMut<'w, App> {
+impl<'w, T> DerefMut for WorldRefMut<'w, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0.deref_mut()
     }
 }
 
-impl<App> Drop for NewtonWorld<App> {
+impl<T> Drop for NewtonWorld<T> {
     fn drop(&mut self) {
         let world = self.0;
         unsafe {
@@ -148,3 +133,8 @@ impl<App> Drop for NewtonWorld<App> {
         }
     }
 }
+
+pub fn create<T>() -> World<T> {
+    World::new(BroadphaseAlgorithm::Default)
+}
+

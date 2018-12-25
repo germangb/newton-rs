@@ -88,7 +88,7 @@ pub struct Sandbox {
 
 pub fn run(world: *const ffi::NewtonWorld) {
     let mut app = Sandbox::new(world);
-    app.window_size(1280, 720);
+    app.window_size(800, 600);
     app.render_solid(true);
     app.render_wireframe(true);
     app.render_aabb(false);
@@ -385,7 +385,7 @@ impl Sandbox {
             }
             if self.wireframe {
                 renderer.set_lighting(false);
-                renderer.set_linewidth(2.0);
+                renderer.set_linewidth(3.0);
                 self.render_bodies(
                     &renderer,
                     &bodies[..],
