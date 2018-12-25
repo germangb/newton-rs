@@ -6,4 +6,4 @@ Newton Dynamics in rust (see submodule for more info...)
 
 ## Safety
 
-There's a safe wrapper in the works under branch `safe`, But nothing is *stable* yet
+There's a safe wrapper in the works under branches `safe` and `interior_mut`, But none of the apis are *stable* yet.
