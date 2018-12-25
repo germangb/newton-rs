@@ -5,6 +5,8 @@ pub mod sandbox;
 
 pub mod body;
 pub mod collision;
+pub mod joint;
+pub mod types;
 pub mod world;
 
 use self::body::NewtonBody;

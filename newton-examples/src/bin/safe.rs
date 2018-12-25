@@ -23,14 +23,17 @@ fn main() {
 
     // fine
     for body in world.borrow().bodies() {
+        println!("{:?}", body.borrow().position());
         drop(body)
     }
     for body in world.borrow_mut().bodies() {
-        drop(body)
+        // NOT ok. Panics
+        //println!("{:?}", body.borrow().position());
     }
 
     // When all references to a body are dropped, the body performs a mutable borrow
-    // of the world in order to prevent segfaults such as this one:
+    // of the world, or panics if it is unsable to. This borrow checking is enforced
+    // to prevent segfaults such as this one:
     {
         // `floor` is the only body in the world.
         let world = world.borrow();
@@ -63,14 +66,8 @@ fn position(x: f32, y: f32, z: f32) -> Matrix4<f32> {
 
 #[derive(Debug)]
 pub enum A {}
-pub enum T {}
-impl Types for T {
-    type Vector = Vector3<f32>;
-    type Matrix = Matrix4<f32>;
-    type Quaternion = Quaternion<f32>;
-}
 impl Application for A {
-    type Types = T;
+    type Types = newton::types::Cgmath;
     fn force_and_torque(body: &mut NewtonBody<Self>) {
         body.set_force(&vec3(0.0, -9.81, 0.0));
     }
