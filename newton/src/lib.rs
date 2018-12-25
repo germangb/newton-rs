@@ -1,7 +1,8 @@
-pub mod body;
-pub mod collision;
 #[cfg(feature = "sandbox")]
 pub mod sandbox;
+
+pub mod body;
+pub mod collision;
 pub mod world;
 
 use self::body::NewtonBody;

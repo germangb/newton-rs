@@ -1,3 +1,5 @@
+use ffi;
+
 mod renderer;
 
 use std::cell::RefCell;
@@ -43,30 +45,15 @@ pub use sdl2::keyboard::{Keycode, Scancode};
 pub use sdl2::mouse::MouseButton;
 use std::collections::HashMap;
 
-use super::body::{Body, NewtonBody};
-use super::world::{BroadphaseAlgorithm, World};
-use super::{Application, Types};
-use super::body::SleepState;
-use super::collision::CollisionParams;
-
-pub enum SandboxTypes {}
-impl Types for SandboxTypes {
-    type Vector = Vector3<f32>;
-    type Matrix = Matrix4<f32>;
-    type Quaternion = ();
-}
-impl Application for Sandbox {
-    type Types = SandboxTypes;
-
-    fn force_and_torque(body: &mut NewtonBody<Self>) {
-        body.set_force(&vec3(0.0, -9.81, 0.0));
-    }
-}
+//use super::body::{Body, NewtonBody};
+//use super::world::{BroadphaseAlgorithm, World};
+//use super::{Application, Types};
+//use super::body::SleepState;
+//use super::collision::CollisionParams;
 
 #[derive(Debug)]
 pub struct Sandbox {
-    //handler: Box<Handler>,
-    world: World<Sandbox>,
+    world: *mut ffi::NewtonWorld,
 
     // camera movement
     mouse_down: bool,
@@ -100,11 +87,9 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-    pub fn new() -> Self {
+    pub fn new(world: *mut ffi::NewtonWorld) -> Self {
         Sandbox {
-            //handler: Box::new(handler),
-            world: World::new(BroadphaseAlgorithm::Default),
-
+            world,
             mouse_down: false,
             radius: 24.0,
             alpha: Deg(20.0),
@@ -134,9 +119,11 @@ impl Sandbox {
         }
     }
 
+    /*
     pub fn world(&self) -> &World<Self> {
         &self.world
     }
+    */
 
     pub fn window_size(&mut self, width: usize, height: usize) -> &mut Self {
         self.width = width;
@@ -175,11 +162,15 @@ impl Sandbox {
         self
     }
 
-    fn render_aabb_(&self, renderer: &Renderer, bodies: &[Body<Self>], stats: &mut RenderStats) {
+    fn render_aabb_(&self, renderer: &Renderer, bodies: &[*mut ffi::NewtonBody], stats: &mut RenderStats) {
         for body in bodies.iter() {
-            let body = body.borrow();
-            let (min, max) = body.aabb();
-            let position = body.position();
+            let mut position = Vector3::new(0.0, 0.0, 0.0);
+            let (mut min, mut max) = (position, position);
+
+            unsafe {
+                ffi::NewtonBodyGetPosition(*body, position.as_mut_ptr());
+                ffi::NewtonBodyGetAABB(*body, min.as_mut_ptr(), max.as_mut_ptr());
+            }
 
             let scale = max - min;
             let transform = Matrix4::from_translation(position)
@@ -226,28 +217,45 @@ impl Sandbox {
     fn render_bodies(
         &self,
         renderer: &Renderer,
-        bodies: &[Body<Self>],
+        bodies: &[*mut ffi::NewtonBody],
         mode: Mode,
         awake_color: Color,
         sleeping_color: Color,
         stats: &mut RenderStats,
     ) {
+        let mut collision_info: ffi::NewtonCollisionInfoRecord = unsafe { mem::zeroed() };
+
         for body in bodies {
-            let body = body.borrow();
-            let mut transform = body.matrix();
-            let color = match body.sleep_state() {
-                SleepState::Sleeping => sleeping_color,
-                SleepState::Awake => awake_color,
+            let mut transform = Matrix4::identity();
+
+            unsafe {
+                ffi::NewtonBodyGetMatrix(*body, transform.as_mut_ptr());
+            }
+
+            let color = match unsafe { ffi::NewtonBodyGetSleepState(*body) } {
+                // sleeping
+                1 => sleeping_color,
+
+                // awake
+                0 => awake_color,
+                _ => unreachable!(),
             };
 
-            match *body.collision_params() {
-                CollisionParams::Box { dx, dy, dz } => {
+            unsafe {
+                let collision = ffi::NewtonBodyGetCollision(*body);
+
+                ffi::NewtonCollisionGetInfo(collision, &mut collision_info);
+            }
+
+            match collision_info.m_collisionType as _ {
+                ffi::SERIALIZE_ID_BOX => {
+                    let p = unsafe { collision_info.__bindgen_anon_1.m_box };
                     transform =
-                        transform * Matrix4::from_nonuniform_scale(dx, dy, dz);
+                        transform * Matrix4::from_nonuniform_scale(p.m_x, p.m_y, p.m_z);
                     renderer.render(Primitive::Box, mode, color, transform, Some(stats));
                 }
-                _ => {
-                    eprintln!("unimplemented shape");
+                id @ _ => {
+                    eprintln!("unimplemented shape. ID = {}", id);
                 }
             }
         }
@@ -303,14 +311,24 @@ impl Sandbox {
                 }
             }
 
-            let bodies: Vec<_> = self.world.borrow().bodies().collect();
+            let mut bodies = Vec::new();
+            unsafe {
+                let mut b = ffi::NewtonWorldGetFirstBody(self.world);
+                while !b.is_null() {
+                    bodies.push(b);
+                    b = ffi::NewtonWorldGetNextBody(self.world, b);
+                }
+            }
 
             if self.simulate {
                 let step = (1_000_000_000.0f32 / 60.0) * self.time_scale;
-                let step = Duration::new(0, step as u32);
+                let step_dur = Duration::new(0, step as u32);
 
-                self.world.borrow_mut().update(step);
-                self.elapsed += step;
+                unsafe {
+                    ffi::NewtonUpdate(self.world, step / 1_000_000_000.0)
+                }
+
+                self.elapsed += step_dur;
             }
 
             let aspect = (self.width as f32) / (self.height as f32);
@@ -372,14 +390,14 @@ impl Sandbox {
             }
 
             let ui = imgui_sdl2.frame(&window, &mut imgui, &event_pump);
-            self.set_up_imgui(&ui, &bodies, &stats);
+            self.set_up_imgui(&ui, &stats);
             imgui_renderer.render(ui);
 
             window.gl_swap_window();
         }
     }
 
-    fn set_up_imgui(&mut self, ui: &imgui::Ui, bodies: &Vec<Body<Self>>, stats: &RenderStats) {
+    fn set_up_imgui(&mut self, ui: &imgui::Ui, stats: &RenderStats) {
         ui.main_menu_bar(|| {
             ui.menu(im_str!("Simulation")).build(|| {
                 ui.menu_item(im_str!("Simulate"))
@@ -425,11 +443,11 @@ impl Sandbox {
                 ui.separator();
                 ui.label_text(
                     im_str!("Bodies"),
-                    &ImString::new(format!("{}", self.world.borrow().body_count())),
+                    &ImString::new(format!("{}", unsafe {ffi::NewtonWorldGetBodyCount(self.world)})),
                 );
                 ui.label_text(
                     im_str!("Constraints"),
-                    &ImString::new(format!("{}", self.world.borrow().constraint_count())),
+                    &ImString::new(format!("{}", unsafe {ffi::NewtonWorldGetConstraintCount(self.world)})),
                 );
                 ui.separator();
                 ui.label_text(
