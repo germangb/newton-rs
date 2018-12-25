@@ -45,6 +45,76 @@ pub enum CollisionParams {
     Null,
 }
 
+pub fn cuboid<T: Types, App: Application<Types = T>>(
+    world: &mut NewtonWorld<App>,
+    dx: f32,
+    dy: f32,
+    dz: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<App> {
+    let params = CollisionParams::Box { dx, dy, dz };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn sphere<T: Types, App: Application<Types = T>>(
+    world: &mut NewtonWorld<App>,
+    radius: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<App> {
+    let params = CollisionParams::Sphere { radius };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn cone<T: Types, App: Application<Types = T>>(
+    world: &mut NewtonWorld<App>,
+    radius: f32,
+    height: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<App> {
+    let params = CollisionParams::Cone { radius, height };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn cylinder<T: Types, App: Application<Types = T>>(
+    world: &mut NewtonWorld<App>,
+    radius0: f32,
+    radius1: f32,
+    height: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<App> {
+    let params = CollisionParams::Cylinder {
+        radius0,
+        radius1,
+        height,
+    };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn capsule<T: Types, App: Application<Types = T>>(
+    world: &mut NewtonWorld<App>,
+    radius0: f32,
+    radius1: f32,
+    height: f32,
+    shape_id: ShapeId,
+    offset: Option<&T::Matrix>,
+) -> Collision<App> {
+    let params = CollisionParams::Capsule {
+        radius0,
+        radius1,
+        height,
+    };
+    Collision::new(world, params, shape_id, offset)
+}
+
+pub fn null<T: Types, App: Application<Types = T>>(world: &mut NewtonWorld<App>) -> Collision<App> {
+    let params = CollisionParams::Null;
+    Collision::new(world, params, 0, None)
+}
+
 impl<App> Collision<App> {
     pub unsafe fn from_raw(raw: *mut ffi::NewtonCollision) -> Self {
         let datum: Rc<CollisionUserDataInner<App>> =
@@ -90,26 +160,12 @@ impl<F: Types, App: Application<Types = F>> Collision<App> {
                     radius0,
                     radius1,
                     height,
-                } => ffi::NewtonCreateCylinder(
-                    world.0,
-                    radius0,
-                    radius1,
-                    height,
-                    shape_id,
-                    offset,
-                ),
+                } => ffi::NewtonCreateCylinder(world.0, radius0, radius1, height, shape_id, offset),
                 &CollisionParams::Capsule {
                     radius0,
                     radius1,
                     height,
-                } => ffi::NewtonCreateCapsule(
-                    world.0,
-                    radius0,
-                    radius1,
-                    height,
-                    shape_id,
-                    offset,
-                ),
+                } => ffi::NewtonCreateCapsule(world.0, radius0, radius1, height, shape_id, offset),
                 &CollisionParams::Null => ffi::NewtonCreateNull(world.0),
             }
         };

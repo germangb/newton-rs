@@ -1,3 +1,5 @@
+pub extern crate ffi;
+
 #[cfg(feature = "sandbox")]
 pub mod sandbox;
 

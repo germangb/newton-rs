@@ -20,7 +20,11 @@ pub enum BroadphaseAlgorithm {
     Persistent = ffi::NEWTON_BROADPHASE_PERSINTENT as _,
 }
 
-#[derive(Debug)]
+pub fn create<App>() -> World<App> {
+    World::new(BroadphaseAlgorithm::Default)
+}
+
+#[derive(Debug, Clone)]
 pub struct World<App>(Rc<RefCell<NewtonWorld<App>>>, *mut ffi::NewtonWorld);
 
 #[derive(Debug)]
@@ -139,7 +143,6 @@ impl<App> Drop for NewtonWorld<App> {
     fn drop(&mut self) {
         let world = self.0;
         unsafe {
-            //eprintln!("drop world");
             let _: Weak<RefCell<Self>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
             ffi::NewtonDestroy(world);
         }

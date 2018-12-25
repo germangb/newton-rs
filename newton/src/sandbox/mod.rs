@@ -53,7 +53,7 @@ use std::collections::HashMap;
 
 #[derive(Debug)]
 pub struct Sandbox {
-    world: *mut ffi::NewtonWorld,
+    world: *const ffi::NewtonWorld,
 
     // camera movement
     mouse_down: bool,
@@ -86,8 +86,18 @@ pub struct Sandbox {
     stats: bool,
 }
 
+pub fn run(world: *const ffi::NewtonWorld) {
+    let mut app = Sandbox::new(world);
+    app.window_size(1280, 720);
+    app.render_solid(true);
+    app.render_wireframe(true);
+    app.render_aabb(false);
+    app.simulate(false);
+    app.run();
+}
+
 impl Sandbox {
-    pub fn new(world: *mut ffi::NewtonWorld) -> Self {
+    pub fn new(world: *const ffi::NewtonWorld) -> Self {
         Sandbox {
             world,
             mouse_down: false,
@@ -162,7 +172,12 @@ impl Sandbox {
         self
     }
 
-    fn render_aabb_(&self, renderer: &Renderer, bodies: &[*mut ffi::NewtonBody], stats: &mut RenderStats) {
+    fn render_aabb_(
+        &self,
+        renderer: &Renderer,
+        bodies: &[*mut ffi::NewtonBody],
+        stats: &mut RenderStats,
+    ) {
         for body in bodies.iter() {
             let mut position = Vector3::new(0.0, 0.0, 0.0);
             let (mut min, mut max) = (position, position);
@@ -250,8 +265,7 @@ impl Sandbox {
             match collision_info.m_collisionType as _ {
                 ffi::SERIALIZE_ID_BOX => {
                     let p = unsafe { collision_info.__bindgen_anon_1.m_box };
-                    transform =
-                        transform * Matrix4::from_nonuniform_scale(p.m_x, p.m_y, p.m_z);
+                    transform = transform * Matrix4::from_nonuniform_scale(p.m_x, p.m_y, p.m_z);
                     renderer.render(Primitive::Box, mode, color, transform, Some(stats));
                 }
                 id @ _ => {
@@ -324,9 +338,7 @@ impl Sandbox {
                 let step = (1_000_000_000.0f32 / 60.0) * self.time_scale;
                 let step_dur = Duration::new(0, step as u32);
 
-                unsafe {
-                    ffi::NewtonUpdate(self.world, step / 1_000_000_000.0)
-                }
+                unsafe { ffi::NewtonUpdate(self.world, step / 1_000_000_000.0) }
 
                 self.elapsed += step_dur;
             }
@@ -336,9 +348,11 @@ impl Sandbox {
             renderer.set_projection(proj);
 
             let view = Matrix4::look_at(
-                Point3::new(self.radius * Deg::cos(self.delta) * Deg::sin(self.alpha),
-                            self.radius * Deg::sin(self.delta),
-                            self.radius * Deg::cos(self.delta) * Deg::cos(self.alpha)),
+                Point3::new(
+                    self.radius * Deg::cos(self.delta) * Deg::sin(self.alpha),
+                    self.radius * Deg::sin(self.delta),
+                    self.radius * Deg::cos(self.delta) * Deg::cos(self.alpha),
+                ),
                 Point3::new(0.0, 0.0, 0.0),
                 Vector3::new(0.0, 1.0, 0.0),
             );
@@ -360,22 +374,26 @@ impl Sandbox {
 
             if self.solid {
                 renderer.set_lighting(self.lighting);
-                self.render_bodies(&renderer,
-                                   &bodies[..],
-                                   Mode::Fill,
-                                   self.awake_color,
-                                   self.sleep_color,
-                                   &mut stats);
+                self.render_bodies(
+                    &renderer,
+                    &bodies[..],
+                    Mode::Fill,
+                    self.awake_color,
+                    self.sleep_color,
+                    &mut stats,
+                );
             }
             if self.wireframe {
                 renderer.set_lighting(false);
-                renderer.set_linewidth(3.0);
-                self.render_bodies(&renderer,
-                                   &bodies[..],
-                                   Mode::Wireframe,
-                                   rgba!(0.0),
-                                   rgba!(0.0),
-                                   &mut stats);
+                renderer.set_linewidth(2.0);
+                self.render_bodies(
+                    &renderer,
+                    &bodies[..],
+                    Mode::Wireframe,
+                    rgba!(0.0),
+                    rgba!(0.0),
+                    &mut stats,
+                );
             }
             if self.aabb {
                 renderer.set_lighting(false);
@@ -443,11 +461,15 @@ impl Sandbox {
                 ui.separator();
                 ui.label_text(
                     im_str!("Bodies"),
-                    &ImString::new(format!("{}", unsafe {ffi::NewtonWorldGetBodyCount(self.world)})),
+                    &ImString::new(format!("{}", unsafe {
+                        ffi::NewtonWorldGetBodyCount(self.world)
+                    })),
                 );
                 ui.label_text(
                     im_str!("Constraints"),
-                    &ImString::new(format!("{}", unsafe {ffi::NewtonWorldGetConstraintCount(self.world)})),
+                    &ImString::new(format!("{}", unsafe {
+                        ffi::NewtonWorldGetConstraintCount(self.world)
+                    })),
                 );
                 ui.separator();
                 ui.label_text(

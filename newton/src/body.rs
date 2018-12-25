@@ -1,6 +1,6 @@
 use ffi;
 
-use super::collision::{CollisionRefMut, CollisionUserDataInner, CollisionParams, NewtonCollision};
+use super::collision::{CollisionParams, CollisionRefMut, CollisionUserDataInner, NewtonCollision};
 use super::world::{NewtonWorld, WorldRefMut};
 use super::{Application, Types};
 
@@ -12,10 +12,25 @@ use std::rc::{Rc, Weak};
 
 pub type BodyId = i32;
 
+#[repr(i32)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum BodyType {
-    Dynamic,
-    Kinematic,
+    Dynamic = ffi::NEWTON_DYNAMIC_BODY as _,
+    Kinematic = ffi::NEWTON_KINEMATIC_BODY as _,
+}
+
+pub fn dynamic<T: Types, App: Application<Types = T>>(
+    collision: &mut NewtonCollision<App>,
+    transform: &T::Matrix,
+) -> Body<App> {
+    Body::new(collision, BodyType::Dynamic, transform)
+}
+
+pub fn kinematic<T: Types, App: Application<Types = T>>(
+    collision: &mut NewtonCollision<App>,
+    transform: &T::Matrix,
+) -> Body<App> {
+    Body::new(collision, BodyType::Kinematic, transform)
 }
 
 #[derive(Debug)]
@@ -24,7 +39,7 @@ pub(crate) struct BodyUserDataInner<App> {
     pub(crate) body: Weak<RefCell<NewtonBody<App>>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Body<App>(
     pub(crate) Rc<RefCell<NewtonWorld<App>>>,
     pub(crate) Rc<RefCell<NewtonBody<App>>>,
@@ -53,12 +68,16 @@ impl<F: Types, App: Application<Types = F>> Body<App> {
             let world_rc_cell = Weak::upgrade(&udata.world).unwrap();
             let transform = mem::transmute(matrix);
             let body_raw = match ty {
-                BodyType::Dynamic => {
-                    ffi::NewtonCreateDynamicBody(collision.world_raw, collision.collision, transform)
-                }
-                BodyType::Kinematic => {
-                    ffi::NewtonCreateKinematicBody(collision.world_raw, collision.collision, transform)
-                }
+                BodyType::Dynamic => ffi::NewtonCreateDynamicBody(
+                    collision.world_raw,
+                    collision.collision,
+                    transform,
+                ),
+                BodyType::Kinematic => ffi::NewtonCreateKinematicBody(
+                    collision.world_raw,
+                    collision.collision,
+                    transform,
+                ),
             };
 
             ffi::NewtonBodySetForceAndTorqueCallback(
@@ -135,12 +154,17 @@ impl<F: Types, App: Application<Types = F>> NewtonBody<App> {
     pub fn collision_params(&self) -> Rc<CollisionParams> {
         unsafe {
             let collision = ffi::NewtonBodyGetCollision(self.body);
-            let collision_udata: Rc<CollisionUserDataInner<App>> = mem::transmute(ffi::NewtonCollisionGetUserData(collision));
+            let collision_udata: Rc<CollisionUserDataInner<App>> =
+                mem::transmute(ffi::NewtonCollisionGetUserData(collision));
 
             let params = collision_udata.params.clone();
             mem::forget(collision_udata);
             params
         }
+    }
+
+    pub fn body_type(&self) -> raw::c_int {
+        unsafe { mem::transmute(ffi::NewtonBodyGetType(self.body)) }
     }
 
     pub fn as_raw(&self) -> *const ffi::NewtonBody {
@@ -152,9 +176,7 @@ impl<F: Types, App: Application<Types = F>> NewtonBody<App> {
     }
 
     pub fn sleep_state(&self) -> SleepState {
-        unsafe {
-            mem::transmute(ffi::NewtonBodyGetSleepState(self.body))
-        }
+        unsafe { mem::transmute(ffi::NewtonBodyGetSleepState(self.body)) }
     }
 
     pub fn set_sleep_state(&mut self, state: SleepState) {
@@ -258,8 +280,9 @@ impl<'w, 'b, App> DerefMut for BodyRefMut<'w, 'b, App> {
 impl<App> Drop for NewtonBody<App> {
     fn drop(&mut self) {
         if self.owned {
-            // TODO what to do here
-            //let _ = self.world.borrow_mut();
+            // By freeing this body we are mutating the world, so...
+            let _ = self.world.borrow_mut();
+
             unsafe {
                 let body = self.body;
                 let _: Rc<BodyUserDataInner<App>> =
@@ -270,10 +293,11 @@ impl<App> Drop for NewtonBody<App> {
     }
 }
 
-unsafe extern "C" fn force_and_torque_callback<App: Application>(body: *const ffi::NewtonBody,
-                                                                 timestep: raw::c_float,
-                                                                 _thread: raw::c_int) {
-
+unsafe extern "C" fn force_and_torque_callback<App: Application>(
+    body: *const ffi::NewtonBody,
+    timestep: raw::c_float,
+    _thread: raw::c_int,
+) {
     let udata: Rc<BodyUserDataInner<App>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
     let world_rc = Weak::upgrade(&udata.world).unwrap();
     mem::forget(udata);
