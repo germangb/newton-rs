@@ -1,32 +1,66 @@
 use ffi;
 
+use super::body::{Body, BodyRef, BodyRefMut, DynamicBody, KinematicBody};
 use super::Application;
 
-use std::mem;
-use std::time::Duration;
 use std::cell::RefCell;
-use std::rc::Rc;
-use std::ops::{Deref, DerefMut};
 use std::cell::{Ref, RefMut};
-use std::os::raw;
-use std::rc::Weak;
 use std::marker::PhantomData;
+use std::mem;
+use std::ops::{Deref, DerefMut};
+use std::os::raw;
+use std::rc::Rc;
+use std::rc::Weak;
+use std::time::Duration;
 
-/// Ref counted pointer to a `NewtonWorld`.
 #[derive(Debug)]
 pub struct World<App>(Rc<RefCell<NewtonWorld<App>>>, *mut ffi::NewtonWorld);
 
-#[doc(hidden)]
 #[derive(Debug)]
 pub struct NewtonWorld<App>(*mut ffi::NewtonWorld, PhantomData<App>);
 
-/// Immutable reference to a `NewtonBody`
 #[derive(Debug)]
-pub struct WorldRef<'w, App>(pub(crate) Ref<'w, NewtonWorld<App>>, pub(crate) *mut ffi::NewtonWorld);
+pub struct WorldRef<'w, App>(
+    pub(crate) Ref<'w, NewtonWorld<App>>,
+    pub(crate) *mut ffi::NewtonWorld,
+);
 
-/// Mutable reference to a `NewtonBody`
 #[derive(Debug)]
-pub struct WorldRefMut<'w, App>(pub(crate) RefMut<'w, NewtonWorld<App>>, pub(crate) *mut ffi::NewtonWorld);
+pub struct WorldRefMut<'w, App>(
+    pub(crate) RefMut<'w, NewtonWorld<App>>,
+    pub(crate) *mut ffi::NewtonWorld,
+);
+
+#[derive(Debug)]
+pub struct Bodies<'w, App>(
+    *mut ffi::NewtonWorld,
+    *mut ffi::NewtonBody,
+    PhantomData<&'w App>,
+);
+
+impl<'w, App> Iterator for Bodies<'w, App> {
+    type Item = Body<App>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.1.is_null() {
+            return None;
+        }
+        unsafe {
+            let body = match ffi::NewtonBodyGetType(self.1) as _ {
+                ffi::NEWTON_KINEMATIC_BODY => {
+                    Body::Kinematic(KinematicBody::from_raw_parts(self.0, self.1))
+                }
+                ffi::NEWTON_DYNAMIC_BODY => {
+                    Body::Dynamic(DynamicBody::from_raw_parts(self.0, self.1))
+                }
+                _ => unreachable!(),
+            };
+
+            self.1 = ffi::NewtonWorldGetNextBody(self.0, self.1);
+            Some(body)
+        }
+    }
+}
 
 impl<App> World<App> {
     pub fn new() -> Self {
@@ -48,22 +82,23 @@ impl<App> World<App> {
 }
 
 impl<App> NewtonWorld<App> {
+    pub fn bodies(&self) -> Bodies<App> {
+        let first = unsafe { ffi::NewtonWorldGetFirstBody(self.0) };
+        Bodies(self.0, first, PhantomData)
+    }
+
     pub fn body_count(&self) -> raw::c_int {
-        unsafe {
-            ffi::NewtonWorldGetBodyCount(self.0)
-        }
+        unsafe { ffi::NewtonWorldGetBodyCount(self.0) }
     }
 
     pub fn constraint_count(&self) -> raw::c_int {
-        unsafe {
-            ffi::NewtonWorldGetConstraintCount(self.0)
-        }
+        unsafe { ffi::NewtonWorldGetConstraintCount(self.0) }
     }
 
     pub fn update(&mut self, step: Duration) {
         let nanos = step.as_secs() as f32 * 1_000_000_000.0 + step.subsec_nanos() as f32;
         unsafe {
-            ffi::NewtonUpdate(self.0, nanos);
+            ffi::NewtonUpdate(self.0, nanos / 1_000_000_000.0);
         }
     }
 
@@ -102,7 +137,7 @@ impl<App> Drop for NewtonWorld<App> {
     fn drop(&mut self) {
         let world = self.0;
         unsafe {
-            eprintln!("drop world");
+            //eprintln!("drop world");
             let _: Weak<RefCell<Self>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
             ffi::NewtonDestroy(world);
         }

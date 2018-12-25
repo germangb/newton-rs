@@ -6,4 +6,3 @@ edition = "2018"
 
 [dependencies]
 newton = { path = "../newton", features = ["sandbox"] }
-cgmath = "0.16"

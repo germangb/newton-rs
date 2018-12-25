@@ -1,6 +1,8 @@
-pub mod world;
 pub mod body;
 pub mod collision;
+#[cfg(feature = "sandbox2")]
+pub mod sandbox;
+pub mod world;
 
 use std::fmt::Debug;
 
