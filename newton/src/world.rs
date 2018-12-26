@@ -1,33 +1,45 @@
 use ffi;
 
-use super::body::{Body, BodyRef, BodyRefMut, NewtonBody};
+use super::body::{Bodies, BodiesMut, Body, BodyRef, BodyRefMut, NewtonBody};
 use super::{Shared, Types, Weak};
 
+use crate::collision::NewtonCollision;
 use std::cell::RefCell;
 use std::cell::{Ref, RefMut};
 use std::marker::PhantomData;
 use std::mem;
+use std::num::NonZeroU32;
 use std::ops::{Deref, DerefMut};
 use std::os::raw;
 use std::time::Duration;
 
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Broadphase {
+    Default = ffi::NEWTON_BROADPHASE_DEFAULT as _,
+    Persistent = ffi::NEWTON_BROADPHASE_PERSINTENT as _,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Solver {
+    Exact,
+    Linear(u32),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Threads {
+    One,
+    Multiple(u32),
+}
+
 #[derive(Debug, Clone)]
 pub struct World<T>(Shared<RefCell<NewtonWorld<T>>>, *mut ffi::NewtonWorld);
 
-// TODO figure out how async update works...
 #[derive(Debug)]
 pub struct WorldUpdateAsync<'a, T>(*mut ffi::NewtonWorld, PhantomData<&'a T>);
 
-impl<'a, T> Drop for WorldUpdateAsync<'a, T> {
-    fn drop(&mut self) {
-        unsafe {
-            ffi::NewtonWaitForUpdateToFinish(self.0);
-        }
-    }
-}
-
 #[derive(Debug)]
-pub struct NewtonWorld<T>(pub(crate) *mut ffi::NewtonWorld, PhantomData<T>);
+pub struct NewtonWorld<T>(*mut ffi::NewtonWorld, PhantomData<T>);
 
 // TODO normalize userdata
 /*
@@ -38,99 +50,27 @@ pub struct WorldUserData<T> {
 */
 
 #[derive(Debug)]
-pub struct WorldRef<'w, T>(
-    pub(crate) Ref<'w, NewtonWorld<T>>,
-    pub(crate) *mut ffi::NewtonWorld,
-);
+pub struct WorldRef<'a, T>(Ref<'a, NewtonWorld<T>>);
 
 #[derive(Debug)]
-pub struct WorldRefMut<'w, T>(
-    pub(crate) RefMut<'w, NewtonWorld<T>>,
-    pub(crate) *mut ffi::NewtonWorld,
-);
-
-#[derive(Debug)]
-pub struct Bodies<'a, T> {
-    world: *mut ffi::NewtonWorld,
-    next: *mut ffi::NewtonBody,
-    body: *mut NewtonBody<T>,
-    _ph: PhantomData<&'a T>,
-}
-
-#[derive(Debug)]
-pub struct BodiesMut<'a, T> {
-    world: *mut ffi::NewtonWorld,
-    next: *mut ffi::NewtonBody,
-    body: *mut NewtonBody<T>,
-    _ph: PhantomData<&'a T>,
-}
-
-impl<'a, T> Drop for Bodies<'a, T> {
-    fn drop(&mut self) {
-        unsafe {
-            let _: Box<NewtonBody<T>> = Box::from_raw(self.body);
-        }
-    }
-}
-
-impl<'a, T> Drop for BodiesMut<'a, T> {
-    fn drop(&mut self) {
-        unsafe {
-            let _: Box<NewtonBody<T>> = Box::from_raw(self.body);
-        }
-    }
-}
-
-impl<'a, T> Iterator for Bodies<'a, T> {
-    type Item = &'a NewtonBody<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut boxed = unsafe { Box::from_raw(self.body) };
-        boxed.body = self.next;
-
-        if self.next.is_null() {
-            Box::into_raw(boxed);
-            return None;
-        } else {
-            unsafe {
-                self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
-                Some(mem::transmute(Box::into_raw(boxed)))
-            }
-        }
-    }
-}
-
-impl<'a, T> Iterator for BodiesMut<'a, T> {
-    type Item = &'a mut NewtonBody<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut boxed = unsafe { Box::from_raw(self.body) };
-        boxed.body = self.next;
-
-        if self.next.is_null() {
-            Box::into_raw(boxed);
-            return None;
-        } else {
-            unsafe {
-                self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
-                Some(mem::transmute(Box::into_raw(boxed)))
-            }
-        }
-    }
-}
-
-#[repr(i32)]
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum BroadphaseAlgorithm {
-    Default = ffi::NEWTON_BROADPHASE_DEFAULT as _,
-    Persistent = ffi::NEWTON_BROADPHASE_PERSINTENT as _,
-}
+pub struct WorldRefMut<'a, T>(RefMut<'a, NewtonWorld<T>>);
 
 impl<T> World<T> {
-    pub fn new(broadphase: BroadphaseAlgorithm) -> Self {
+    pub fn new(broadphase: Broadphase, solver: Solver, threads: Threads) -> Self {
         let world = unsafe {
             let world = ffi::NewtonCreate();
             ffi::NewtonSelectBroadphaseAlgorithm(world, mem::transmute(broadphase));
+            match solver {
+                Solver::Exact => ffi::NewtonSetSolverModel(world, 0),
+                Solver::Linear(n) => {
+                    assert!(n > 0);
+                    ffi::NewtonSetSolverModel(world, n as _)
+                }
+            }
+            match threads {
+                Threads::One | Threads::Multiple(1) => {}
+                Threads::Multiple(n) => ffi::NewtonSetThreadsCount(world, n as _),
+            }
             world
         };
         let world_rc_cell = Shared::new(RefCell::new(NewtonWorld(world, PhantomData)));
@@ -141,11 +81,33 @@ impl<T> World<T> {
     }
 
     pub fn borrow(&self) -> WorldRef<T> {
-        WorldRef(self.0.borrow(), self.1)
+        WorldRef(self.0.borrow())
     }
 
     pub fn borrow_mut(&self) -> WorldRefMut<T> {
-        WorldRefMut(self.0.borrow_mut(), self.1)
+        WorldRefMut(self.0.borrow_mut())
+    }
+}
+
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Filter {
+    Ignore = 0,
+    Keep = 1,
+}
+
+impl<T: Types> NewtonWorld<T> {
+    pub fn convex_cast<C>(
+        &self,
+        matrix: &T::Matrix,
+        target: &T::Vector,
+        shape: &NewtonCollision<T>,
+        max_contacts: raw::c_int,
+        prefilter: C,
+    ) where
+        C: Fn(&NewtonBody<T>, &NewtonCollision<T>) -> Filter,
+    {
+        unimplemented!()
     }
 }
 
@@ -171,7 +133,7 @@ impl<T> NewtonWorld<T> {
 
     // TODO (performance) extra level of indirection may affect performance
     // TODO FIXME code repetition
-    pub fn bodies_mut(&self) -> BodiesMut<T> {
+    pub fn bodies_mut(&mut self) -> BodiesMut<T> {
         let first = unsafe { ffi::NewtonWorldGetFirstBody(self.0) };
 
         let body = Box::new(NewtonBody {
@@ -223,6 +185,10 @@ impl<T> NewtonWorld<T> {
         }
     }
 
+    pub fn invalidate_cache(&mut self) {
+        unsafe { ffi::NewtonInvalidateCache(self.0) }
+    }
+
     pub fn as_raw(&self) -> *const ffi::NewtonWorld {
         self.0 as *const _
     }
@@ -268,12 +234,21 @@ impl<T> Drop for NewtonWorld<T> {
         let world = self.0;
         unsafe {
             let _: Weak<RefCell<Self>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
+            ffi::NewtonWaitForUpdateToFinish(world);
             ffi::NewtonMaterialDestroyAllGroupID(world);
             ffi::NewtonDestroy(world);
         }
     }
 }
 
+impl<'a, T> Drop for WorldUpdateAsync<'a, T> {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::NewtonWaitForUpdateToFinish(self.0);
+        }
+    }
+}
+
 pub fn create<T>() -> World<T> {
-    World::new(BroadphaseAlgorithm::Default)
+    World::new(Broadphase::Default, Solver::Exact, Threads::One)
 }

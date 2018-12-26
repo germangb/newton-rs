@@ -4,14 +4,14 @@ use newton::types::Cgmath;
 
 use newton::body::{self, NewtonBody};
 use newton::collision;
-use newton::world;
+use newton::world::{self, Broadphase, Solver, Threads, World};
 
 use newton::sandbox;
 use newton::sandbox::cgmath::{vec3, Matrix4, Quaternion, Vector3};
 use std::time::Duration;
 
 fn main() {
-    let world = world::create::<Cgmath>();
+    let world: World<Cgmath> = world::create();
 
     let mut w = world.borrow_mut();
     let pool = [
@@ -19,7 +19,14 @@ fn main() {
         collision::cuboid(&mut w, 1.0, 1.0, 1.0, 0, None),
     ];
 
-    let floor = body::dynamic(&mut w, &pool[0].borrow(), &position(0.0, -6.0, 0.0));
+    //let bodies = w.bodies_mut();
+
+    let floor = body::dynamic(
+        &mut w,
+        &pool[0].borrow(),
+        &position(0.0, -6.0, 0.0),
+        Some("floor"),
+    );
     //let ceiling = body::dynamic(&mut w, &pool[0].borrow(), &position(0.0, 6.0, 0.0));
     drop(w);
 
@@ -36,9 +43,9 @@ fn main() {
     let sphere = collision::sphere(&mut w, 1.0, 0, None);
     let coll = pool[1].borrow_mut();
 
-    let cube_2 = body::dynamic(&mut w, &coll, &position(0.5, 3.5, 0.25));
-    let cube_3 = body::dynamic(&mut w, &sphere.borrow(), &position(-0.25, -1.0, -0.5));
-    let cube_4 = body::dynamic(&mut w, &coll, &position(0.1, 0.5, 0.4));
+    let cube_2 = body::dynamic(&mut w, &coll, &position(0.5, 3.5, 0.25), None);
+    let cube_3 = body::dynamic(&mut w, &sphere.borrow(), &position(-0.25, -1.0, -0.5), None);
+    let cube_4 = body::dynamic(&mut w, &coll, &position(0.1, 0.5, 0.4), Some("cube"));
 
     drop(w);
 
@@ -52,9 +59,10 @@ fn main() {
 
     //let gravity = |b: &mut NewtonBody<_>, _: Duration| b.set_force(&vec3(0.0, -9.8, 0.0));
 
+    let gravity = vec3(0.0, -9.8, 0.0);
     cube_2
         .borrow_mut()
-        .set_force_and_torque(|b, _, _| b.set_force(&vec3(0.0, -9.8, 0.0)));
+        .set_force_and_torque(move |b, _, _| b.set_force(&gravity));
     //  cube_4
     //      .borrow_mut()
     //      .set_force_and_torque_callback::<Gravity>();

@@ -21,27 +21,21 @@ pub struct Collision<T>(
 pub struct NewtonCollision<T> {
     /// NewtonCollision holds a reference to the context because all collisions MUST be freed
     /// before the NewtonWorld is
-    pub(crate) world: Shared<RefCell<NewtonWorld<T>>>,
-    pub(crate) collision: *mut ffi::NewtonCollision,
+    world: Shared<RefCell<NewtonWorld<T>>>,
+    collision: *mut ffi::NewtonCollision,
 }
+
+#[derive(Debug)]
+pub struct CollisionRef<'a, T>(Ref<'a, NewtonCollision<T>>);
+
+#[derive(Debug)]
+pub struct CollisionRefMut<'a, T>(RefMut<'a, NewtonCollision<T>>);
 
 #[derive(Debug)]
 pub(crate) struct CollisionUserDataInner<T> {
     pub(crate) collision: Weak<RefCell<NewtonCollision<T>>>,
     pub(crate) params: Shared<CollisionParams>,
 }
-
-#[derive(Debug)]
-pub struct CollisionRef<'a, T>(
-    pub(crate) Ref<'a, NewtonCollision<T>>,
-    pub(crate) *mut ffi::NewtonCollision,
-);
-
-#[derive(Debug)]
-pub struct CollisionRefMut<'a, T>(
-    pub(crate) RefMut<'a, NewtonCollision<T>>,
-    pub(crate) *mut ffi::NewtonCollision,
-);
 
 #[derive(Debug)]
 pub enum CollisionParams {
@@ -98,29 +92,31 @@ impl<T: Types> Collision<T> {
             world_ref_rc
         };
 
+        let world = world.as_raw();
+
         let collision_raw = unsafe {
             let offset = mem::transmute(offset);
             match &params {
                 &CollisionParams::Box { dx, dy, dz } => {
-                    ffi::NewtonCreateBox(world.as_raw(), dx, dy, dz, shape_id, offset)
+                    ffi::NewtonCreateBox(world, dx, dy, dz, shape_id, offset)
                 }
                 &CollisionParams::Sphere { radius } => {
-                    ffi::NewtonCreateSphere(world.as_raw(), radius, shape_id, offset)
+                    ffi::NewtonCreateSphere(world, radius, shape_id, offset)
                 }
                 &CollisionParams::Cone { radius, height } => {
-                    ffi::NewtonCreateCone(world.as_raw(), radius, height, shape_id, offset)
+                    ffi::NewtonCreateCone(world, radius, height, shape_id, offset)
                 }
                 &CollisionParams::Cylinder {
                     radius0,
                     radius1,
                     height,
-                } => ffi::NewtonCreateCylinder(world.0, radius0, radius1, height, shape_id, offset),
+                } => ffi::NewtonCreateCylinder(world, radius0, radius1, height, shape_id, offset),
                 &CollisionParams::Capsule {
                     radius0,
                     radius1,
                     height,
-                } => ffi::NewtonCreateCapsule(world.0, radius0, radius1, height, shape_id, offset),
-                &CollisionParams::Null => ffi::NewtonCreateNull(world.0),
+                } => ffi::NewtonCreateCapsule(world, radius0, radius1, height, shape_id, offset),
+                &CollisionParams::Null => ffi::NewtonCreateNull(world),
             }
         };
 
@@ -146,12 +142,12 @@ impl<T: Types> Collision<T> {
 
     pub fn borrow(&self) -> CollisionRef<T> {
         let collision_ref = self.0.borrow();
-        CollisionRef(collision_ref, self.1)
+        CollisionRef(collision_ref)
     }
 
     pub fn borrow_mut(&self) -> CollisionRefMut<T> {
         let collision_ref = self.0.borrow_mut();
-        CollisionRefMut(collision_ref, self.1)
+        CollisionRefMut(collision_ref)
     }
 }
 

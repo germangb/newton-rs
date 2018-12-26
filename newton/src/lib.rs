@@ -18,11 +18,9 @@ use std::time::Duration;
 type Shared<T> = std::rc::Rc<T>;
 type Weak<T> = std::rc::Weak<T>;
 
-//pub type ShapeId = raw::c_int;
-//pub type ThreadIdx = raw::c_int;
-
 pub trait Types {
     type Vector: Copy;
     type Matrix: Copy;
     type Quaternion: Copy;
+    type UserData;
 }

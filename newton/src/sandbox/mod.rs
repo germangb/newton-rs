@@ -310,9 +310,11 @@ impl Sandbox {
             video_subsystem.gl_get_proc_address(s) as _
         });
 
+        /*
         unsafe {
             ffi::NewtonSetThreadsCount(self.world, 1);
         }
+        */
 
         let mut event_pump = sdl_context.event_pump().unwrap();
         'main: loop {
@@ -431,9 +433,12 @@ impl Sandbox {
     fn set_up_imgui(&mut self, ui: &imgui::Ui, stats: &RenderStats) {
         ui.main_menu_bar(|| {
             ui.menu(im_str!("Simulation")).build(|| {
-                ui.menu_item(im_str!("Simulate"))
-                    .selected(&mut self.simulate)
-                    .build();
+                ui.checkbox(im_str!("Simulate"), &mut self.simulate);
+                if ui.button(im_str!("Invalidate"), (100.0, 24.0)) {
+                    unsafe {
+                        ffi::NewtonInvalidateCache(self.world);
+                    }
+                }
                 ui.separator();
                 ui.radio_button(im_str!("1 thread"), &mut 0, 0);
                 ui.radio_button(im_str!("2 thread"), &mut 0, 1);
@@ -442,28 +447,15 @@ impl Sandbox {
             });
 
             ui.menu(im_str!("Render")).build(|| {
-                ui.menu_item(im_str!("Bodies"))
-                    .selected(&mut self.bodies)
-                    .build();
-                ui.menu_item(im_str!("AABB"))
-                    .selected(&mut self.aabb)
-                    .build();
-                ui.menu_item(im_str!("Constraints"))
-                    .selected(&mut self.constraints)
-                    .build();
+                ui.checkbox(im_str!("Bodies"), &mut self.bodies);
+                ui.checkbox(im_str!("AABB"), &mut self.aabb);
+                ui.checkbox(im_str!("Constraints"), &mut self.constraints);
                 ui.separator();
-                ui.menu_item(im_str!("Solid"))
-                    .selected(&mut self.solid)
-                    .build();
-                ui.menu_item(im_str!("Wireframe"))
-                    .selected(&mut self.wireframe)
-                    .build();
-                ui.menu_item(im_str!("Lighting"))
-                    .selected(&mut self.lighting)
-                    .build();
-                ui.menu_item(im_str!("Stats"))
-                    .selected(&mut self.stats)
-                    .build();
+                ui.checkbox(im_str!("Solid"), &mut self.solid);
+                ui.checkbox(im_str!("Wireframe"), &mut self.wireframe);
+                ui.checkbox(im_str!("Lighting"), &mut self.lighting);
+                ui.separator();
+                ui.checkbox(im_str!("Stats"), &mut self.stats);
             });
         });
 
