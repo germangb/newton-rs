@@ -23,8 +23,8 @@ type Locked<'a, T> = std::sync::RwLockReadGuard<'a, T>;
 type LockedMut<'a, T> = std::sync::RwLockWriteGuard<'a, T>;
 
 pub trait Types {
-    type Vector: Copy;
-    type Matrix: Copy;
-    type Quaternion: Copy;
-    type UserData;
+    type Vector: Copy + Sync + Send;
+    type Matrix: Copy + Sync + Send;
+    type Quaternion: Copy + Sync + Send;
+    type UserData: Sync + Send;
 }

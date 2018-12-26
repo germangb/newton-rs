@@ -78,11 +78,11 @@ impl<T> World<T> {
         World(world_rc_cell)
     }
 
-    pub fn borrow(&self) -> WorldRef<T> {
+    pub fn read(&self) -> WorldRef<T> {
         WorldRef(self.0.read().unwrap())
     }
 
-    pub fn borrow_mut(&self) -> WorldRefMut<T> {
+    pub fn write(&self) -> WorldRefMut<T> {
         WorldRefMut(self.0.write().unwrap())
     }
 }

@@ -135,12 +135,12 @@ impl<T: Types> Collision<T> {
         Collision(collision_rc)
     }
 
-    pub fn borrow(&self) -> CollisionRef<T> {
+    pub fn read(&self) -> CollisionRef<T> {
         let collision_ref = self.0.read().unwrap();
         CollisionRef(collision_ref)
     }
 
-    pub fn borrow_mut(&self) -> CollisionRefMut<T> {
+    pub fn write(&self) -> CollisionRefMut<T> {
         let collision_ref = self.0.write().unwrap();
         CollisionRefMut(collision_ref)
     }
@@ -184,7 +184,7 @@ impl<'a, T> DerefMut for CollisionRefMut<'a, T> {
 impl<T> Drop for NewtonCollision<T> {
     fn drop(&mut self) {
         let collision = self.collision;
-        //let _ = self.world.borrow_mut();
+        //let _ = self.world.write();
         unsafe {
             let _: Shared<CollisionUserDataInner<T>> =
                 mem::transmute(ffi::NewtonCollisionGetUserData(collision));

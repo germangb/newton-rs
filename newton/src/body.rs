@@ -131,13 +131,13 @@ impl<T: Types> Body<T> {
         }
     }
 
-    pub fn borrow(&self) -> BodyRef<T> {
+    pub fn read(&self) -> BodyRef<T> {
         let world = self.0.read().unwrap();
         let body = self.1.read().unwrap();
         BodyRef(world, body)
     }
 
-    pub fn borrow_mut(&self) -> BodyRefMut<T> {
+    pub fn write(&self) -> BodyRefMut<T> {
         let world = self.0.write().unwrap();
         let body = self.1.write().unwrap();
         BodyRefMut(world, body)
