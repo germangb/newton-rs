@@ -9,26 +9,14 @@ pub mod joint;
 pub mod types;
 pub mod world;
 
-use self::body::NewtonBody;
-
 use std::fmt::Debug;
+use std::time::Duration;
+
+type Shared<T> = std::sync::Arc<T>;
+type Weak<T> = std::sync::Weak<T>;
 
 pub trait Types {
     type Vector: Copy;
     type Matrix: Copy;
     type Quaternion: Copy;
-}
-
-/*
-pub trait Application: Sized + Debug {
-    type Types;
-
-    //fn force_and_torque(body: &mut NewtonBody<Self>) {}
-}
-*/
-
-// callbacks
-
-pub trait ForceAndTorque<T> {
-    fn force_and_torque(body: &mut NewtonBody<T>);
 }

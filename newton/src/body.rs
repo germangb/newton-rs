@@ -4,33 +4,51 @@ use super::collision::{CollisionParams, CollisionRefMut, CollisionUserDataInner,
 use super::world::{NewtonWorld, WorldRefMut};
 use super::Types;
 
+use super::{Shared, Weak};
+
+use std::cell::Cell;
 use std::cell::{Ref, RefCell, RefMut};
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::raw;
-use std::rc::{Rc, Weak};
+
+//use std::rc::{Rc, Weak};
+
+use std::time::Duration;
 
 pub type BodyId = i32;
 
 #[derive(Debug, Clone)]
 pub struct Body<T>(
-    pub(crate) Rc<RefCell<NewtonWorld<T>>>,
-    pub(crate) Rc<RefCell<NewtonBody<T>>>,
+    pub(crate) Shared<RefCell<NewtonWorld<T>>>,
+    pub(crate) Shared<RefCell<NewtonBody<T>>>,
     pub(crate) *mut ffi::NewtonBody,
 );
 
 #[derive(Debug, Clone)]
 pub struct NewtonBody<T> {
-    pub(crate) world: Rc<RefCell<NewtonWorld<T>>>,
+    pub(crate) world: Shared<RefCell<NewtonWorld<T>>>,
     pub(crate) body: *mut ffi::NewtonBody,
     pub(crate) owned: bool,
 }
 
-#[derive(Debug)]
+//#[derive(Debug)]
 pub(crate) struct BodyUserDataInner<T> {
     pub(crate) world: Weak<RefCell<NewtonWorld<T>>>,
     pub(crate) body: Weak<RefCell<NewtonBody<T>>>,
+    pub(crate) force_and_torque: Cell<Option<*mut ()>>,
+}
+
+impl<T> Drop for BodyUserDataInner<T> {
+    fn drop(&mut self) {
+        unsafe {
+            if let Some(closure) = self.force_and_torque.get() {
+                // TODO FIXME Is this OK?
+                ::std::ptr::drop_in_place(closure);
+            }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -62,7 +80,7 @@ pub enum BodyType {
 
 impl<T> Body<T> {
     pub unsafe fn from_raw_parts(body: *mut ffi::NewtonBody) -> Self {
-        let udata: Rc<BodyUserDataInner<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+        let udata: Shared<BodyUserDataInner<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
 
         let body_rc = Weak::upgrade(&udata.body).unwrap();
         let world_rc = Weak::upgrade(&udata.world).unwrap();
@@ -81,7 +99,7 @@ impl<T: Types> Body<T> {
     ) -> Self {
         unsafe {
             // get refs from userdata
-            let udata: Rc<CollisionUserDataInner<T>> =
+            let udata: Shared<CollisionUserDataInner<T>> =
                 mem::transmute(ffi::NewtonCollisionGetUserData(collision.collision));
 
             // world userdata
@@ -101,17 +119,18 @@ impl<T: Types> Body<T> {
                 }
             };
 
-            let newton_body = Rc::new(RefCell::new(NewtonBody {
+            let newton_body = Shared::new(RefCell::new(NewtonBody {
                 world: world_rc_cell.clone(),
                 body: body_raw,
                 owned: true,
             }));
 
             let userdata = BodyUserDataInner {
-                body: Rc::downgrade(&newton_body),
-                world: Rc::downgrade(&world_rc_cell),
+                body: Shared::downgrade(&newton_body),
+                world: Shared::downgrade(&world_rc_cell),
+                force_and_torque: Cell::new(None),
             };
-            ffi::NewtonBodySetUserData(body_raw, mem::transmute(Rc::new(userdata)));
+            ffi::NewtonBodySetUserData(body_raw, mem::transmute(Shared::new(userdata)));
 
             mem::forget(udata);
             Body(world_rc_cell, newton_body, body_raw)
@@ -162,10 +181,10 @@ pub enum FreezeState {
 }
 
 impl<T: Types> NewtonBody<T> {
-    pub fn collision_params(&self) -> Rc<CollisionParams> {
+    pub fn collision_params(&self) -> Shared<CollisionParams> {
         unsafe {
             let collision = ffi::NewtonBodyGetCollision(self.body);
-            let collision_udata: Rc<CollisionUserDataInner<T>> =
+            let collision_udata: Shared<CollisionUserDataInner<T>> =
                 mem::transmute(ffi::NewtonCollisionGetUserData(collision));
 
             let params = collision_udata.params.clone();
@@ -273,12 +292,51 @@ impl<T: Types> NewtonBody<T> {
         }
     }
 
+    /*
     pub fn set_force_and_torque_callback<C: super::ForceAndTorque<T>>(&mut self) {
         unsafe {
             ffi::NewtonBodySetForceAndTorqueCallback(
                 self.body,
                 Some(force_and_torque_callback::<T, C>),
             );
+        }
+    }
+    */
+
+    // TODO FIXME unsafe unsafe unsafe...
+    // It is less verbose than the ^^^ option, but is it actually better?
+    pub fn set_force_and_torque<C>(&mut self, callback: C)
+    where
+        C: Fn(&mut NewtonBody<T>, Duration, raw::c_int) + 'static,
+    {
+        let datum = self.body_datum();
+
+        if let Some(ptr) = datum.force_and_torque.get() {
+            unsafe {
+                let _: Box<C> = Box::from_raw(ptr as _);
+            }
+        }
+
+        unsafe {
+            datum
+                .force_and_torque
+                .set(Some(mem::transmute(Box::new(callback))));
+
+            ffi::NewtonBodySetForceAndTorqueCallback(
+                self.body,
+                Some(force_and_torque_callback::<T, C>),
+            );
+        }
+    }
+
+    fn body_datum(&self) -> Shared<BodyUserDataInner<T>> {
+        unsafe {
+            let body_userdata: Shared<BodyUserDataInner<T>> =
+                mem::transmute(ffi::NewtonBodyGetUserData(self.body));
+
+            let cloned = body_userdata.clone();
+            mem::forget(body_userdata);
+            cloned
         }
     }
 }
@@ -313,27 +371,40 @@ impl<T> Drop for NewtonBody<T> {
 
             unsafe {
                 let body = self.body;
-                let _: Rc<BodyUserDataInner<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+                let _: Shared<BodyUserDataInner<T>> =
+                    mem::transmute(ffi::NewtonBodyGetUserData(body));
                 ffi::NewtonDestroyBody(body)
             }
         }
     }
 }
 
-unsafe extern "C" fn force_and_torque_callback<T: Types, C: super::ForceAndTorque<T>>(
+unsafe extern "C" fn force_and_torque_callback<T, C>(
     body: *const ffi::NewtonBody,
     timestep: raw::c_float,
-    _thread: raw::c_int,
-) {
-    let udata: Rc<BodyUserDataInner<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+    thread: raw::c_int,
+) where
+    T: Types,
+    C: Fn(&mut NewtonBody<T>, Duration, raw::c_int) + 'static,
+{
+    let udata: Shared<BodyUserDataInner<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
     let world_rc = Weak::upgrade(&udata.world).unwrap();
+
+    if let Some(ptr) = udata.force_and_torque.get() {
+        let callback = mem::transmute::<_, Box<C>>(ptr);
+
+        let nanos = (1_000_000_000.0 * timestep) as u64;
+        let timestep = Duration::new(nanos / 1_000_000_000, (nanos % 1_000_000_000) as u32);
+
+        let mut body = NewtonBody {
+            owned: false,
+            world: world_rc,
+            body: body as *mut _,
+        };
+        callback(&mut body, timestep, thread);
+
+        mem::forget(callback);
+    }
+
     mem::forget(udata);
-
-    let mut body = NewtonBody {
-        owned: false,
-        world: world_rc,
-        body: body as *mut _,
-    };
-
-    C::force_and_torque(&mut body)
 }

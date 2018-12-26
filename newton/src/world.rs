@@ -1,6 +1,7 @@
 use ffi;
 
 use super::body::{Body, BodyRef, BodyRefMut, NewtonBody};
+use super::{Shared, Weak};
 
 use std::cell::RefCell;
 use std::cell::{Ref, RefMut};
@@ -8,12 +9,10 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::raw;
-use std::rc::Rc;
-use std::rc::Weak;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
-pub struct World<T>(Rc<RefCell<NewtonWorld<T>>>, *mut ffi::NewtonWorld);
+pub struct World<T>(Shared<RefCell<NewtonWorld<T>>>, *mut ffi::NewtonWorld);
 
 #[derive(Debug)]
 pub struct NewtonWorld<T>(pub(crate) *mut ffi::NewtonWorld, PhantomData<T>);
@@ -54,6 +53,22 @@ pub struct BodiesMut<'a, T> {
     _ph: PhantomData<&'a T>,
 }
 
+impl<'a, T> Drop for Bodies<'a, T> {
+    fn drop(&mut self) {
+        unsafe {
+            let _: Box<NewtonBody<T>> = Box::from_raw(self.body);
+        }
+    }
+}
+
+impl<'a, T> Drop for BodiesMut<'a, T> {
+    fn drop(&mut self) {
+        unsafe {
+            let _: Box<NewtonBody<T>> = Box::from_raw(self.body);
+        }
+    }
+}
+
 impl<'a, T> Iterator for Bodies<'a, T> {
     type Item = &'a NewtonBody<T>;
 
@@ -62,6 +77,7 @@ impl<'a, T> Iterator for Bodies<'a, T> {
         boxed.body = self.next;
 
         if self.next.is_null() {
+            Box::into_raw(boxed);
             return None;
         } else {
             unsafe {
@@ -80,6 +96,7 @@ impl<'a, T> Iterator for BodiesMut<'a, T> {
         boxed.body = self.next;
 
         if self.next.is_null() {
+            Box::into_raw(boxed);
             return None;
         } else {
             unsafe {
@@ -104,9 +121,9 @@ impl<T> World<T> {
             ffi::NewtonSelectBroadphaseAlgorithm(world, mem::transmute(broadphase));
             world
         };
-        let world_rc_cell = Rc::new(RefCell::new(NewtonWorld(world, PhantomData)));
+        let world_rc_cell = Shared::new(RefCell::new(NewtonWorld(world, PhantomData)));
         unsafe {
-            ffi::NewtonWorldSetUserData(world, mem::transmute(Rc::downgrade(&world_rc_cell)));
+            ffi::NewtonWorldSetUserData(world, mem::transmute(Shared::downgrade(&world_rc_cell)));
         }
         World(world_rc_cell, world)
     }
@@ -140,17 +157,6 @@ impl<T> NewtonWorld<T> {
         }
     }
 
-    fn world_datum(&self) -> Rc<RefCell<NewtonWorld<T>>> {
-        unsafe {
-            let world_userdata: Weak<RefCell<NewtonWorld<T>>> =
-                mem::transmute(ffi::NewtonWorldGetUserData(self.0));
-            let world = Weak::upgrade(&world_userdata).unwrap();
-
-            mem::forget(world_userdata);
-            world
-        }
-    }
-
     // TODO (performance) extra level of indirection may affect performance
     // TODO FIXME code repetition
     pub fn bodies_mut(&self) -> BodiesMut<T> {
@@ -167,6 +173,17 @@ impl<T> NewtonWorld<T> {
             next: first,
             body: Box::into_raw(body),
             _ph: PhantomData,
+        }
+    }
+
+    fn world_datum(&self) -> Shared<RefCell<NewtonWorld<T>>> {
+        unsafe {
+            let world_userdata: Weak<RefCell<NewtonWorld<T>>> =
+                mem::transmute(ffi::NewtonWorldGetUserData(self.0));
+            let world = Weak::upgrade(&world_userdata).unwrap();
+
+            mem::forget(world_userdata);
+            world
         }
     }
 
@@ -221,6 +238,7 @@ impl<T> Drop for NewtonWorld<T> {
         let world = self.0;
         unsafe {
             let _: Weak<RefCell<Self>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
+            ffi::NewtonMaterialDestroyAllGroupID(world);
             ffi::NewtonDestroy(world);
         }
     }

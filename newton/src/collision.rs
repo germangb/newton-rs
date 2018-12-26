@@ -2,31 +2,33 @@ use ffi;
 
 use super::world::{NewtonWorld, WorldRefMut};
 use super::Types;
+use super::{Shared, Weak};
 
 use std::cell::{Ref, RefCell, RefMut};
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::raw;
-use std::rc::{Rc, Weak};
 
 pub type ShapeId = raw::c_int;
 
 #[derive(Debug, Clone)]
 pub struct Collision<T>(
-    pub(crate) Rc<RefCell<NewtonCollision<T>>>,
+    pub(crate) Shared<RefCell<NewtonCollision<T>>>,
     *mut ffi::NewtonCollision,
 );
 
 #[derive(Debug)]
 pub struct NewtonCollision<T> {
-    pub(crate) world: Rc<RefCell<NewtonWorld<T>>>,
+    /// NewtonCollision holds a reference to the context because all collisions MUST be freed
+    /// before the NewtonWorld is
+    pub(crate) world: Shared<RefCell<NewtonWorld<T>>>,
     pub(crate) collision: *mut ffi::NewtonCollision,
 }
 
 #[derive(Debug)]
 pub(crate) struct CollisionUserDataInner<T> {
     pub(crate) collision: Weak<RefCell<NewtonCollision<T>>>,
-    pub(crate) params: Rc<CollisionParams>,
+    pub(crate) params: Shared<CollisionParams>,
 }
 
 #[derive(Debug)]
@@ -70,7 +72,7 @@ pub enum CollisionParams {
 
 impl<T> Collision<T> {
     pub unsafe fn from_raw(raw: *mut ffi::NewtonCollision) -> Self {
-        let datum: Rc<CollisionUserDataInner<T>> =
+        let datum: Shared<CollisionUserDataInner<T>> =
             mem::transmute(ffi::NewtonCollisionGetUserData(raw));
 
         let collision = Weak::upgrade(&datum.collision).unwrap();
@@ -122,16 +124,16 @@ impl<T: Types> Collision<T> {
             }
         };
 
-        let params = Rc::new(params);
+        let params = Shared::new(params);
 
         let collision = NewtonCollision {
             world: world_rc.clone(),
             collision: collision_raw,
         };
-        let collision_rc = Rc::new(RefCell::new(collision));
+        let collision_rc = Shared::new(RefCell::new(collision));
 
-        let userdata = Rc::new(CollisionUserDataInner {
-            collision: Rc::downgrade(&collision_rc),
+        let userdata = Shared::new(CollisionUserDataInner {
+            collision: Shared::downgrade(&collision_rc),
             params,
         });
 
@@ -193,7 +195,7 @@ impl<T> Drop for NewtonCollision<T> {
         let collision = self.collision;
         //let _ = self.world.borrow_mut();
         unsafe {
-            let _: Rc<CollisionUserDataInner<T>> =
+            let _: Shared<CollisionUserDataInner<T>> =
                 mem::transmute(ffi::NewtonCollisionGetUserData(collision));
             ffi::NewtonDestroyCollision(collision)
         }
