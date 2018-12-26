@@ -68,6 +68,12 @@ fn main() {
         //body.set_linear_damping(0.5);
     }
 
+    let (min, max) = (vec3(-10.0, -10.0, -10.0), vec3(10.0, 10.0, 10.0));
+
+    //world
+    //    .borrow_mut()
+    //    .for_each_body_in_aabb((&min, &max), |b| Ok(()));
+
     sandbox::run(world.borrow().as_raw());
 }
 

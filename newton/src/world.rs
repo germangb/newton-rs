@@ -1,7 +1,7 @@
 use ffi;
 
 use super::body::{Body, BodyRef, BodyRefMut, NewtonBody};
-use super::{Shared, Weak};
+use super::{Shared, Types, Weak};
 
 use std::cell::RefCell;
 use std::cell::{Ref, RefMut};
@@ -13,6 +13,18 @@ use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct World<T>(Shared<RefCell<NewtonWorld<T>>>, *mut ffi::NewtonWorld);
+
+// TODO figure out how async update works...
+#[derive(Debug)]
+pub struct WorldUpdateAsync<'a, T>(*mut ffi::NewtonWorld, PhantomData<&'a T>);
+
+impl<'a, T> Drop for WorldUpdateAsync<'a, T> {
+    fn drop(&mut self) {
+        unsafe {
+            ffi::NewtonWaitForUpdateToFinish(self.0);
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct NewtonWorld<T>(pub(crate) *mut ffi::NewtonWorld, PhantomData<T>);
@@ -195,6 +207,15 @@ impl<T> NewtonWorld<T> {
         unsafe { ffi::NewtonWorldGetConstraintCount(self.0) }
     }
 
+    pub fn update_async(&mut self, step: Duration) -> WorldUpdateAsync<T> {
+        let world = self.0;
+        let nanos = step.as_secs() as f32 * 1_000_000_000.0 + step.subsec_nanos() as f32;
+        unsafe {
+            ffi::NewtonUpdateAsync(world, nanos / 1_000_000_000.0);
+        }
+        WorldUpdateAsync(world, PhantomData)
+    }
+
     pub fn update(&mut self, step: Duration) {
         let nanos = step.as_secs() as f32 * 1_000_000_000.0 + step.subsec_nanos() as f32;
         unsafe {
@@ -208,6 +229,15 @@ impl<T> NewtonWorld<T> {
 
     pub fn as_raw_mut(&mut self) -> *mut ffi::NewtonWorld {
         self.0
+    }
+}
+
+impl<T: Types> NewtonWorld<T> {
+    pub fn for_each_body_in_aabb<I>(&mut self, (min, max): (&T::Vector, &T::Vector), it: I)
+    where
+        I: Fn(&mut NewtonBody<T>) -> Result<(), ()> + 'static,
+    {
+        unimplemented!()
     }
 }
 

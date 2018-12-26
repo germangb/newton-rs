@@ -310,6 +310,10 @@ impl Sandbox {
             video_subsystem.gl_get_proc_address(s) as _
         });
 
+        unsafe {
+            ffi::NewtonSetThreadsCount(self.world, 1);
+        }
+
         let mut event_pump = sdl_context.event_pump().unwrap();
         'main: loop {
             for event in event_pump.poll_iter() {
@@ -343,7 +347,11 @@ impl Sandbox {
                 let step = (1_000_000_000.0f32 / 60.0) * self.time_scale;
                 let step_dur = Duration::new(0, step as u32);
 
-                unsafe { ffi::NewtonUpdate(self.world, step / 1_000_000_000.0) }
+                unsafe {
+                    ffi::NewtonUpdate(self.world, step / 1_000_000_000.0);
+                    //ffi::NewtonUpdateAsync(self.world, step / 1_000_000_000.0);
+                    //ffi::NewtonWaitForUpdateToFinish(self.world);
+                }
 
                 self.elapsed += step_dur;
             }
@@ -426,6 +434,11 @@ impl Sandbox {
                 ui.menu_item(im_str!("Simulate"))
                     .selected(&mut self.simulate)
                     .build();
+                ui.separator();
+                ui.radio_button(im_str!("1 thread"), &mut 0, 0);
+                ui.radio_button(im_str!("2 thread"), &mut 0, 1);
+                ui.radio_button(im_str!("3 thread"), &mut 0, 1);
+                ui.radio_button(im_str!("4 thread"), &mut 0, 1);
             });
 
             ui.menu(im_str!("Render")).build(|| {
@@ -464,6 +477,12 @@ impl Sandbox {
                     .build();
                 ui.checkbox(im_str!("Simulate"), &mut self.simulate);
                 ui.separator();
+                ui.label_text(
+                    im_str!("Threads"),
+                    &ImString::new(format!("{}", unsafe {
+                        ffi::NewtonGetThreadsCount(self.world)
+                    })),
+                );
                 ui.label_text(
                     im_str!("Bodies"),
                     &ImString::new(format!("{}", unsafe {
