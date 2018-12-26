@@ -11,7 +11,7 @@ Work in progress.
 ## TODO of tests
 
 - [ ] world
-    * [ ]
+    * [ ] ...
 - [ ] body
 - [ ] collision
 - [ ] joint
