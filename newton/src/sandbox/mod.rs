@@ -268,6 +268,11 @@ impl Sandbox {
                     transform = transform * Matrix4::from_nonuniform_scale(p.m_x, p.m_y, p.m_z);
                     renderer.render(Primitive::Box, mode, color, transform, Some(stats));
                 }
+                ffi::SERIALIZE_ID_SPHERE => {
+                    let p = unsafe { collision_info.__bindgen_anon_1.m_sphere };
+                    transform = transform * Matrix4::from_scale(p.m_radio);
+                    renderer.render(Primitive::Sphere, mode, color, transform, Some(stats));
+                }
                 id @ _ => {
                     eprintln!("unimplemented shape. ID = {}", id);
                 }

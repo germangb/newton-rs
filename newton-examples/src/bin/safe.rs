@@ -17,50 +17,44 @@ fn main() {
         collision::cuboid(&mut w, 12.0, 1.0, 12.0, 0, None),
         collision::cuboid(&mut w, 1.0, 1.0, 1.0, 0, None),
     ];
+
+    let floor = body::dynamic(&mut w, &pool[0].borrow(), &position(0.0, 0.0, 0.0));
     drop(w);
 
-    let floor = body::dynamic(&mut pool[0].borrow_mut(), &position(0.0, 0.0, 0.0));
-
-    // fine
     for body in world.borrow().bodies() {
-        println!("{:?}", body.borrow().position());
-        drop(body)
+        println!("{:?}", body);
     }
-    for body in world.borrow_mut().bodies() {
-        // NOT ok. Panics
-        //println!("{:?}", body.borrow().position());
-    }
+    println!("---");
 
-    // When all references to a body are dropped, the body performs a mutable borrow
-    // of the world, or panics if it is unsable to. This borrow checking is enforced
-    // to prevent segfaults such as this one:
-    {
-        // `floor` is the only body in the world.
-        let world = world.borrow();
-
-        // We borrow world in order to get an body iterator.
-        let mut bodies = world.bodies();
-
-        // then drop the only body in the iterator
-        //drop(floor);
-
-        drop(bodies.next().unwrap()) // Segfault
+    for body in world.borrow().bodies() {
+        println!("{:?}", body.position());
     }
 
     // run a visual simulation
-    let mut coll = pool[1].borrow_mut();
+    let mut w = world.borrow_mut();
 
-    let cube_2 = body::dynamic(&mut coll, &position(0.5, 9.5, 0.25));
-    let cube_3 = body::dynamic(&mut coll, &position(-0.25, 5.0, -0.5));
-    let cube_4 = body::dynamic(&mut coll, &position(0.1, 6.5, 0.4));
+    let sphere = collision::sphere(&mut w, 1.0, 0, None);
+    let coll = pool[1].borrow_mut();
 
-    drop(coll);
+    let cube_2 = body::dynamic(&mut w, &coll, &position(0.5, 9.5, 0.25));
+    let cube_3 = body::dynamic(&mut w, &sphere.borrow(), &position(-0.25, 5.0, -0.5));
+    let cube_4 = body::dynamic(&mut w, &coll, &position(0.1, 6.5, 0.4));
+
+    drop(w);
 
     cube_2.borrow_mut().set_mass(1.0);
-    cube_2.borrow_mut().set_force_and_torque_callback::<Gravity>();
+    cube_2
+        .borrow_mut()
+        .set_force_and_torque_callback::<Gravity>();
 
     cube_4.borrow_mut().set_mass(1.0);
-    cube_4.borrow_mut().set_force_and_torque_callback::<Gravity>();
+    cube_4
+        .borrow_mut()
+        .set_force_and_torque_callback::<Gravity>();
+
+    for body in world.borrow().bodies() {
+        println!("{:?}", body);
+    }
 
     sandbox::run(world.borrow().as_raw());
 }

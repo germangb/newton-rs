@@ -5,22 +5,26 @@ use super::world::{NewtonWorld, WorldRefMut};
 use super::Types;
 
 use std::cell::{Ref, RefCell, RefMut};
+use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::raw;
 use std::rc::{Rc, Weak};
-use std::marker::PhantomData;
 
 pub type BodyId = i32;
 
 #[derive(Debug, Clone)]
-pub struct Body<T>(pub(crate) Rc<RefCell<NewtonWorld<T>>>, pub(crate) Rc<RefCell<NewtonBody<T>>>, pub(crate) *mut ffi::NewtonBody);
+pub struct Body<T>(
+    pub(crate) Rc<RefCell<NewtonWorld<T>>>,
+    pub(crate) Rc<RefCell<NewtonBody<T>>>,
+    pub(crate) *mut ffi::NewtonBody,
+);
 
 #[derive(Debug, Clone)]
 pub struct NewtonBody<T> {
-    world: Rc<RefCell<NewtonWorld<T>>>,
-    body: *mut ffi::NewtonBody,
-    owned: bool,
+    pub(crate) world: Rc<RefCell<NewtonWorld<T>>>,
+    pub(crate) body: *mut ffi::NewtonBody,
+    pub(crate) owned: bool,
 }
 
 #[derive(Debug)]
@@ -30,10 +34,18 @@ pub(crate) struct BodyUserDataInner<T> {
 }
 
 #[derive(Debug)]
-pub struct BodyRef<'a, T>(pub(crate) Ref<'a, NewtonWorld<T>>, pub(crate) Ref<'a, NewtonBody<T>>, pub(crate) *mut ffi::NewtonBody);
+pub struct BodyRef<'a, T>(
+    pub(crate) Ref<'a, NewtonWorld<T>>,
+    pub(crate) Ref<'a, NewtonBody<T>>,
+    pub(crate) *mut ffi::NewtonBody,
+);
 
 #[derive(Debug)]
-pub struct BodyRefMut<'a, T>(pub(crate) RefMut<'a, NewtonWorld<T>>, pub(crate) RefMut<'a, NewtonBody<T>>, pub(crate) *mut ffi::NewtonBody);
+pub struct BodyRefMut<'a, T>(
+    pub(crate) RefMut<'a, NewtonWorld<T>>,
+    pub(crate) RefMut<'a, NewtonBody<T>>,
+    pub(crate) *mut ffi::NewtonBody,
+);
 
 #[derive(Debug)]
 pub struct ContactJoints<'a, T>(PhantomData<&'a T>);
@@ -61,33 +73,33 @@ impl<T> Body<T> {
 }
 
 impl<T: Types> Body<T> {
-    pub fn new(collision: &mut NewtonCollision<T>, ty: BodyType, matrix: &T::Matrix) -> Self {
+    pub fn new(
+        world: &mut NewtonWorld<T>,
+        collision: &NewtonCollision<T>,
+        ty: BodyType,
+        matrix: &T::Matrix,
+    ) -> Self {
         unsafe {
             // get refs from userdata
             let udata: Rc<CollisionUserDataInner<T>> =
-                mem::transmute(ffi::NewtonCollisionGetUserData(collision.as_raw()));
+                mem::transmute(ffi::NewtonCollisionGetUserData(collision.collision));
 
-            let world_rc_cell = Weak::upgrade(&udata.world).unwrap();
+            // world userdata
+            let world_userdata: Weak<RefCell<NewtonWorld<T>>> =
+                mem::transmute(ffi::NewtonWorldGetUserData(world.0));
+            let world_rc_cell = Weak::upgrade(&world_userdata).unwrap();
+
+            mem::forget(world_userdata);
+
             let transform = mem::transmute(matrix);
             let body_raw = match ty {
-                BodyType::Dynamic => ffi::NewtonCreateDynamicBody(
-                    collision.world_raw,
-                    collision.collision,
-                    transform,
-                ),
-                BodyType::Kinematic => ffi::NewtonCreateKinematicBody(
-                    collision.world_raw,
-                    collision.collision,
-                    transform,
-                ),
+                BodyType::Dynamic => {
+                    ffi::NewtonCreateDynamicBody(world.0, collision.collision, transform)
+                }
+                BodyType::Kinematic => {
+                    ffi::NewtonCreateKinematicBody(world.0, collision.collision, transform)
+                }
             };
-
-            /*
-            ffi::NewtonBodySetForceAndTorqueCallback(
-                body_raw,
-                Some(force_and_torque_callback::<App>),
-            );
-            */
 
             let newton_body = Rc::new(RefCell::new(NewtonBody {
                 world: world_rc_cell.clone(),
@@ -119,12 +131,20 @@ impl<T: Types> Body<T> {
     }
 }
 
-pub fn dynamic<T: Types>(collision: &mut NewtonCollision<T>, transform: &T::Matrix) -> Body<T> {
-    Body::new(collision, BodyType::Dynamic, transform)
+pub fn dynamic<T: Types>(
+    world: &mut NewtonWorld<T>,
+    collision: &NewtonCollision<T>,
+    transform: &T::Matrix,
+) -> Body<T> {
+    Body::new(world, collision, BodyType::Dynamic, transform)
 }
 
-pub fn kinematic<T: Types>(collision: &mut NewtonCollision<T>, transform: &T::Matrix) -> Body<T> {
-    Body::new(collision, BodyType::Kinematic, transform)
+pub fn kinematic<T: Types>(
+    world: &mut NewtonWorld<T>,
+    collision: &NewtonCollision<T>,
+    transform: &T::Matrix,
+) -> Body<T> {
+    Body::new(world, collision, BodyType::Kinematic, transform)
 }
 
 #[repr(i32)]
@@ -293,8 +313,7 @@ impl<T> Drop for NewtonBody<T> {
 
             unsafe {
                 let body = self.body;
-                let _: Rc<BodyUserDataInner<T>> =
-                    mem::transmute(ffi::NewtonBodyGetUserData(body));
+                let _: Rc<BodyUserDataInner<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
                 ffi::NewtonDestroyBody(body)
             }
         }

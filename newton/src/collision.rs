@@ -12,27 +12,34 @@ use std::rc::{Rc, Weak};
 pub type ShapeId = raw::c_int;
 
 #[derive(Debug, Clone)]
-pub struct Collision<T>(pub(crate) Rc<RefCell<NewtonWorld<T>>>, pub(crate) Rc<RefCell<NewtonCollision<T>>>, *mut ffi::NewtonCollision);
+pub struct Collision<T>(
+    pub(crate) Rc<RefCell<NewtonCollision<T>>>,
+    *mut ffi::NewtonCollision,
+);
 
 #[derive(Debug)]
 pub struct NewtonCollision<T> {
     pub(crate) world: Rc<RefCell<NewtonWorld<T>>>,
     pub(crate) collision: *mut ffi::NewtonCollision,
-    pub(crate) world_raw: *mut ffi::NewtonWorld,
 }
 
 #[derive(Debug)]
 pub(crate) struct CollisionUserDataInner<T> {
-    pub(crate) world: Weak<RefCell<NewtonWorld<T>>>,
     pub(crate) collision: Weak<RefCell<NewtonCollision<T>>>,
     pub(crate) params: Rc<CollisionParams>,
 }
 
 #[derive(Debug)]
-pub struct CollisionRef<'a, T>(pub(crate) Ref<'a, NewtonWorld<T>>, pub(crate) Ref<'a, NewtonCollision<T>>, pub(crate) *const ffi::NewtonWorld, pub(crate) *mut ffi::NewtonCollision);
+pub struct CollisionRef<'a, T>(
+    pub(crate) Ref<'a, NewtonCollision<T>>,
+    pub(crate) *mut ffi::NewtonCollision,
+);
 
 #[derive(Debug)]
-pub struct CollisionRefMut<'a, T>(pub(crate) RefMut<'a, NewtonWorld<T>>, pub(crate) RefMut<'a, NewtonCollision<T>>, pub(crate) *const ffi::NewtonWorld, pub(crate) *mut ffi::NewtonCollision);
+pub struct CollisionRefMut<'a, T>(
+    pub(crate) RefMut<'a, NewtonCollision<T>>,
+    pub(crate) *mut ffi::NewtonCollision,
+);
 
 #[derive(Debug)]
 pub enum CollisionParams {
@@ -66,11 +73,10 @@ impl<T> Collision<T> {
         let datum: Rc<CollisionUserDataInner<T>> =
             mem::transmute(ffi::NewtonCollisionGetUserData(raw));
 
-        let world = Weak::upgrade(&datum.world).unwrap();
         let collision = Weak::upgrade(&datum.collision).unwrap();
         mem::forget(datum);
 
-        Collision(world, collision, raw)
+        Collision(collision, raw)
     }
 }
 
@@ -121,12 +127,10 @@ impl<T: Types> Collision<T> {
         let collision = NewtonCollision {
             world: world_rc.clone(),
             collision: collision_raw,
-            world_raw: world.0,
         };
         let collision_rc = Rc::new(RefCell::new(collision));
 
         let userdata = Rc::new(CollisionUserDataInner {
-            world: Rc::downgrade(&world_rc),
             collision: Rc::downgrade(&collision_rc),
             params,
         });
@@ -135,21 +139,17 @@ impl<T: Types> Collision<T> {
             ffi::NewtonCollisionSetUserData(collision_raw, mem::transmute(userdata));
         }
 
-        Collision(world_rc, collision_rc, collision_raw)
+        Collision(collision_rc, collision_raw)
     }
 
     pub fn borrow(&self) -> CollisionRef<T> {
-        let world_ref = self.0.borrow();
-        let collision_ref = self.1.borrow();
-        let world_ptr = world_ref.as_raw();
-        CollisionRef(world_ref, collision_ref, world_ptr, self.2)
+        let collision_ref = self.0.borrow();
+        CollisionRef(collision_ref, self.1)
     }
 
     pub fn borrow_mut(&self) -> CollisionRefMut<T> {
-        let world_ref = self.0.borrow_mut();
-        let collision_ref = self.1.borrow_mut();
-        let world_ptr = world_ref.as_raw();
-        CollisionRefMut(world_ref, collision_ref, world_ptr, self.2)
+        let collision_ref = self.0.borrow_mut();
+        CollisionRefMut(collision_ref, self.1)
     }
 }
 
@@ -170,7 +170,7 @@ impl<'a, T> Deref for CollisionRef<'a, T> {
     type Target = NewtonCollision<T>;
 
     fn deref(&self) -> &Self::Target {
-        self.1.deref()
+        self.0.deref()
     }
 }
 
@@ -178,13 +178,13 @@ impl<'a, T> Deref for CollisionRefMut<'a, T> {
     type Target = NewtonCollision<T>;
 
     fn deref(&self) -> &Self::Target {
-        self.1.deref()
+        self.0.deref()
     }
 }
 
 impl<'a, T> DerefMut for CollisionRefMut<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.1.deref_mut()
+        self.0.deref_mut()
     }
 }
 

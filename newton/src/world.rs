@@ -1,6 +1,6 @@
 use ffi;
 
-use super::body::{Body, BodyRef, BodyRefMut};
+use super::body::{Body, BodyRef, BodyRefMut, NewtonBody};
 
 use std::cell::RefCell;
 use std::cell::{Ref, RefMut};
@@ -18,35 +18,83 @@ pub struct World<T>(Rc<RefCell<NewtonWorld<T>>>, *mut ffi::NewtonWorld);
 #[derive(Debug)]
 pub struct NewtonWorld<T>(pub(crate) *mut ffi::NewtonWorld, PhantomData<T>);
 
+// TODO normalize userdata
+/*
 #[derive(Debug)]
-pub struct WorldRef<'w, T>(pub(crate) Ref<'w, NewtonWorld<T>>, pub(crate) *mut ffi::NewtonWorld);
+pub struct WorldUserData<T> {
+    world: Weak<RefCell<NewtonWorld<T>>>,
+}
+*/
 
 #[derive(Debug)]
-pub struct WorldRefMut<'w, T>(pub(crate) RefMut<'w, NewtonWorld<T>>, pub(crate) *mut ffi::NewtonWorld);
+pub struct WorldRef<'w, T>(
+    pub(crate) Ref<'w, NewtonWorld<T>>,
+    pub(crate) *mut ffi::NewtonWorld,
+);
 
 #[derive(Debug)]
-pub struct Bodies<'w, T>(*mut ffi::NewtonWorld, *mut ffi::NewtonBody, PhantomData<&'w T>);
+pub struct WorldRefMut<'w, T>(
+    pub(crate) RefMut<'w, NewtonWorld<T>>,
+    pub(crate) *mut ffi::NewtonWorld,
+);
+
+#[derive(Debug)]
+pub struct Bodies<'a, T> {
+    world: *mut ffi::NewtonWorld,
+    next: *mut ffi::NewtonBody,
+    body: *mut NewtonBody<T>,
+    _ph: PhantomData<&'a T>,
+}
+
+#[derive(Debug)]
+pub struct BodiesMut<'a, T> {
+    world: *mut ffi::NewtonWorld,
+    next: *mut ffi::NewtonBody,
+    body: *mut NewtonBody<T>,
+    _ph: PhantomData<&'a T>,
+}
+
+impl<'a, T> Iterator for Bodies<'a, T> {
+    type Item = &'a NewtonBody<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut boxed = unsafe { Box::from_raw(self.body) };
+        boxed.body = self.next;
+
+        if self.next.is_null() {
+            return None;
+        } else {
+            unsafe {
+                self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
+                Some(mem::transmute(Box::into_raw(boxed)))
+            }
+        }
+    }
+}
+
+impl<'a, T> Iterator for BodiesMut<'a, T> {
+    type Item = &'a mut NewtonBody<T>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut boxed = unsafe { Box::from_raw(self.body) };
+        boxed.body = self.next;
+
+        if self.next.is_null() {
+            return None;
+        } else {
+            unsafe {
+                self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
+                Some(mem::transmute(Box::into_raw(boxed)))
+            }
+        }
+    }
+}
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum BroadphaseAlgorithm {
     Default = ffi::NEWTON_BROADPHASE_DEFAULT as _,
     Persistent = ffi::NEWTON_BROADPHASE_PERSINTENT as _,
-}
-
-impl<'w, T> Iterator for Bodies<'w, T> {
-    type Item = Body<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.1.is_null() {
-            return None;
-        }
-        unsafe {
-            let body = Body::from_raw_parts(self.1);
-            self.1 = ffi::NewtonWorldGetNextBody(self.0, self.1);
-            Some(body)
-        }
-    }
 }
 
 impl<T> World<T> {
@@ -73,9 +121,53 @@ impl<T> World<T> {
 }
 
 impl<T> NewtonWorld<T> {
+    // TODO (performance) extra level of indirection may affect performance
+    // TODO FIXME code repetition
     pub fn bodies(&self) -> Bodies<T> {
         let first = unsafe { ffi::NewtonWorldGetFirstBody(self.0) };
-        Bodies(self.0, first, PhantomData)
+
+        let body = Box::new(NewtonBody {
+            owned: false,
+            body: first,
+            world: self.world_datum(),
+        });
+
+        Bodies {
+            world: self.0,
+            next: first,
+            body: Box::into_raw(body),
+            _ph: PhantomData,
+        }
+    }
+
+    fn world_datum(&self) -> Rc<RefCell<NewtonWorld<T>>> {
+        unsafe {
+            let world_userdata: Weak<RefCell<NewtonWorld<T>>> =
+                mem::transmute(ffi::NewtonWorldGetUserData(self.0));
+            let world = Weak::upgrade(&world_userdata).unwrap();
+
+            mem::forget(world_userdata);
+            world
+        }
+    }
+
+    // TODO (performance) extra level of indirection may affect performance
+    // TODO FIXME code repetition
+    pub fn bodies_mut(&self) -> BodiesMut<T> {
+        let first = unsafe { ffi::NewtonWorldGetFirstBody(self.0) };
+
+        let body = Box::new(NewtonBody {
+            owned: false,
+            body: first,
+            world: self.world_datum(),
+        });
+
+        BodiesMut {
+            world: self.0,
+            next: first,
+            body: Box::into_raw(body),
+            _ph: PhantomData,
+        }
     }
 
     pub fn body_count(&self) -> raw::c_int {
@@ -137,4 +229,3 @@ impl<T> Drop for NewtonWorld<T> {
 pub fn create<T>() -> World<T> {
     World::new(BroadphaseAlgorithm::Default)
 }
-
