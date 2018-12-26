@@ -1,10 +1,8 @@
 use ffi;
 
 use super::world::{NewtonWorld, WorldRefMut};
-use super::Types;
-use super::{Shared, Weak};
+use super::{Lock, Locked, LockedMut, Shared, Types, Weak};
 
-use std::cell::{Ref, RefCell, RefMut};
 use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::raw;
@@ -12,28 +10,25 @@ use std::os::raw;
 pub type ShapeId = raw::c_int;
 
 #[derive(Debug, Clone)]
-pub struct Collision<T>(
-    pub(crate) Shared<RefCell<NewtonCollision<T>>>,
-    *mut ffi::NewtonCollision,
-);
+pub struct Collision<T>(Shared<Lock<NewtonCollision<T>>>);
 
 #[derive(Debug)]
 pub struct NewtonCollision<T> {
     /// NewtonCollision holds a reference to the context because all collisions MUST be freed
     /// before the NewtonWorld is
-    world: Shared<RefCell<NewtonWorld<T>>>,
+    world: Shared<Lock<NewtonWorld<T>>>,
     collision: *mut ffi::NewtonCollision,
 }
 
 #[derive(Debug)]
-pub struct CollisionRef<'a, T>(Ref<'a, NewtonCollision<T>>);
+pub struct CollisionRef<'a, T>(Locked<'a, NewtonCollision<T>>);
 
 #[derive(Debug)]
-pub struct CollisionRefMut<'a, T>(RefMut<'a, NewtonCollision<T>>);
+pub struct CollisionRefMut<'a, T>(LockedMut<'a, NewtonCollision<T>>);
 
 #[derive(Debug)]
 pub(crate) struct CollisionUserDataInner<T> {
-    pub(crate) collision: Weak<RefCell<NewtonCollision<T>>>,
+    pub(crate) collision: Weak<Lock<NewtonCollision<T>>>,
     pub(crate) params: Shared<CollisionParams>,
 }
 
@@ -72,7 +67,7 @@ impl<T> Collision<T> {
         let collision = Weak::upgrade(&datum.collision).unwrap();
         mem::forget(datum);
 
-        Collision(collision, raw)
+        Collision(collision)
     }
 }
 
@@ -85,7 +80,7 @@ impl<T: Types> Collision<T> {
         offset: Option<&T::Matrix>,
     ) -> Self {
         let world_rc = unsafe {
-            let world_ref: Weak<RefCell<NewtonWorld<T>>> =
+            let world_ref: Weak<Lock<NewtonWorld<T>>> =
                 mem::transmute(ffi::NewtonWorldGetUserData(world.as_raw()));
             let world_ref_rc = Weak::upgrade(&world_ref).unwrap();
             mem::forget(world_ref);
@@ -126,7 +121,7 @@ impl<T: Types> Collision<T> {
             world: world_rc.clone(),
             collision: collision_raw,
         };
-        let collision_rc = Shared::new(RefCell::new(collision));
+        let collision_rc = Shared::new(Lock::new(collision));
 
         let userdata = Shared::new(CollisionUserDataInner {
             collision: Shared::downgrade(&collision_rc),
@@ -137,16 +132,16 @@ impl<T: Types> Collision<T> {
             ffi::NewtonCollisionSetUserData(collision_raw, mem::transmute(userdata));
         }
 
-        Collision(collision_rc, collision_raw)
+        Collision(collision_rc)
     }
 
     pub fn borrow(&self) -> CollisionRef<T> {
-        let collision_ref = self.0.borrow();
+        let collision_ref = self.0.read().unwrap();
         CollisionRef(collision_ref)
     }
 
     pub fn borrow_mut(&self) -> CollisionRefMut<T> {
-        let collision_ref = self.0.borrow_mut();
+        let collision_ref = self.0.write().unwrap();
         CollisionRefMut(collision_ref)
     }
 }

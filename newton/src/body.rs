@@ -3,12 +3,9 @@ use ffi;
 use super::collision::{CollisionParams, CollisionRefMut, CollisionUserDataInner, NewtonCollision};
 use super::joint::{Contacts, Joints};
 use super::world::{NewtonWorld, WorldRefMut};
-use super::Types;
-
-use super::{Shared, Weak};
+use super::{Lock, Locked, LockedMut, Shared, Types, Weak};
 
 use std::cell::Cell;
-use std::cell::{Ref, RefCell, RefMut};
 use std::marker::PhantomData;
 use std::mem;
 use std::ops::{Deref, DerefMut};
@@ -19,23 +16,19 @@ use std::time::Duration;
 pub type BodyId = i32;
 
 #[derive(Debug, Clone)]
-pub struct Body<T>(
-    Shared<RefCell<NewtonWorld<T>>>,
-    Shared<RefCell<NewtonBody<T>>>,
-    *mut ffi::NewtonBody,
-);
+pub struct Body<T>(Shared<Lock<NewtonWorld<T>>>, Shared<Lock<NewtonBody<T>>>);
 
 #[derive(Debug, Clone)]
 pub struct NewtonBody<T> {
-    pub(crate) world: Shared<RefCell<NewtonWorld<T>>>,
+    pub(crate) world: Shared<Lock<NewtonWorld<T>>>,
     pub(crate) body: *mut ffi::NewtonBody,
     pub(crate) owned: bool,
 }
 
 #[derive(Debug)]
 pub(crate) struct BodyUserDataInner<T> {
-    world: Weak<RefCell<NewtonWorld<T>>>,
-    body: Weak<RefCell<NewtonBody<T>>>,
+    world: Weak<Lock<NewtonWorld<T>>>,
+    body: Weak<Lock<NewtonBody<T>>>,
     force_and_torque: Cell<Option<*mut ()>>,
 }
 
@@ -67,10 +60,10 @@ pub struct BodiesMut<'a, T> {
 }
 
 #[derive(Debug)]
-pub struct BodyRef<'a, T>(Ref<'a, NewtonWorld<T>>, Ref<'a, NewtonBody<T>>);
+pub struct BodyRef<'a, T>(Locked<'a, NewtonWorld<T>>, Locked<'a, NewtonBody<T>>);
 
 #[derive(Debug)]
-pub struct BodyRefMut<'a, T>(RefMut<'a, NewtonWorld<T>>, RefMut<'a, NewtonBody<T>>);
+pub struct BodyRefMut<'a, T>(LockedMut<'a, NewtonWorld<T>>, LockedMut<'a, NewtonBody<T>>);
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -87,7 +80,7 @@ impl<T> Body<T> {
         let world_rc = Weak::upgrade(&udata.world).unwrap();
         mem::forget(udata);
 
-        Body(world_rc, body_rc, body)
+        Body(world_rc, body_rc)
     }
 }
 
@@ -108,7 +101,7 @@ impl<T: Types> Body<T> {
             let world = world.as_raw();
 
             // world userdata
-            let world_userdata: Weak<RefCell<NewtonWorld<T>>> =
+            let world_userdata: Weak<Lock<NewtonWorld<T>>> =
                 mem::transmute(ffi::NewtonWorldGetUserData(world));
             let world_rc_cell = Weak::upgrade(&world_userdata).unwrap();
 
@@ -120,7 +113,7 @@ impl<T: Types> Body<T> {
                 BodyType::Kinematic => ffi::NewtonCreateKinematicBody(world, collision, transform),
             };
 
-            let newton_body = Shared::new(RefCell::new(NewtonBody {
+            let newton_body = Shared::new(Lock::new(NewtonBody {
                 world: world_rc_cell.clone(),
                 body: body_raw,
                 owned: true,
@@ -134,19 +127,19 @@ impl<T: Types> Body<T> {
             ffi::NewtonBodySetUserData(body_raw, mem::transmute(Shared::new(userdata)));
 
             mem::forget(udata);
-            Body(world_rc_cell, newton_body, body_raw)
+            Body(world_rc_cell, newton_body)
         }
     }
 
     pub fn borrow(&self) -> BodyRef<T> {
-        let world = self.0.borrow();
-        let body = self.1.borrow();
+        let world = self.0.read().unwrap();
+        let body = self.1.read().unwrap();
         BodyRef(world, body)
     }
 
     pub fn borrow_mut(&self) -> BodyRefMut<T> {
-        let world = self.0.borrow_mut();
-        let body = self.1.borrow_mut();
+        let world = self.0.write().unwrap();
+        let body = self.1.write().unwrap();
         BodyRefMut(world, body)
     }
 }
@@ -406,7 +399,7 @@ impl<T> Drop for NewtonBody<T> {
     fn drop(&mut self) {
         if self.owned {
             // By freeing this body we are mutating the world, so...
-            let _ = self.world.borrow_mut();
+            let _ = self.world.write().unwrap();
 
             unsafe {
                 let body = self.body;

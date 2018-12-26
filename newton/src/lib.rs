@@ -15,8 +15,12 @@ use std::fmt::Debug;
 use std::os::raw;
 use std::time::Duration;
 
-type Shared<T> = std::rc::Rc<T>;
-type Weak<T> = std::rc::Weak<T>;
+type Shared<T> = std::sync::Arc<T>;
+type Weak<T> = std::sync::Weak<T>;
+
+type Lock<T> = std::sync::RwLock<T>;
+type Locked<'a, T> = std::sync::RwLockReadGuard<'a, T>;
+type LockedMut<'a, T> = std::sync::RwLockWriteGuard<'a, T>;
 
 pub trait Types {
     type Vector: Copy;

@@ -1,11 +1,9 @@
 use ffi;
 
 use super::body::{Bodies, BodiesMut, Body, BodyRef, BodyRefMut, NewtonBody};
-use super::{Shared, Types, Weak};
-
+use super::{Lock, Locked, LockedMut, Shared, Types, Weak};
 use crate::collision::NewtonCollision;
-use std::cell::RefCell;
-use std::cell::{Ref, RefMut};
+
 use std::marker::PhantomData;
 use std::mem;
 use std::num::NonZeroU32;
@@ -33,7 +31,7 @@ pub enum Threads {
 }
 
 #[derive(Debug, Clone)]
-pub struct World<T>(Shared<RefCell<NewtonWorld<T>>>, *mut ffi::NewtonWorld);
+pub struct World<T>(Shared<Lock<NewtonWorld<T>>>);
 
 #[derive(Debug)]
 pub struct WorldUpdateAsync<'a, T>(*mut ffi::NewtonWorld, PhantomData<&'a T>);
@@ -45,15 +43,15 @@ pub struct NewtonWorld<T>(*mut ffi::NewtonWorld, PhantomData<T>);
 /*
 #[derive(Debug)]
 pub struct WorldUserData<T> {
-    world: Weak<RefCell<NewtonWorld<T>>>,
+    world: Weak<Lock<NewtonWorld<T>>>,
 }
 */
 
 #[derive(Debug)]
-pub struct WorldRef<'a, T>(Ref<'a, NewtonWorld<T>>);
+pub struct WorldRef<'a, T>(Locked<'a, NewtonWorld<T>>);
 
 #[derive(Debug)]
-pub struct WorldRefMut<'a, T>(RefMut<'a, NewtonWorld<T>>);
+pub struct WorldRefMut<'a, T>(LockedMut<'a, NewtonWorld<T>>);
 
 impl<T> World<T> {
     pub fn new(broadphase: Broadphase, solver: Solver, threads: Threads) -> Self {
@@ -73,19 +71,19 @@ impl<T> World<T> {
             }
             world
         };
-        let world_rc_cell = Shared::new(RefCell::new(NewtonWorld(world, PhantomData)));
+        let world_rc_cell = Shared::new(Lock::new(NewtonWorld(world, PhantomData)));
         unsafe {
             ffi::NewtonWorldSetUserData(world, mem::transmute(Shared::downgrade(&world_rc_cell)));
         }
-        World(world_rc_cell, world)
+        World(world_rc_cell)
     }
 
     pub fn borrow(&self) -> WorldRef<T> {
-        WorldRef(self.0.borrow())
+        WorldRef(self.0.read().unwrap())
     }
 
     pub fn borrow_mut(&self) -> WorldRefMut<T> {
-        WorldRefMut(self.0.borrow_mut())
+        WorldRefMut(self.0.write().unwrap())
     }
 }
 
@@ -150,9 +148,9 @@ impl<T> NewtonWorld<T> {
         }
     }
 
-    fn world_datum(&self) -> Shared<RefCell<NewtonWorld<T>>> {
+    fn world_datum(&self) -> Shared<Lock<NewtonWorld<T>>> {
         unsafe {
-            let world_userdata: Weak<RefCell<NewtonWorld<T>>> =
+            let world_userdata: Weak<Lock<NewtonWorld<T>>> =
                 mem::transmute(ffi::NewtonWorldGetUserData(self.0));
             let world = Weak::upgrade(&world_userdata).unwrap();
 
@@ -233,7 +231,7 @@ impl<T> Drop for NewtonWorld<T> {
     fn drop(&mut self) {
         let world = self.0;
         unsafe {
-            let _: Weak<RefCell<Self>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
+            let _: Weak<Lock<Self>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
             ffi::NewtonWaitForUpdateToFinish(world);
             ffi::NewtonMaterialDestroyAllGroupID(world);
             ffi::NewtonDestroy(world);
