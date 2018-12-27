@@ -4,7 +4,7 @@ use newton::types::Cgmath;
 
 use newton::body::{self, NewtonBody};
 use newton::collision;
-use newton::world::{self, Broadphase, Solver, Threads, World};
+use newton::world::{self, Broadphase, Filter, Solver, Threads, World};
 
 use newton::sandbox;
 use newton::sandbox::cgmath::{vec3, Deg, Matrix4, Quaternion, Vector3};
@@ -15,8 +15,9 @@ fn main() {
 
     let mut w = world.write();
     let pool = [
-        collision::cuboid(&mut w, 16.0, 0.1, 16.0, 0, None),
+        collision::cuboid(&mut w, 16.0, 0.5, 16.0, 0, None),
         collision::cuboid(&mut w, 1.0, 1.0, 1.0, 0, None),
+        collision::cuboid(&mut w, 4.0, 4.0, 4.0, 0, None),
     ];
 
     //let bodies = w.bodies_mut();
@@ -42,10 +43,18 @@ fn main() {
 
     let sphere = collision::sphere(&mut w, 1.0, 0, None);
     let coll = pool[1].write();
+    let obs = pool[2].write();
 
     let cube_2 = body::dynamic(&mut w, &coll, &position(0.5, 3.5, 0.25), None);
     let cube_3 = body::dynamic(&mut w, &sphere.read(), &position(-0.25, -1.0, -0.5), None);
     let cube_4 = body::dynamic(&mut w, &coll, &position(0.1, 0.5, 0.4), Some("cube"));
+
+    let obstacle = body::dynamic(
+        &mut w,
+        &obs,
+        &(position(-4.0, -4.0, 4.0) * Matrix4::from_angle_y(Deg(30.0))),
+        Some("obstacle"),
+    );
 
     drop(w);
 
@@ -82,7 +91,7 @@ fn main() {
     //    .borrow_mut()
     //    .for_each_body_in_aabb((&min, &max), |b| Ok(()));
 
-    // convex cast (TODO this panics because of poisoned lock)
+    // FIXME? this panics because of poisoned lock
     #[cfg(panics)]
     {
         let mut world = world.write();
@@ -90,6 +99,7 @@ fn main() {
         let player = body::kinematic(&mut world, &capsule.read(), &position(4.0, 2.0, 4.0), None);
     }
 
+    let capsule = collision::capsule(&mut world.write(), 0.75, 0.75, 2.0, 0, None);
     let player = {
         let mut world = world.write();
         let capsule = collision::capsule(
@@ -101,8 +111,24 @@ fn main() {
             Some(&Matrix4::from_angle_z(Deg(90.0))),
         );
         let capsule = capsule.read();
-        body::kinematic(&mut world, &capsule, &position(4.0, 2.0, 4.0), None)
+        body::kinematic(&mut world, &capsule, &position(0.0, -2.0, 3.0), None)
     };
+
+    // convex cast
+    {
+        let capsule = capsule.read();
+        let matrix = position(0.0, 0.0, 0.0);
+        let target = vec3(4.0, 4.0, 4.0);
+
+        for (_, _) in world
+            .read()
+            .convex_cast(&matrix, &target, &capsule, 1, |_, _| Filter::Keep)
+        {}
+    }
+
+    let w = world.read();
+    let b: Vec<_> = w.bodies().collect();
+    println!("{:?}", b);
 
     sandbox::run(world.read().as_raw());
 }

@@ -1,8 +1,10 @@
 use ffi;
 
-use super::collision::{CollisionParams, CollisionRefMut, CollisionUserDataInner, NewtonCollision};
+use super::collision::{
+    CollisionLockedMut, CollisionParams, CollisionUserDataInner, NewtonCollision,
+};
 use super::joint::{Contacts, Joints};
-use super::world::{NewtonWorld, WorldRefMut};
+use super::world::{NewtonWorld, WorldLockedMut};
 use super::{Lock, Locked, LockedMut, Result, Shared, Types, Weak};
 
 use std::cell::Cell;
@@ -43,12 +45,13 @@ impl<T> Drop for BodyUserDataInner<T> {
     }
 }
 
+// TODO FIXME check what happensa when collect() is called!!!
 #[derive(Debug)]
 pub struct Bodies<'a, T> {
     pub(crate) world: *mut ffi::NewtonWorld,
     pub(crate) next: *mut ffi::NewtonBody,
     pub(crate) body: *mut NewtonBody<T>,
-    pub(crate) _ph: PhantomData<&'a T>,
+    pub(crate) _phantom: PhantomData<&'a T>,
 }
 
 #[derive(Debug)]
@@ -56,14 +59,14 @@ pub struct BodiesMut<'a, T> {
     pub(crate) world: *mut ffi::NewtonWorld,
     pub(crate) next: *mut ffi::NewtonBody,
     pub(crate) body: *mut NewtonBody<T>,
-    pub(crate) _ph: PhantomData<&'a T>,
+    pub(crate) _phantom: PhantomData<&'a T>,
 }
 
 #[derive(Debug)]
-pub struct BodyRef<'a, T>(Locked<'a, NewtonWorld<T>>, Locked<'a, NewtonBody<T>>);
+pub struct BodyLocked<'a, T>(Locked<'a, NewtonWorld<T>>, Locked<'a, NewtonBody<T>>);
 
 #[derive(Debug)]
-pub struct BodyRefMut<'a, T>(LockedMut<'a, NewtonWorld<T>>, LockedMut<'a, NewtonBody<T>>);
+pub struct BodyLockedMut<'a, T>(LockedMut<'a, NewtonWorld<T>>, LockedMut<'a, NewtonBody<T>>);
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
@@ -131,24 +134,24 @@ impl<T: Types> Body<T> {
         }
     }
 
-    pub fn try_read(&self) -> Result<BodyRef<T>> {
+    pub fn try_read(&self) -> Result<BodyLocked<T>> {
         unimplemented!()
     }
 
-    pub fn try_write(&self) -> Result<BodyRefMut<T>> {
+    pub fn try_write(&self) -> Result<BodyLockedMut<T>> {
         unimplemented!()
     }
 
-    pub fn read(&self) -> BodyRef<T> {
+    pub fn read(&self) -> BodyLocked<T> {
         let world = self.0.read();
         let body = self.1.read();
-        BodyRef(world, body)
+        BodyLocked(world, body)
     }
 
-    pub fn write(&self) -> BodyRefMut<T> {
+    pub fn write(&self) -> BodyLockedMut<T> {
         let world = self.0.write();
         let body = self.1.write();
-        BodyRefMut(world, body)
+        BodyLockedMut(world, body)
     }
 }
 
@@ -205,8 +208,16 @@ impl<T: Types> NewtonBody<T> {
         unimplemented!()
     }
 
-    pub fn body_type(&self) -> raw::c_int {
+    pub fn body_type(&self) -> BodyType {
         unsafe { mem::transmute(ffi::NewtonBodyGetType(self.body)) }
+    }
+
+    pub fn is_dynamic(&self) -> bool {
+        self.body_type() == BodyType::Dynamic
+    }
+
+    pub fn is_kinematic(&self) -> bool {
+        self.body_type() == BodyType::Kinematic
     }
 
     pub fn as_raw(&self) -> *const ffi::NewtonBody {
@@ -381,7 +392,7 @@ impl<'a, T> Iterator for BodiesMut<'a, T> {
     }
 }
 
-impl<'a, T> Deref for BodyRef<'a, T> {
+impl<'a, T> Deref for BodyLocked<'a, T> {
     type Target = NewtonBody<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -389,7 +400,7 @@ impl<'a, T> Deref for BodyRef<'a, T> {
     }
 }
 
-impl<'a, T> Deref for BodyRefMut<'a, T> {
+impl<'a, T> Deref for BodyLockedMut<'a, T> {
     type Target = NewtonBody<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -397,7 +408,7 @@ impl<'a, T> Deref for BodyRefMut<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for BodyRefMut<'a, T> {
+impl<'a, T> DerefMut for BodyLockedMut<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.1.deref_mut()
     }

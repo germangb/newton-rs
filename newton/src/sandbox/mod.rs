@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use cgmath::prelude::*;
 use cgmath::Angle;
-use cgmath::{perspective, vec3, Deg, Matrix4, Point3, Quaternion, Vector3};
+use cgmath::{perspective, vec3, Deg, Matrix4, Point3, Quaternion, Vector3, Vector4};
 
 use self::renderer::{Mode, Primitive, RenderStats, Renderer};
 
@@ -51,7 +51,6 @@ use std::collections::HashMap;
 //use super::body::SleepState;
 //use super::collision::CollisionParams;
 
-#[derive(Debug)]
 pub struct Sandbox {
     world: *const ffi::NewtonWorld,
 
@@ -84,19 +83,37 @@ pub struct Sandbox {
     constraints: bool,
     bodies: bool,
     stats: bool,
+
+    input: Input,
+    handler: Option<Box<FnMut(Input)>>,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct Input {
+    pub look: Vector3<f32>,
+    pub w: bool,
+    pub a: bool,
+    pub s: bool,
+    pub d: bool,
+    pub space: bool,
+    pub lshift: bool,
 }
 
 pub fn run(world: *const ffi::NewtonWorld) {
-    let mut app = Sandbox::new(world);
-    app.window_size(800, 600);
-    app.render_solid(true);
-    app.render_wireframe(true);
-    app.render_aabb(false);
-    app.simulate(false);
-    app.run();
+    Sandbox::default(world).run()
 }
 
 impl Sandbox {
+    pub fn default(world: *const ffi::NewtonWorld) -> Self {
+        let mut app = Sandbox::new(world);
+        app.window_size(800, 600);
+        app.render_solid(true);
+        app.render_wireframe(true);
+        app.render_aabb(false);
+        app.simulate(false);
+        app
+    }
+
     pub fn new(world: *const ffi::NewtonWorld) -> Self {
         Sandbox {
             world,
@@ -126,7 +143,22 @@ impl Sandbox {
             bodies: true,
 
             stats: true,
+
+            input: Input {
+                space: false,
+                lshift: false,
+                look: Vector3::new(0.0, 0.0, 0.0),
+                w: false,
+                a: false,
+                s: false,
+                d: false,
+            },
+            handler: None,
         }
+    }
+
+    pub fn set_handler<C: FnMut(Input) + 'static>(&mut self, handle: C) {
+        self.handler = Some(Box::new(handle))
     }
 
     /*
@@ -222,9 +254,34 @@ impl Sandbox {
                 self.width = *w as _;
                 self.height = *h as _;
             }
-            (_, Event::KeyDown { .. }) => {
-                //self.handler.event(&self, event);
-            }
+            (
+                _,
+                Event::KeyDown {
+                    keycode: Some(key), ..
+                },
+            ) => match key {
+                Keycode::W => self.input.w = true,
+                Keycode::A => self.input.a = true,
+                Keycode::S => self.input.s = true,
+                Keycode::D => self.input.d = true,
+                Keycode::Space => self.input.space = true,
+                Keycode::LShift => self.input.lshift = true,
+                _ => {}
+            },
+            (
+                _,
+                Event::KeyUp {
+                    keycode: Some(key), ..
+                },
+            ) => match key {
+                Keycode::W => self.input.w = false,
+                Keycode::A => self.input.a = false,
+                Keycode::S => self.input.s = false,
+                Keycode::D => self.input.d = false,
+                Keycode::Space => self.input.space = false,
+                Keycode::LShift => self.input.lshift = false,
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -258,8 +315,11 @@ impl Sandbox {
 
             unsafe {
                 let collision = ffi::NewtonBodyGetCollision(*body);
-
                 ffi::NewtonCollisionGetInfo(collision, &mut collision_info);
+
+                let mut offset = Matrix4::identity();
+                ffi::NewtonCollisionGetMatrix(collision, offset.as_mut_ptr());
+                transform = transform * offset;
             }
 
             match collision_info.m_collisionType as _ {
@@ -272,6 +332,44 @@ impl Sandbox {
                     let p = unsafe { collision_info.__bindgen_anon_1.m_sphere };
                     transform = transform * Matrix4::from_scale(p.m_radio);
                     renderer.render(Primitive::Sphere, mode, color, transform, Some(stats));
+                }
+                ffi::SERIALIZE_ID_CAPSULE => {
+                    let p = unsafe { collision_info.__bindgen_anon_1.m_capsule };
+                    let t = Vector3::new(p.m_height / 2.0, 0.0, 0.0);
+                    renderer.render(
+                        Primitive::Sphere,
+                        mode,
+                        color,
+                        transform * Matrix4::from_translation(t) * Matrix4::from_scale(p.m_radio0),
+                        Some(stats),
+                    );
+                    renderer.render(
+                        Primitive::Sphere,
+                        mode,
+                        color,
+                        transform * Matrix4::from_translation(-t) * Matrix4::from_scale(p.m_radio1),
+                        Some(stats),
+                    );
+                    renderer.render(
+                        Primitive::Cylinder,
+                        mode,
+                        color,
+                        transform
+                            * Matrix4::from_nonuniform_scale(p.m_height, p.m_radio0, p.m_radio1),
+                        Some(stats),
+                    );
+                }
+                ffi::SERIALIZE_ID_CYLINDER => {
+                    let p = unsafe { collision_info.__bindgen_anon_1.m_cylinder };
+                    let t = Vector3::new(p.m_height / 2.0, 0.0, 0.0);
+                    renderer.render(
+                        Primitive::Cylinder,
+                        mode,
+                        color,
+                        transform
+                            * Matrix4::from_nonuniform_scale(p.m_height, p.m_radio0, p.m_radio1),
+                        Some(stats),
+                    );
                 }
                 id @ _ => {
                     eprintln!("unimplemented shape. ID = {}", id);
@@ -336,6 +434,25 @@ impl Sandbox {
                 }
             }
 
+            let aspect = (self.width as f32) / (self.height as f32);
+            let projection = perspective(Deg(55.0_f32), aspect, 0.01, 1000.0);
+
+            let view = Matrix4::look_at(
+                Point3::new(
+                    self.radius * Deg::cos(self.delta) * Deg::sin(self.alpha),
+                    self.radius * Deg::sin(self.delta),
+                    self.radius * Deg::cos(self.delta) * Deg::cos(self.alpha),
+                ),
+                Point3::new(0.0, 0.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            );
+
+            if let &mut Some(ref mut h) = &mut self.handler {
+                let mut look = Vector3::new(0.0, 0.0, 1.0);
+                self.input.look = view.invert().unwrap().transform_vector(look);
+                h(self.input)
+            }
+
             let mut bodies = Vec::new();
             unsafe {
                 let mut b = ffi::NewtonWorldGetFirstBody(self.world);
@@ -358,19 +475,7 @@ impl Sandbox {
                 self.elapsed += step_dur;
             }
 
-            let aspect = (self.width as f32) / (self.height as f32);
-            let proj = perspective(Deg(55.0_f32), aspect, 0.01, 1000.0);
-            renderer.set_projection(proj);
-
-            let view = Matrix4::look_at(
-                Point3::new(
-                    self.radius * Deg::cos(self.delta) * Deg::sin(self.alpha),
-                    self.radius * Deg::sin(self.delta),
-                    self.radius * Deg::cos(self.delta) * Deg::cos(self.alpha),
-                ),
-                Point3::new(0.0, 0.0, 0.0),
-                Vector3::new(0.0, 1.0, 0.0),
-            );
+            renderer.set_projection(projection);
             renderer.set_view(view);
 
             unsafe {

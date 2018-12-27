@@ -19,6 +19,6 @@ slice-deque = { version = "0.1.16", optional = true }
 [features]
 default = ["sandbox", "cgmath_types", "sync"]
 
-sandbox = ["cgmath", "sdl2", "lazy_static", "imgui-sdl2", "imgui", "imgui-opengl-renderer", "gl", "slice-deque"]
+sandbox = ["cgmath", "sdl2", "lazy_static", "imgui-sdl2", "imgui", "imgui-opengl-renderer", "gl"]
 cgmath_types = ["cgmath"]
 sync = []

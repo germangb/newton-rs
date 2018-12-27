@@ -1,6 +1,6 @@
 use ffi;
 
-use super::world::{NewtonWorld, WorldRefMut};
+use super::world::{NewtonWorld, WorldLockedMut};
 use super::{Lock, Locked, LockedMut, Result, Shared, Types, Weak};
 
 use std::mem;
@@ -16,15 +16,16 @@ pub struct Collision<T>(Shared<Lock<NewtonCollision<T>>>);
 pub struct NewtonCollision<T> {
     /// NewtonCollision holds a reference to the context because all collisions MUST be freed
     /// before the NewtonWorld is
-    world: Shared<Lock<NewtonWorld<T>>>,
-    collision: *mut ffi::NewtonCollision,
+    pub(crate) world: Shared<Lock<NewtonWorld<T>>>,
+    pub(crate) collision: *mut ffi::NewtonCollision,
+    pub(crate) owned: bool,
 }
 
 #[derive(Debug)]
-pub struct CollisionRef<'a, T>(Locked<'a, NewtonCollision<T>>);
+pub struct CollisionLocked<'a, T>(Locked<'a, NewtonCollision<T>>);
 
 #[derive(Debug)]
-pub struct CollisionRefMut<'a, T>(LockedMut<'a, NewtonCollision<T>>);
+pub struct CollisionLockedMut<'a, T>(LockedMut<'a, NewtonCollision<T>>);
 
 #[derive(Debug)]
 pub(crate) struct CollisionUserDataInner<T> {
@@ -120,6 +121,7 @@ impl<T: Types> Collision<T> {
         let collision = NewtonCollision {
             world: world_rc.clone(),
             collision: collision_raw,
+            owned: true,
         };
         let collision_rc = Shared::new(Lock::new(collision));
 
@@ -135,22 +137,22 @@ impl<T: Types> Collision<T> {
         Collision(collision_rc)
     }
 
-    pub fn try_read(&self) -> Result<CollisionRef<T>> {
+    pub fn try_read(&self) -> Result<CollisionLocked<T>> {
         unimplemented!()
     }
 
-    pub fn try_write(&self) -> Result<CollisionRefMut<T>> {
+    pub fn try_write(&self) -> Result<CollisionLockedMut<T>> {
         unimplemented!()
     }
 
-    pub fn read(&self) -> CollisionRef<T> {
+    pub fn read(&self) -> CollisionLocked<T> {
         let collision_ref = self.0.read();
-        CollisionRef(collision_ref)
+        CollisionLocked(collision_ref)
     }
 
-    pub fn write(&self) -> CollisionRefMut<T> {
+    pub fn write(&self) -> CollisionLockedMut<T> {
         let collision_ref = self.0.write();
-        CollisionRefMut(collision_ref)
+        CollisionLockedMut(collision_ref)
     }
 }
 
@@ -167,7 +169,7 @@ impl<T> NewtonCollision<T> {
     }
 }
 
-impl<'a, T> Deref for CollisionRef<'a, T> {
+impl<'a, T> Deref for CollisionLocked<'a, T> {
     type Target = NewtonCollision<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -175,7 +177,7 @@ impl<'a, T> Deref for CollisionRef<'a, T> {
     }
 }
 
-impl<'a, T> Deref for CollisionRefMut<'a, T> {
+impl<'a, T> Deref for CollisionLockedMut<'a, T> {
     type Target = NewtonCollision<T>;
 
     fn deref(&self) -> &Self::Target {
@@ -183,20 +185,23 @@ impl<'a, T> Deref for CollisionRefMut<'a, T> {
     }
 }
 
-impl<'a, T> DerefMut for CollisionRefMut<'a, T> {
+impl<'a, T> DerefMut for CollisionLockedMut<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0.deref_mut()
     }
 }
 
+// TODO review
 impl<T> Drop for NewtonCollision<T> {
     fn drop(&mut self) {
-        let collision = self.collision;
-        //let _ = self.world.write();
-        unsafe {
-            let _: Shared<CollisionUserDataInner<T>> =
-                mem::transmute(ffi::NewtonCollisionGetUserData(collision));
-            ffi::NewtonDestroyCollision(collision)
+        if self.owned {
+            let collision = self.collision;
+            //let _ = self.world.write();
+            unsafe {
+                let _: Shared<CollisionUserDataInner<T>> =
+                    mem::transmute(ffi::NewtonCollisionGetUserData(collision));
+                ffi::NewtonDestroyCollision(collision)
+            }
         }
     }
 }

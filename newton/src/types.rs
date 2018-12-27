@@ -4,7 +4,7 @@ use super::Types;
 #[cfg(feature = "cgmath_types")]
 pub enum Cgmath {}
 #[cfg(feature = "cgmath_types")]
-impl Types for Cgmath {
+unsafe impl Types for Cgmath {
     type Vector = cgmath::Vector3<f32>;
     type Matrix = cgmath::Matrix4<f32>;
     type Quaternion = cgmath::Quaternion<f32>;
@@ -13,7 +13,7 @@ impl Types for Cgmath {
 
 #[derive(Debug)]
 pub enum Array {}
-impl Types for Array {
+unsafe impl Types for Array {
     type Vector = [f32; 3];
     type Matrix = [[f32; 4]; 4];
     type Quaternion = [f32; 4];
