@@ -1,7 +1,7 @@
 use ffi;
 
 use super::body::{Bodies, BodiesMut, Body, BodyRef, BodyRefMut, NewtonBody};
-use super::{Lock, Locked, LockedMut, Shared, Types, Weak};
+use super::{Error, Lock, Locked, LockedMut, Result, Shared, Types, Weak};
 use crate::collision::NewtonCollision;
 
 use std::marker::PhantomData;
@@ -78,12 +78,20 @@ impl<T> World<T> {
         World(world_rc_cell)
     }
 
+    pub fn try_read(&self) -> Result<WorldRef<T>> {
+        unimplemented!()
+    }
+
+    pub fn try_write(&self) -> Result<WorldRef<T>> {
+        unimplemented!()
+    }
+
     pub fn read(&self) -> WorldRef<T> {
-        WorldRef(self.0.read().unwrap())
+        WorldRef(self.0.read())
     }
 
     pub fn write(&self) -> WorldRefMut<T> {
-        WorldRefMut(self.0.write().unwrap())
+        WorldRefMut(self.0.write())
     }
 }
 
@@ -199,7 +207,7 @@ impl<T> NewtonWorld<T> {
 impl<T: Types> NewtonWorld<T> {
     pub fn for_each_body_in_aabb<I>(&mut self, (min, max): (&T::Vector, &T::Vector), it: I)
     where
-        I: Fn(&mut NewtonBody<T>) -> Result<(), ()> + 'static,
+        I: Fn(&mut NewtonBody<T>) -> i32 + 'static,
     {
         unimplemented!()
     }

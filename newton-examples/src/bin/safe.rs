@@ -7,7 +7,7 @@ use newton::collision;
 use newton::world::{self, Broadphase, Solver, Threads, World};
 
 use newton::sandbox;
-use newton::sandbox::cgmath::{vec3, Matrix4, Quaternion, Vector3};
+use newton::sandbox::cgmath::{vec3, Deg, Matrix4, Quaternion, Vector3};
 use std::time::Duration;
 
 fn main() {
@@ -81,6 +81,28 @@ fn main() {
     //world
     //    .borrow_mut()
     //    .for_each_body_in_aabb((&min, &max), |b| Ok(()));
+
+    // convex cast (TODO this panics because of poisoned lock)
+    #[cfg(panics)]
+    {
+        let mut world = world.write();
+        let capsule = collision::capsule(&mut world, 1.0, 1.0, 2.0, 0, None);
+        let player = body::kinematic(&mut world, &capsule.read(), &position(4.0, 2.0, 4.0), None);
+    }
+
+    let player = {
+        let mut world = world.write();
+        let capsule = collision::capsule(
+            &mut world,
+            1.0,
+            1.0,
+            2.0,
+            0,
+            Some(&Matrix4::from_angle_z(Deg(90.0))),
+        );
+        let capsule = capsule.read();
+        body::kinematic(&mut world, &capsule, &position(4.0, 2.0, 4.0), None)
+    };
 
     sandbox::run(world.read().as_raw());
 }

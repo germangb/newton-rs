@@ -1,7 +1,7 @@
 use ffi;
 
 use super::world::{NewtonWorld, WorldRefMut};
-use super::{Lock, Locked, LockedMut, Shared, Types, Weak};
+use super::{Lock, Locked, LockedMut, Result, Shared, Types, Weak};
 
 use std::mem;
 use std::ops::{Deref, DerefMut};
@@ -135,13 +135,21 @@ impl<T: Types> Collision<T> {
         Collision(collision_rc)
     }
 
+    pub fn try_read(&self) -> Result<CollisionRef<T>> {
+        unimplemented!()
+    }
+
+    pub fn try_write(&self) -> Result<CollisionRefMut<T>> {
+        unimplemented!()
+    }
+
     pub fn read(&self) -> CollisionRef<T> {
-        let collision_ref = self.0.read().unwrap();
+        let collision_ref = self.0.read();
         CollisionRef(collision_ref)
     }
 
     pub fn write(&self) -> CollisionRefMut<T> {
-        let collision_ref = self.0.write().unwrap();
+        let collision_ref = self.0.write();
         CollisionRefMut(collision_ref)
     }
 }

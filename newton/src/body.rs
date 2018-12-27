@@ -3,7 +3,7 @@ use ffi;
 use super::collision::{CollisionParams, CollisionRefMut, CollisionUserDataInner, NewtonCollision};
 use super::joint::{Contacts, Joints};
 use super::world::{NewtonWorld, WorldRefMut};
-use super::{Lock, Locked, LockedMut, Shared, Types, Weak};
+use super::{Lock, Locked, LockedMut, Result, Shared, Types, Weak};
 
 use std::cell::Cell;
 use std::marker::PhantomData;
@@ -131,15 +131,23 @@ impl<T: Types> Body<T> {
         }
     }
 
+    pub fn try_read(&self) -> Result<BodyRef<T>> {
+        unimplemented!()
+    }
+
+    pub fn try_write(&self) -> Result<BodyRefMut<T>> {
+        unimplemented!()
+    }
+
     pub fn read(&self) -> BodyRef<T> {
-        let world = self.0.read().unwrap();
-        let body = self.1.read().unwrap();
+        let world = self.0.read();
+        let body = self.1.read();
         BodyRef(world, body)
     }
 
     pub fn write(&self) -> BodyRefMut<T> {
-        let world = self.0.write().unwrap();
-        let body = self.1.write().unwrap();
+        let world = self.0.write();
+        let body = self.1.write();
         BodyRefMut(world, body)
     }
 }
@@ -399,7 +407,7 @@ impl<T> Drop for NewtonBody<T> {
     fn drop(&mut self) {
         if self.owned {
             // By freeing this body we are mutating the world, so...
-            let _ = self.world.write().unwrap();
+            let _ = self.world.write();
 
             unsafe {
                 let body = self.body;
