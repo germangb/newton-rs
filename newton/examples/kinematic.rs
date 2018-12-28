@@ -6,8 +6,9 @@ use newton::world::{self, Filter, World};
 
 use newton::sandbox::{Input, Sandbox};
 
-use cgmath::{prelude::*, Deg, Matrix4, Vector3, vec3};
+use cgmath::{prelude::*, vec3, Deg, Matrix4, Vector3};
 use newton::world::NewtonWorld;
+use std::time::Duration;
 
 struct Scene {
     bodies: Vec<Body<Cgmath>>,
@@ -19,7 +20,22 @@ struct Scene {
 
 fn main() {
     let world: World<Cgmath> = world::create();
-    let Scene { bodies, agent, collision } = init_scene(&world);
+    let Scene {
+        bodies,
+        agent,
+        collision,
+    } = init_scene(&world);
+
+    for b in world.read().bodies() {
+        println!("{:?}", b)
+    }
+    for b in world.write().bodies() {
+        println!("{:?}", b)
+    }
+
+    for _ in 0..60 * 120 {
+        //world.write().update(Duration::new(0, 1_000_000_000 / 60));
+    }
 
     let mut sandbox = Sandbox::default(world.write().as_raw());
 
@@ -35,15 +51,27 @@ fn main() {
         let left = Vector3::new(look.z, 0.0, -look.x);
         let up = Vector3::new(0.0, 1.0, 0.0);
 
-        if input.w { dp -= look; }
-        if input.s { dp += look; }
-        if input.a { dp -= left; }
-        if input.d { dp += left; }
-        if input.space { dp += up; }
-        if input.lshift { dp -= up; }
+        if input.w {
+            dp -= look;
+        }
+        if input.s {
+            dp += look;
+        }
+        if input.a {
+            dp -= left;
+        }
+        if input.d {
+            dp += left;
+        }
+        if input.space {
+            dp += up;
+        }
+        if input.lshift {
+            dp -= up;
+        }
 
         if dp.magnitude() < 0.001 {
-            return
+            return;
         }
 
         let mut dp = dp.normalize() * 4.0 / 60.0;
@@ -54,16 +82,17 @@ fn main() {
 
         while let Some((_, info)) = world
             .read()
-            .convex_cast(&matrix, &target, &collision, 1, |b, _| b.is_dynamic()).next()
-            {
-                dp = (dp - info.normal * cgmath::dot(info.normal, dp)) * 0.5;
+            .convex_cast(&matrix, &target, &collision, 1, |b, _| b.is_dynamic())
+            .next()
+        {
+            dp = (dp - info.normal * cgmath::dot(info.normal, dp)) * 0.5;
 
-                if dp.magnitude() < 0.01 {
-                    return;
-                } else {
-                    target = position + dp;
-                }
+            if dp.magnitude() < 0.01 {
+                return;
+            } else {
+                target = position + dp;
             }
+        }
 
         agent.write().set_matrix(&Matrix4::from_translation(target))
     });
@@ -80,19 +109,43 @@ fn init_scene(w: &World<Cgmath>) -> Scene {
         collision::cuboid(&mut world, 1.0, 1.0, 1.0, 0),
     ];
 
-    let floor = Body::new(&mut world, &pool[0].read(), Type::Dynamic, &Matrix4::identity());
-    let obstacle0 = Body::new(&mut world, &pool[1].read(), Type::Dynamic, &(pos(-4.0, 2.0, 4.0) * roty(40.0)));
-    let obstacle1 = Body::new(&mut world, &pool[1].read(), Type::Dynamic, &(pos(-4.0, 0.0, -2.0) * roty(-30.0)));
+    let floor = Body::new(
+        &mut world,
+        &pool[0].read(),
+        Type::Dynamic,
+        &Matrix4::identity(),
+    );
+    let obstacle0 = Body::new(
+        &mut world,
+        &pool[1].read(),
+        Type::Dynamic,
+        &(pos(-4.0, 2.0, 4.0) * roty(40.0)),
+    );
+    let obstacle1 = Body::new(
+        &mut world,
+        &pool[1].read(),
+        Type::Dynamic,
+        &(pos(-4.0, 0.0, -2.0) * roty(-30.0)),
+    );
 
-    let agent_body = Body::new(&mut world, &pool[2].read(), Type::Kinematic, &pos(0.0, 2.0, 0.0));
+    let agent_body = Body::new(
+        &mut world,
+        &pool[2].read(),
+        Type::Kinematic,
+        &pos(0.0, 2.0, 0.0),
+    );
 
     // simulated body
-    let cube = Body::new(&mut world, &pool[3].read(), Type::Dynamic, &(pos(0.0, 4.0, 0.0)*rotx(20.0)*roty(-30.0)));
+    let cube = Body::new(
+        &mut world,
+        &pool[3].read(),
+        Type::Dynamic,
+        &(pos(0.0, 4.0, 0.0) * rotx(20.0) * roty(-30.0)),
+    );
     drop(world);
     cube.write().set_mass(1.0);
-    cube.write().set_force_and_torque(|b, _, _| {
-        b.set_force(&vec3(0.0, -9.8, 0.0))
-    });
+    cube.write()
+        .set_force_and_torque(|b, _, _| b.set_force(&vec3(0.0, -9.8, 0.0)));
 
     agent_body.write().set_collidable(true);
 

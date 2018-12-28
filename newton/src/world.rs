@@ -4,13 +4,15 @@ use super::body::{Bodies, BodiesMut, Body, BodyLocked, BodyLockedMut, NewtonBody
 use super::{Error, Lock, Locked, LockedMut, Result, Shared, Types, Weak};
 use crate::collision::NewtonCollision;
 
-use std::marker::PhantomData;
-use std::mem;
-use std::num::NonZeroU32;
-use std::ops::{Deref, DerefMut};
-use std::os::raw;
-use std::ptr;
-use std::time::Duration;
+use std::{
+    marker::PhantomData,
+    mem,
+    num::NonZeroU32,
+    ops::{Deref, DerefMut},
+    os::raw,
+    ptr,
+    time::Duration,
+};
 
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -70,11 +72,7 @@ impl<T> World<T> {
             #[cfg(feature = "sync")]
             match threads {
                 Threads::One | Threads::Multiple(1) => {}
-                Threads::Multiple(n) => {
-                    if cfg!(feature = "sync") {
-                        ffi::NewtonSetThreadsCount(world, n as _)
-                    }
-                }
+                Threads::Multiple(n) => ffi::NewtonSetThreadsCount(world, n as _),
             }
             world
         };
@@ -180,7 +178,8 @@ impl<T: Types> NewtonWorld<T> {
     {
         let mut return_info = Vec::with_capacity(max_contacts);
 
-        let prefilter_world = (prefilter, self.world_datum());
+        let userdata = unsafe { userdata::<T>(self.0) };
+        let prefilter_world = (prefilter, userdata.clone());
         let contacts = unsafe {
             ffi::NewtonWorldConvexCast(
                 self.0,
@@ -200,15 +199,12 @@ impl<T: Types> NewtonWorld<T> {
             )
         };
 
-        // allocate a NewtonBody on the heap
-        let world_datum = self.world_datum();
-
         let body = Box::new(NewtonBody {
-            world: world_datum.clone(),
+            world: userdata.clone(),
             owned: false,
             body: 0 as _,
             collision: NewtonCollision {
-                world: world_datum,
+                world: userdata,
                 collision: 0 as _,
                 owned: false,
             },
@@ -267,61 +263,34 @@ impl<T> NewtonWorld<T> {
     // TODO (performance) extra level of indirection may affect performance
     // TODO FIXME code repetition
     pub fn bodies(&self) -> Bodies<T> {
-        let first = unsafe { ffi::NewtonWorldGetFirstBody(self.0) };
+        unsafe {
+            let first = ffi::NewtonWorldGetFirstBody(self.0);
+            let world = userdata::<T>(self.0);
+            let body = Box::new(NewtonBody::new_not_owned(first));
 
-        let world = self.world_datum();
-        let body = Box::new(NewtonBody {
-            owned: false,
-            body: first,
-            world: world.clone(),
-            collision: NewtonCollision {
-                world: world.clone(),
-                collision: unsafe { ffi::NewtonBodyGetCollision(first) },
-                owned: false,
-            },
-        });
-
-        Bodies {
-            world: self.0,
-            next: first,
-            body: Box::into_raw(body),
-            _phantom: PhantomData,
+            Bodies {
+                world: self.0,
+                next: first,
+                body: Box::into_raw(body),
+                _phantom: PhantomData,
+            }
         }
     }
 
     // TODO (performance) extra level of indirection may affect performance
     // TODO FIXME code repetition
     pub fn bodies_mut(&mut self) -> BodiesMut<T> {
-        let first = unsafe { ffi::NewtonWorldGetFirstBody(self.0) };
-
-        let world = self.world_datum();
-        let body = Box::new(NewtonBody {
-            owned: false,
-            body: first,
-            world: world.clone(),
-            collision: NewtonCollision {
-                world: world.clone(),
-                collision: unsafe { ffi::NewtonBodyGetCollision(first) },
-                owned: false,
-            },
-        });
-
-        BodiesMut {
-            world: self.0,
-            next: first,
-            body: Box::into_raw(body),
-            _phantom: PhantomData,
-        }
-    }
-
-    fn world_datum(&self) -> Shared<Lock<NewtonWorld<T>>> {
         unsafe {
-            let world_userdata: Weak<Lock<NewtonWorld<T>>> =
-                mem::transmute(ffi::NewtonWorldGetUserData(self.0));
-            let world = Weak::upgrade(&world_userdata).unwrap();
+            let first = ffi::NewtonWorldGetFirstBody(self.0);
+            let world = userdata::<T>(self.0);
+            let body = Box::new(NewtonBody::new_not_owned(first));
 
-            mem::forget(world_userdata);
-            world
+            BodiesMut {
+                world: self.0,
+                next: first,
+                body: Box::into_raw(body),
+                _phantom: PhantomData,
+            }
         }
     }
 
@@ -356,6 +325,14 @@ impl<T> NewtonWorld<T> {
     pub fn as_raw_mut(&mut self) -> *mut ffi::NewtonWorld {
         self.0
     }
+}
+
+pub(crate) unsafe fn userdata<T>(world: *const ffi::NewtonWorld) -> Shared<Lock<NewtonWorld<T>>> {
+    let world_userdata: Weak<Lock<NewtonWorld<T>>> =
+        mem::transmute(ffi::NewtonWorldGetUserData(world));
+    let world = Weak::upgrade(&world_userdata).unwrap();
+    mem::forget(world_userdata);
+    world
 }
 
 impl<T: Types> NewtonWorld<T> {

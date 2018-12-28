@@ -9,16 +9,13 @@ pub mod joint;
 pub mod types;
 pub mod world;
 
-use std::fmt::Debug;
-use std::os::raw;
-use std::time::Duration;
+use std::{error, fmt, os::raw, time::Duration};
 
 #[cfg(feature = "sync")]
 pub unsafe trait Types: Clone {
     type Vector: Copy + Sync + Send;
     type Matrix: Copy + Sync + Send;
     type Quaternion: Copy + Sync + Send;
-    type UserData: Sync + Send;
 }
 
 #[cfg(not(feature = "sync"))]
@@ -26,16 +23,43 @@ pub unsafe trait Types: Clone {
     type Vector: Copy;
     type Matrix: Copy;
     type Quaternion: Copy;
-    type UserData;
 }
 
 #[derive(Debug)]
 pub enum Error {
-    AlreadyLocked,
+    AlreadyLocked {
+        owner: Option<&'static str>,
+    },
     #[cfg(feature = "sync")]
-    WouldBlock,
+    WouldBlock {
+        owner: Option<&'static str>,
+    },
     #[cfg(feature = "sync")]
     Poisoned,
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::AlreadyLocked { .. } => write!(f, "AlreadyLocked"),
+            #[cfg(feature = "sync")]
+            Error::WouldBlock { .. } => write!(f, "WouldBlock"),
+            #[cfg(feature = "sync")]
+            Error::Poisoned => write!(f, "Poisoned"),
+        }
+    }
+}
+
+impl error::Error for Error {
+    fn description(&self) -> &str {
+        match self {
+            Error::AlreadyLocked { .. } => "The world is still locked",
+            #[cfg(feature = "sync")]
+            Error::WouldBlock { .. } => "Trying to aquire this lock would block the current thread",
+            #[cfg(feature = "sync")]
+            Error::Poisoned => "A thread likely panicked while still holding the lock",
+        }
+    }
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -71,7 +95,7 @@ impl<T> Lock<T> {
 
         match self.0.try_read() {
             Ok(lock) => Ok(lock),
-            Err(TryLockError::WouldBlock) => Err(Error::WouldBlock),
+            Err(TryLockError::WouldBlock) => Err(Error::WouldBlock { owner: None }),
 
             // TODO handle poisoning
             _ => unimplemented!(),
@@ -87,7 +111,7 @@ impl<T> Lock<T> {
 
         match self.0.try_write() {
             Ok(lock) => Ok(lock),
-            Err(TryLockError::WouldBlock) => Err(Error::WouldBlock),
+            Err(TryLockError::WouldBlock) => Err(Error::WouldBlock { owner: None }),
 
             // TODO handle poisoning
             _ => unimplemented!(),
