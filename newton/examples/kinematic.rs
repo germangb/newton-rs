@@ -1,84 +1,106 @@
 use newton::types::Cgmath;
 
-use newton::body::{self, Body, BodyType};
+use newton::body::{self, Body, Type};
 use newton::collision::{self, Collision};
 use newton::world::{self, Filter, World};
 
 use newton::sandbox::{Input, Sandbox};
 
-use cgmath::{prelude::*, Deg, Matrix4, Vector3};
+use cgmath::{prelude::*, Deg, Matrix4, Vector3, vec3};
+use newton::world::NewtonWorld;
+
+struct Scene {
+    bodies: Vec<Body<Cgmath>>,
+    /// kinematic body
+    agent: Body<Cgmath>,
+    /// collision detection primitive
+    collision: Collision<Cgmath>,
+}
 
 fn main() {
     let world: World<Cgmath> = world::create();
-    let (_floor, _obstacle, (agent, collision)) = init(&world);
+    let Scene { bodies, agent, collision } = init_scene(&world);
 
     let mut sandbox = Sandbox::default(world.write().as_raw());
 
-    agent
-        .write()
-        .set_matrix(&Matrix4::from_translation(Vector3::new(6.0, 2.0, 6.0)));
+    agent.write().set_matrix(&pos(6.0, 2.0, 6.0));
 
-    sandbox.set_handler(
-        move |Input { w, a, s, d, look, space, lshift, }| {
-            let mut position = agent.read().position();
-            let matrix = agent.read().matrix();
+    sandbox.set_handler(move |input| {
+        let mut position = agent.read().position();
+        let matrix = agent.read().matrix();
 
-            let mut dp = Vector3::new(0.0, 0.0, 0.0);
+        let mut dp = Vector3::new(0.0, 0.0, 0.0);
 
-            let look = Vector3::new(look.x, 0.0, look.z);
-            let left = Vector3::new(look.z, 0.0, -look.x);
-            let up = Vector3::new(0.0, 1.0, 0.0);
+        let look = Vector3::new(input.look.x, 0.0, input.look.z);
+        let left = Vector3::new(look.z, 0.0, -look.x);
+        let up = Vector3::new(0.0, 1.0, 0.0);
 
-            if w { dp -= look; }
-            if s { dp += look; }
-            if a { dp -= left; }
-            if d { dp += left; }
-            if space { dp += up; }
-            if lshift { dp -= up; }
+        if input.w { dp -= look; }
+        if input.s { dp += look; }
+        if input.a { dp -= left; }
+        if input.d { dp += left; }
+        if input.space { dp += up; }
+        if input.lshift { dp -= up; }
 
-            let mut target = position + dp.normalize() * 3.0 / 60.0;
+        if dp.magnitude() < 0.001 {
+            return
+        }
 
-            // convex cast
-            let collision = collision.read();
-            for (b, info) in world.read().convex_cast(&matrix, &target, &collision, 1, |b, _| b.is_dynamic())
+        let mut dp = dp.normalize() * 4.0 / 60.0;
+        let mut target = position + dp;
+
+        // convex cast against dynamic bodies
+        let collision = collision.read();
+
+        while let Some((_, info)) = world
+            .read()
+            .convex_cast(&matrix, &target, &collision, 1, |b, _| b.is_dynamic()).next()
             {
-                target += info.normal * info.penetration;
+                dp = (dp - info.normal * cgmath::dot(info.normal, dp)) * 0.5;
+
+                if dp.magnitude() < 0.01 {
+                    return;
+                } else {
+                    target = position + dp;
+                }
             }
 
-            if dp.magnitude() > 0.001 {
-                agent.write().set_matrix(&Matrix4::from_translation(target))
-            }
-        },
-    );
+        agent.write().set_matrix(&Matrix4::from_translation(target))
+    });
 
     sandbox.run();
 }
 
-fn init(
-    world: &World<Cgmath>,
-) -> (
-    Body<Cgmath>,
-    Body<Cgmath>,
-    (Body<Cgmath>, Collision<Cgmath>),
-) {
-    let floor = collision::cuboid(&mut world.write(), 16.0, 0.5, 16.0, 0, None);
-    let obstacle = collision::cuboid(&mut world.write(), 4.0, 4.0, 6.0, 0, None);
-    let agent = collision::cylinder(&mut world.write(), 0.5, 0.5, 1.5, 0, Some(&rotz(90.0)));
-    let agent = collision::sphere(&mut world.write(), 1.0, 0, None);
-    let floor = body::dynamic(
-        &mut world.write(),
-        &floor.read(),
-        &Matrix4::identity(),
-        None,
-    );
-    let obstacle = body::dynamic(
-        &mut world.write(),
-        &obstacle.read(),
-        &(pos(-4.0, 2.0, 4.0) * roty(40.0)),
-        None,
-    );
-    let agent_body = body::kinematic(&mut world.write(), &agent.read(), &pos(0.0, 2.0, 0.0), None);
-    (floor, obstacle, (agent_body, agent))
+fn init_scene(w: &World<Cgmath>) -> Scene {
+    let mut world = w.write();
+    let pool = [
+        collision::cuboid(&mut world, 16.0, 0.5, 16.0, 0),
+        collision::cuboid(&mut world, 4.0, 4.0, 6.0, 0),
+        collision::sphere(&mut world, 1.0, 0),
+        collision::cuboid(&mut world, 1.0, 1.0, 1.0, 0),
+    ];
+
+    let floor = Body::new(&mut world, &pool[0].read(), Type::Dynamic, &Matrix4::identity());
+    let obstacle0 = Body::new(&mut world, &pool[1].read(), Type::Dynamic, &(pos(-4.0, 2.0, 4.0) * roty(40.0)));
+    let obstacle1 = Body::new(&mut world, &pool[1].read(), Type::Dynamic, &(pos(-4.0, 0.0, -2.0) * roty(-30.0)));
+
+    let agent_body = Body::new(&mut world, &pool[2].read(), Type::Kinematic, &pos(0.0, 2.0, 0.0));
+
+    // simulated body
+    let cube = Body::new(&mut world, &pool[3].read(), Type::Dynamic, &(pos(0.0, 4.0, 0.0)*rotx(20.0)*roty(-30.0)));
+    drop(world);
+    cube.write().set_mass(1.0);
+    cube.write().set_force_and_torque(|b, _, _| {
+        b.set_force(&vec3(0.0, -9.8, 0.0))
+    });
+
+    agent_body.write().set_collidable(true);
+
+    Scene {
+        bodies: vec![floor, obstacle0, obstacle1, cube],
+        agent: agent_body,
+        collision: pool[2].clone(),
+    }
 }
 
 fn pos(x: f32, y: f32, z: f32) -> Matrix4<f32> {

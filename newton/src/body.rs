@@ -15,14 +15,14 @@ use std::os::raw;
 
 use std::time::Duration;
 
-pub type BodyId = i32;
-
 #[derive(Debug, Clone)]
 pub struct Body<T>(Shared<Lock<NewtonWorld<T>>>, Shared<Lock<NewtonBody<T>>>);
 
-#[derive(Debug, Clone)]
+// TODO pub(crate) constructor of a non-owned body
+#[derive(Debug)]
 pub struct NewtonBody<T> {
     pub(crate) world: Shared<Lock<NewtonWorld<T>>>,
+    pub(crate) collision: NewtonCollision<T>, // not owned collision
     pub(crate) body: *mut ffi::NewtonBody,
     pub(crate) owned: bool,
 }
@@ -70,7 +70,7 @@ pub struct BodyLockedMut<'a, T>(LockedMut<'a, NewtonWorld<T>>, LockedMut<'a, New
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum BodyType {
+pub enum Type {
     Dynamic = ffi::NEWTON_DYNAMIC_BODY as _,
     Kinematic = ffi::NEWTON_KINEMATIC_BODY as _,
 }
@@ -91,9 +91,8 @@ impl<T: Types> Body<T> {
     pub fn new(
         world: &mut NewtonWorld<T>,
         collision: &NewtonCollision<T>,
-        ty: BodyType,
+        ty: Type,
         matrix: &T::Matrix,
-        user_data: Option<T::UserData>,
     ) -> Self {
         unsafe {
             let collision = collision.as_raw();
@@ -112,13 +111,18 @@ impl<T: Types> Body<T> {
 
             let transform = mem::transmute(matrix);
             let body_raw = match ty {
-                BodyType::Dynamic => ffi::NewtonCreateDynamicBody(world, collision, transform),
-                BodyType::Kinematic => ffi::NewtonCreateKinematicBody(world, collision, transform),
+                Type::Dynamic => ffi::NewtonCreateDynamicBody(world, collision, transform),
+                Type::Kinematic => ffi::NewtonCreateKinematicBody(world, collision, transform),
             };
 
             let newton_body = Shared::new(Lock::new(NewtonBody {
                 world: world_rc_cell.clone(),
                 body: body_raw,
+                collision: NewtonCollision {
+                    world: world_rc_cell.clone(),
+                    collision: collision as _,
+                    owned: false,
+                },
                 owned: true,
             }));
 
@@ -155,24 +159,6 @@ impl<T: Types> Body<T> {
     }
 }
 
-pub fn dynamic<T: Types>(
-    world: &mut NewtonWorld<T>,
-    collision: &NewtonCollision<T>,
-    transform: &T::Matrix,
-    user_data: Option<T::UserData>,
-) -> Body<T> {
-    Body::new(world, collision, BodyType::Dynamic, transform, user_data)
-}
-
-pub fn kinematic<T: Types>(
-    world: &mut NewtonWorld<T>,
-    collision: &NewtonCollision<T>,
-    transform: &T::Matrix,
-    user_data: Option<T::UserData>,
-) -> Body<T> {
-    Body::new(world, collision, BodyType::Kinematic, transform, user_data)
-}
-
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum SleepState {
@@ -200,6 +186,14 @@ impl<T: Types> NewtonBody<T> {
         }
     }
 
+    pub fn user_data(&self) -> Option<&T::UserData> {
+        unimplemented!()
+    }
+
+    pub fn collision(&self) -> &NewtonCollision<T> {
+        &self.collision
+    }
+
     pub fn contact_joints(&self) -> Contacts<T> {
         unimplemented!()
     }
@@ -208,16 +202,16 @@ impl<T: Types> NewtonBody<T> {
         unimplemented!()
     }
 
-    pub fn body_type(&self) -> BodyType {
+    pub fn body_type(&self) -> Type {
         unsafe { mem::transmute(ffi::NewtonBodyGetType(self.body)) }
     }
 
     pub fn is_dynamic(&self) -> bool {
-        self.body_type() == BodyType::Dynamic
+        self.body_type() == Type::Dynamic
     }
 
     pub fn is_kinematic(&self) -> bool {
-        self.body_type() == BodyType::Kinematic
+        self.body_type() == Type::Kinematic
     }
 
     pub fn as_raw(&self) -> *const ffi::NewtonBody {
@@ -283,12 +277,18 @@ impl<T: Types> NewtonBody<T> {
         unsafe { ffi::NewtonBodySetTorque(self.body, mem::transmute(torque)) };
     }
 
-    pub fn id(&self) -> BodyId {
+    pub fn id(&self) -> raw::c_int {
         unsafe { ffi::NewtonBodyGetID(self.body) }
     }
 
     pub fn set_matrix_no_sleep(&mut self, matrix: &T::Matrix) {
         unsafe { ffi::NewtonBodySetMatrixNoSleep(self.body, mem::transmute(matrix)) };
+    }
+
+    pub fn set_collidable(&mut self, collidable: bool) {
+        unsafe {
+            ffi::NewtonBodySetCollidable(self.body, collidable as _);
+        }
     }
 
     pub fn matrix(&self) -> T::Matrix {
@@ -306,17 +306,6 @@ impl<T: Types> NewtonBody<T> {
             pos
         }
     }
-
-    /*
-    pub fn set_force_and_torque_callback<C: super::ForceAndTorque<T>>(&mut self) {
-        unsafe {
-            ffi::NewtonBodySetForceAndTorqueCallback(
-                self.body,
-                Some(force_and_torque_callback::<T, C>),
-            );
-        }
-    }
-    */
 
     // TODO FIXME unsafe unsafe unsafe...
     // It is less verbose than the ^^^ option, but is it actually better?
@@ -366,6 +355,7 @@ impl<'a, T> Iterator for Bodies<'a, T> {
             unsafe {
                 let mut boxed = unsafe { Box::from_raw(self.body) };
                 boxed.body = self.next;
+                boxed.collision.collision = ffi::NewtonBodyGetCollision(self.next);
 
                 self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
                 Some(mem::transmute(Box::into_raw(boxed)))
@@ -384,6 +374,7 @@ impl<'a, T> Iterator for BodiesMut<'a, T> {
             unsafe {
                 let mut boxed = unsafe { Box::from_raw(self.body) };
                 boxed.body = self.next;
+                boxed.collision.collision = ffi::NewtonBodyGetCollision(self.next);
 
                 self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
                 Some(mem::transmute(Box::into_raw(boxed)))
@@ -446,7 +437,7 @@ impl<'a, T> Drop for BodiesMut<'a, T> {
     }
 }
 
-unsafe extern "C" fn force_and_torque_callback<T, C>(
+extern "C" fn force_and_torque_callback<T, C>(
     body: *const ffi::NewtonBody,
     timestep: raw::c_float,
     thread: raw::c_int,
@@ -454,24 +445,52 @@ unsafe extern "C" fn force_and_torque_callback<T, C>(
     T: Types,
     C: Fn(&mut NewtonBody<T>, Duration, raw::c_int) + 'static,
 {
-    let udata: Shared<BodyUserDataInner<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+    let udata: Shared<BodyUserDataInner<T>> =
+        unsafe { mem::transmute(ffi::NewtonBodyGetUserData(body)) };
     let world_rc = Weak::upgrade(&udata.world).unwrap();
 
     if let Some(ptr) = udata.force_and_torque.get() {
-        let callback = mem::transmute::<_, Box<C>>(ptr);
-
-        let nanos = (1_000_000_000.0 * timestep) as u64;
-        let timestep = Duration::new(nanos / 1_000_000_000, (nanos % 1_000_000_000) as u32);
+        let callback = unsafe { mem::transmute::<_, Box<C>>(ptr) };
 
         let mut body = NewtonBody {
             owned: false,
-            world: world_rc,
+            world: world_rc.clone(),
             body: body as *mut _,
+            collision: NewtonCollision {
+                world: world_rc,
+                collision: unsafe { ffi::NewtonBodyGetCollision(body) },
+                owned: false,
+            },
         };
-        callback(&mut body, timestep, thread);
+        callback(&mut body, to_duration(timestep), thread);
 
         mem::forget(callback);
     }
 
     mem::forget(udata);
 }
+
+pub fn to_duration(timestep: f32) -> Duration {
+    const NANO: u64 = 1_000_000_000;
+    let nanos = (NANO as f32 * timestep) as u64;
+    Duration::new(nanos / NANO, (nanos % NANO) as u32)
+}
+
+/*
+pub fn dynamic<T: Types>(
+    world: &mut NewtonWorld<T>,
+    collision: &NewtonCollision<T>,
+    transform: &T::Matrix,
+    user_data: Option<T::UserData>,
+) -> Body<T> {
+    Body::new(world, collision, Type::Dynamic, transform)
+}
+
+pub fn kinematic<T: Types>(
+    world: &mut NewtonWorld<T>,
+    collision: &NewtonCollision<T>,
+    transform: &T::Matrix,
+) -> Body<T> {
+    Body::new(world, collision, Type::Kinematic, transform)
+}
+*/

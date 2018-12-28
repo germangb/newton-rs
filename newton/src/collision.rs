@@ -7,15 +7,11 @@ use std::mem;
 use std::ops::{Deref, DerefMut};
 use std::os::raw;
 
-pub type ShapeId = raw::c_int;
-
 #[derive(Debug, Clone)]
 pub struct Collision<T>(Shared<Lock<NewtonCollision<T>>>);
 
 #[derive(Debug)]
 pub struct NewtonCollision<T> {
-    /// NewtonCollision holds a reference to the context because all collisions MUST be freed
-    /// before the NewtonWorld is
     pub(crate) world: Shared<Lock<NewtonWorld<T>>>,
     pub(crate) collision: *mut ffi::NewtonCollision,
     pub(crate) owned: bool,
@@ -74,12 +70,7 @@ impl<T> Collision<T> {
 
 impl<T: Types> Collision<T> {
     // TODO FIXME indirections
-    pub fn new(
-        world: &mut NewtonWorld<T>,
-        params: CollisionParams,
-        shape_id: ShapeId,
-        offset: Option<&T::Matrix>,
-    ) -> Self {
+    pub fn new(world: &mut NewtonWorld<T>, params: CollisionParams, shape_id: raw::c_int) -> Self {
         let world_rc = unsafe {
             let world_ref: Weak<Lock<NewtonWorld<T>>> =
                 mem::transmute(ffi::NewtonWorldGetUserData(world.as_raw()));
@@ -91,7 +82,7 @@ impl<T: Types> Collision<T> {
         let world = world.as_raw();
 
         let collision_raw = unsafe {
-            let offset = mem::transmute(offset);
+            let offset = std::ptr::null();
             match &params {
                 &CollisionParams::Box { dx, dy, dz } => {
                     ffi::NewtonCreateBox(world, dx, dy, dz, shape_id, offset)
@@ -211,32 +202,29 @@ pub fn cuboid<T: Types>(
     dx: f32,
     dy: f32,
     dz: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
+    shape_id: raw::c_int,
 ) -> Collision<T> {
     let params = CollisionParams::Box { dx, dy, dz };
-    Collision::new(world, params, shape_id, offset)
+    Collision::new(world, params, shape_id)
 }
 
 pub fn sphere<T: Types>(
     world: &mut NewtonWorld<T>,
     radius: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
+    shape_id: raw::c_int,
 ) -> Collision<T> {
     let params = CollisionParams::Sphere { radius };
-    Collision::new(world, params, shape_id, offset)
+    Collision::new(world, params, shape_id)
 }
 
 pub fn cone<T: Types>(
     world: &mut NewtonWorld<T>,
     radius: f32,
     height: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
+    shape_id: raw::c_int,
 ) -> Collision<T> {
     let params = CollisionParams::Cone { radius, height };
-    Collision::new(world, params, shape_id, offset)
+    Collision::new(world, params, shape_id)
 }
 
 pub fn cylinder<T: Types>(
@@ -244,15 +232,14 @@ pub fn cylinder<T: Types>(
     radius0: f32,
     radius1: f32,
     height: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
+    shape_id: raw::c_int,
 ) -> Collision<T> {
     let params = CollisionParams::Cylinder {
         radius0,
         radius1,
         height,
     };
-    Collision::new(world, params, shape_id, offset)
+    Collision::new(world, params, shape_id)
 }
 
 pub fn capsule<T: Types>(
@@ -260,18 +247,17 @@ pub fn capsule<T: Types>(
     radius0: f32,
     radius1: f32,
     height: f32,
-    shape_id: ShapeId,
-    offset: Option<&T::Matrix>,
+    shape_id: raw::c_int,
 ) -> Collision<T> {
     let params = CollisionParams::Capsule {
         radius0,
         radius1,
         height,
     };
-    Collision::new(world, params, shape_id, offset)
+    Collision::new(world, params, shape_id)
 }
 
 pub fn null<T: Types>(world: &mut NewtonWorld<T>) -> Collision<T> {
     let params = CollisionParams::Null;
-    Collision::new(world, params, 0, None)
+    Collision::new(world, params, 0)
 }

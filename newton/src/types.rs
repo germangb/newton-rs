@@ -1,6 +1,6 @@
 use super::Types;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 #[cfg(feature = "cgmath_types")]
 pub enum Cgmath {}
 #[cfg(feature = "cgmath_types")]
@@ -11,7 +11,7 @@ unsafe impl Types for Cgmath {
     type UserData = &'static str;
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Array {}
 unsafe impl Types for Array {
     type Vector = [f32; 3];

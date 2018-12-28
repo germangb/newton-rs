@@ -70,7 +70,11 @@ impl<T> World<T> {
             #[cfg(feature = "sync")]
             match threads {
                 Threads::One | Threads::Multiple(1) => {}
-                Threads::Multiple(n) => ffi::NewtonSetThreadsCount(world, n as _),
+                Threads::Multiple(n) => {
+                    if cfg!(feature = "sync") {
+                        ffi::NewtonSetThreadsCount(world, n as _)
+                    }
+                }
             }
             world
         };
@@ -122,15 +126,15 @@ impl<'a, T> Drop for ConvexCast<'a, T> {
 }
 
 #[derive(Debug)]
-pub struct CastInfo<T: Types> {
-    pub point: T::Vector,
-    pub normal: T::Vector,
+pub struct CastInfo<V> {
+    pub point: V,
+    pub normal: V,
     pub penetration: f32,
 }
 
 // TODO FIXME refactor...
 impl<'a, T: Types> Iterator for ConvexCast<'a, T> {
-    type Item = (&'a NewtonBody<T>, CastInfo<T>);
+    type Item = (&'a NewtonBody<T>, CastInfo<T::Vector>);
 
     fn next(&mut self) -> Option<Self::Item> {
         let contact = self.contacts.get(self.count).map(|info| {
@@ -174,21 +178,12 @@ impl<T: Types> NewtonWorld<T> {
     where
         C: Fn(&NewtonBody<T>, &NewtonCollision<T>) -> bool + 'static,
     {
-        let world = self.0;
         let mut return_info = Vec::with_capacity(max_contacts);
-        let datum = self.world_datum();
-
-        // FIXME
-        // TODO we need to heap allocate???
-        // can't we just pass a reference to the stack????
-        //let prefilter_world =
-        //    unsafe { mem::transmute::<_, *mut raw::c_void>(Box::new((prefilter, datum))) };
 
         let prefilter_world = (prefilter, self.world_datum());
-
         let contacts = unsafe {
             ffi::NewtonWorldConvexCast(
-                world,
+                self.0,
                 mem::transmute(matrix),
                 mem::transmute(target),
                 shape.as_raw(),
@@ -205,17 +200,18 @@ impl<T: Types> NewtonWorld<T> {
             )
         };
 
-        /*
-        unsafe {
-            let _: Box<C> = Box::from_raw(prefilter_world as _);
-        }
-        */
-
         // allocate a NewtonBody on the heap
+        let world_datum = self.world_datum();
+
         let body = Box::new(NewtonBody {
-            world: self.world_datum(),
+            world: world_datum.clone(),
             owned: false,
             body: 0 as _,
+            collision: NewtonCollision {
+                world: world_datum,
+                collision: 0 as _,
+                owned: false,
+            },
         });
 
         unsafe {
@@ -245,6 +241,11 @@ impl<T: Types> NewtonWorld<T> {
                 world: world.clone(),
                 body: body as _,
                 owned: false,
+                collision: NewtonCollision {
+                    world: world.clone(),
+                    collision: ffi::NewtonBodyGetCollision(body),
+                    owned: false,
+                },
             };
 
             let collision = NewtonCollision {
@@ -268,10 +269,16 @@ impl<T> NewtonWorld<T> {
     pub fn bodies(&self) -> Bodies<T> {
         let first = unsafe { ffi::NewtonWorldGetFirstBody(self.0) };
 
+        let world = self.world_datum();
         let body = Box::new(NewtonBody {
             owned: false,
             body: first,
-            world: self.world_datum(),
+            world: world.clone(),
+            collision: NewtonCollision {
+                world: world.clone(),
+                collision: unsafe { ffi::NewtonBodyGetCollision(first) },
+                owned: false,
+            },
         });
 
         Bodies {
@@ -287,10 +294,16 @@ impl<T> NewtonWorld<T> {
     pub fn bodies_mut(&mut self) -> BodiesMut<T> {
         let first = unsafe { ffi::NewtonWorldGetFirstBody(self.0) };
 
+        let world = self.world_datum();
         let body = Box::new(NewtonBody {
             owned: false,
             body: first,
-            world: self.world_datum(),
+            world: world.clone(),
+            collision: NewtonCollision {
+                world: world.clone(),
+                collision: unsafe { ffi::NewtonBodyGetCollision(first) },
+                owned: false,
+            },
         });
 
         BodiesMut {
@@ -322,19 +335,14 @@ impl<T> NewtonWorld<T> {
 
     #[cfg(feature = "sync")]
     pub fn update_async(&mut self, step: Duration) -> WorldUpdateAsync<T> {
-        let world = self.0;
-        let nanos = step.as_secs() as f32 * 1_000_000_000.0 + step.subsec_nanos() as f32;
         unsafe {
-            ffi::NewtonUpdateAsync(world, nanos / 1_000_000_000.0);
+            ffi::NewtonUpdateAsync(self.0, as_seconds(step));
         }
-        WorldUpdateAsync(world, PhantomData)
+        WorldUpdateAsync(self.0, PhantomData)
     }
 
     pub fn update(&mut self, step: Duration) {
-        let nanos = step.as_secs() as f32 * 1_000_000_000.0 + step.subsec_nanos() as f32;
-        unsafe {
-            ffi::NewtonUpdate(self.0, nanos / 1_000_000_000.0);
-        }
+        unsafe { ffi::NewtonUpdate(self.0, as_seconds(step)) }
     }
 
     pub fn invalidate_cache(&mut self) {
@@ -403,4 +411,9 @@ impl<'a, T> Drop for WorldUpdateAsync<'a, T> {
 
 pub fn create<T>() -> World<T> {
     World::new(Broadphase::Default, Solver::Exact, Threads::One)
+}
+
+fn as_seconds(step: Duration) -> f32 {
+    let nanos = step.as_secs() as f32 * 1_000_000_000.0 + step.subsec_nanos() as f32;
+    nanos / 1_000_000_000.0
 }

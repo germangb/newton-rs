@@ -14,7 +14,7 @@ use std::os::raw;
 use std::time::Duration;
 
 #[cfg(feature = "sync")]
-pub unsafe trait Types {
+pub unsafe trait Types: Clone {
     type Vector: Copy + Sync + Send;
     type Matrix: Copy + Sync + Send;
     type Quaternion: Copy + Sync + Send;
@@ -22,7 +22,7 @@ pub unsafe trait Types {
 }
 
 #[cfg(not(feature = "sync"))]
-pub unsafe trait Types {
+pub unsafe trait Types: Clone {
     type Vector: Copy;
     type Matrix: Copy;
     type Quaternion: Copy;
