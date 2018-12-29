@@ -1,7 +1,7 @@
 use newton::Cgmath;
 
 use newton::body::{Body, Type};
-use newton::collision::{Collision, Params};
+use newton::collision::{params::Params, Collision};
 use newton::world::World;
 
 use newton::sandbox;

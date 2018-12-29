@@ -1,6 +1,6 @@
 use ffi;
 
-use super::collision::{CollisionData, CollisionLockedMut, NewtonCollision, Params};
+use super::collision::NewtonCollision;
 use super::command::Command;
 use super::joint::{Contacts, Joints};
 use super::world::{NewtonWorld, WorldLockedMut};

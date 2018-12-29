@@ -1,5 +1,8 @@
+pub mod params;
+
 use ffi;
 
+use self::params::Params;
 use super::world::{NewtonWorld, WorldLockedMut};
 use super::{Lock, Locked, LockedMut, Result, Shared, Types, Weak};
 
@@ -110,22 +113,6 @@ pub struct CollisionLockedMut<'a, T>(
     LockedMut<'a, NewtonWorld<T>>,
 );
 
-#[derive(Debug)]
-pub enum Params {
-    /// Box (dx, dy, dz)
-    Box(f32, f32, f32),
-    /// Sphere (radius)
-    Sphere(f32),
-    /// Cone (radius, height)
-    Cone(f32, f32),
-    /// Cylinder (radius0, radius1, height)
-    Cylinder(f32, f32, f32),
-    /// Capsule (radius0, radius1, height)
-    Capsule(f32, f32, f32),
-    /// Null collision shape
-    Null,
-}
-
 impl<T: Types> Collision<T> {
     /// Creates a new collision.
     pub fn new(
@@ -155,6 +142,8 @@ impl<T: Types> Collision<T> {
                     ffi::NewtonCreateCapsule(world, radius0, radius1, height, shape_id, offset)
                 }
                 &Params::Null => ffi::NewtonCreateNull(world),
+                &Params::HeightFieldF32(_) => unimplemented!(),
+                &Params::HeightFieldU16(_) => unimplemented!(),
             }
         };
 

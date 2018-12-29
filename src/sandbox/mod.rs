@@ -382,7 +382,7 @@ impl Sandbox {
         let video_subsystem = sdl_context.video().unwrap();
 
         let window = video_subsystem
-            .window("Window", self.width as _, self.height as _)
+            .window("Sandbox", self.width as _, self.height as _)
             .opengl()
             .resizable()
             .position_centered()
