@@ -505,7 +505,7 @@ impl Sandbox {
             }
             if self.wireframe {
                 renderer.set_lighting(false);
-                renderer.set_linewidth(3.0);
+                renderer.set_line_width(if self.solid { 2.0 } else { 1.0 });
                 self.render_bodies(
                     &renderer,
                     &bodies[..],
@@ -517,7 +517,7 @@ impl Sandbox {
             }
             if self.aabb {
                 renderer.set_lighting(false);
-                renderer.set_linewidth(1.0);
+                renderer.set_line_width(1.0);
                 self.render_aabb_(&renderer, &bodies, &mut stats)
             }
 

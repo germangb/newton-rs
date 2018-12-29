@@ -2,7 +2,7 @@ use newton::types::Cgmath;
 
 use newton::body::{self, Body, Type};
 use newton::collision::{self, Collision};
-use newton::world::{self, Filter, World};
+use newton::world::{self, Broadphase, Solver, Threads, World};
 
 use newton::sandbox::{Input, Sandbox};
 
@@ -19,7 +19,8 @@ struct Scene {
 }
 
 fn main() {
-    let world: World<Cgmath> = world::create();
+    let world: World<Cgmath> = World::new(Broadphase::Default, Solver::Exact, Threads::One);
+
     let Scene {
         bodies,
         agent,
