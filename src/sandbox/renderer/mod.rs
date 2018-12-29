@@ -121,7 +121,7 @@ impl Renderer {
         render
     }
 
-    pub fn set_linewidth(&self, width: f32) {
+    pub fn set_line_width(&self, width: f32) {
         unsafe {
             check!(gl::LineWidth(width));
         }
