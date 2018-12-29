@@ -111,7 +111,14 @@ impl<T> NewtonBody<T> {
 }
 
 pub(crate) unsafe fn drop_body<T>(body: *const ffi::NewtonBody) {
+    let collision = ffi::NewtonBodyGetCollision(body);
+
     let _: Shared<BodyData<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+
+    // decrement ref count of the collision
+    let _: Shared<super::collision::CollisionData<T>> =
+        mem::transmute(ffi::NewtonCollisionGetUserData(collision));
+
     ffi::NewtonDestroyBody(body);
 }
 
@@ -226,6 +233,9 @@ impl<T: Types> Body<T> {
             });
 
             ffi::NewtonBodySetUserData(body_ptr, mem::transmute(userdata));
+
+            // TODO not happy
+            mem::forget(super::collision::userdata::<T>(collision));
 
             Body(world_lock, body_lock, body_ptr)
         }

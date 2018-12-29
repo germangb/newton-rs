@@ -6,6 +6,8 @@ use self::params::Params;
 use super::world::{NewtonWorld, WorldLockedMut};
 use super::{Lock, Locked, LockedMut, Result, Shared, Types, Weak};
 
+use self::params::HeightFieldParams;
+
 use std::{
     mem,
     ops::{Deref, DerefMut},
@@ -41,6 +43,14 @@ pub struct CollisionData<T> {
     /// Debug name
     debug: Option<&'static str>,
 }
+
+/*
+impl<T> Drop for CollisionData<T> {
+    fn drop(&mut self) {
+        println!("Dropping collision!");
+    }
+}
+*/
 
 pub struct Builder<'a, T: Types> {
     world: &'a mut NewtonWorld<T>,
@@ -86,6 +96,16 @@ impl<'a, T: Types> Builder<'a, T> {
     /// Set Box collision params. `Volume = dx*dy*dz`
     pub fn cuboid(mut self, dx: f32, dy: f32, dz: f32) -> Self {
         self.params = Params::Box(dx, dy, dz);
+        self
+    }
+
+    pub fn heightfield_f32(mut self, params: HeightFieldParams<f32>) -> Self {
+        self.params = Params::HeightFieldF32(params);
+        self
+    }
+
+    pub fn heightfield_u16(mut self, params: HeightFieldParams<u16>) -> Self {
+        self.params = Params::HeightFieldU16(params);
         self
     }
 }
@@ -250,13 +270,14 @@ impl<'a, T> DerefMut for CollisionLockedMut<'a, T> {
     }
 }
 
-// TODO review
+// TODO FIXME CollisionData is dropped but the collision may still be active in some body!!!
 impl<T> Drop for NewtonCollision<T> {
     fn drop(&mut self) {
         if self.owned {
             let collision = self.collision;
             //let _ = self.world.write();
             unsafe {
+                // TODO FIXME CollisionData is dropped but the collision may still be active in some body!!!
                 let _: Shared<CollisionData<T>> =
                     mem::transmute(ffi::NewtonCollisionGetUserData(collision));
                 ffi::NewtonDestroyCollision(collision)
