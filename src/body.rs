@@ -10,6 +10,7 @@ use std::{
     cell::Cell,
     marker::PhantomData,
     mem,
+    ptr,
     ops::{Deref, DerefMut},
     os::raw,
     sync::mpsc,
@@ -23,13 +24,18 @@ pub struct Body<T>(
     *const ffi::NewtonBody,
 );
 
+unsafe impl<T> Send for Body<T> {}
+unsafe impl<T> Sync for Body<T> {}
+
 #[derive(Debug)]
 pub struct NewtonBody<T> {
-    body: *mut ffi::NewtonBody,
+    // TODO remove pub(crate). It is used by the convex cast
+    pub(crate) body: *mut ffi::NewtonBody,
 
     /// Bodies must be dropped before the world is.
     world: Shared<Lock<NewtonWorld<T>>>,
 
+    // TODO remove pub(crate). It is used by the convex cast
     /// A non-owned `NewtonCollision`
     pub(crate) collision: NewtonCollision<T>,
 
@@ -96,6 +102,16 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
 }
 
 impl<T> NewtonBody<T> {
+    pub(crate) unsafe fn null(world: Shared<Lock<NewtonWorld<T>>>) -> Self {
+        NewtonBody {
+            owned: false,
+            body: ptr::null_mut(),
+            collision: NewtonCollision::null(world.clone()),
+            world,
+            tx: None,
+        }
+    }
+
     /// Wraps a raw `ffi::NewtonBody` pointer
     pub(crate) unsafe fn new_not_owned(body: *mut ffi::NewtonBody) -> Self {
         let udata = userdata::<T>(body);
@@ -197,6 +213,11 @@ impl<T> Body<T> {
 }
 
 impl<T: Types> Body<T> {
+    /*
+    pub fn builder<'a, 'b>(world: &'a mut NewtonWorld<T>, collision: &'b NewtonCollision<T>) -> Builder<'a, 'b, T> {
+        Builder::new(world, collision)
+    }
+    */
     pub fn new(
         world: &mut NewtonWorld<T>,
         collision: &NewtonCollision<T>,

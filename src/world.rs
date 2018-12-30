@@ -86,6 +86,9 @@ pub enum Solver {
 #[derive(Debug, Clone)]
 pub struct World<T>(Shared<Lock<NewtonWorld<T>>>, *const ffi::NewtonWorld);
 
+unsafe impl<T> Send for World<T> {}
+unsafe impl<T> Sync for World<T> {}
+
 #[derive(Debug)]
 pub struct NewtonWorld<T> {
     world: *mut ffi::NewtonWorld,
@@ -134,6 +137,14 @@ pub struct WorldLockedMut<'a, T>(LockedMut<'a, NewtonWorld<T>>);
 /// thread is blocked until the simulation step has finished.
 #[derive(Debug)]
 pub struct WorldUpdateAsync<'a, T>(*mut ffi::NewtonWorld, PhantomData<&'a T>);
+
+unsafe impl<'a, T> Send for WorldUpdateAsync<'a, T> {}
+unsafe impl<'a, T> Sync for WorldUpdateAsync<'a, T> {}
+
+impl<'a, T> WorldUpdateAsync<'a, T> {
+    /// Consumes the object and blocks the current thread until the world update is finished.
+    pub fn finish(self) {}
+}
 
 impl<T> World<T> {
     pub fn builder() -> Builder<T> {
@@ -236,7 +247,6 @@ pub struct CastInfo<V> {
     pub penetration: f32,
 }
 
-/*
 // TODO test, make sure collision matches the body
 // TODO FIXME refactor...
 impl<'a, T: Types> Iterator for ConvexCast<'a, T> {
@@ -274,10 +284,8 @@ impl<'a, T: Types> Iterator for ConvexCast<'a, T> {
         contact
     }
 }
-*/
 
 impl<T: Types> NewtonWorld<T> {
-    /*
     pub fn convex_cast<C>(
         &self,
         matrix: &T::Matrix,
@@ -313,17 +321,8 @@ impl<T: Types> NewtonWorld<T> {
             )
         };
 
-        let body = Box::new(NewtonBody {
-            world: userdata.clone(),
-            owned: false,
-            body: 0 as _,
-            sender: None,
-            collision: NewtonCollision {
-                world: userdata.clone(),
-                collision: 0 as _,
-                owned: false,
-            },
-        });
+        let world = Weak::upgrade(&userdata.world).unwrap();
+        let body = unsafe { Box::new(NewtonBody::null(world)) };
 
         unsafe {
             return_info.set_len(contacts as usize);
@@ -345,34 +344,16 @@ impl<T: Types> NewtonWorld<T> {
             T: Types,
             C: Fn(&NewtonBody<T>, &NewtonCollision<T>) -> bool + 'static,
         {
-            let (ref callback, ref world): &(C, Shared<NewtonWorldData<T>>) = mem::transmute(udata);
+            let (ref callback, ref world): &(C, Shared<WorldData<T>>) = mem::transmute(udata);
 
-            let body = NewtonBody {
-                world: world.clone(),
-                body: body as _,
-                owned: false,
-                sender: None,
-                collision: NewtonCollision {
-                    world: world.clone(),
-                    collision: ffi::NewtonBodyGetCollision(body),
-                    owned: false,
-                },
-            };
-
-            let collision = NewtonCollision {
-                world: world.clone(),
-                collision: collision as _,
-                owned: false,
-            };
-
-            if callback(&body, &collision) {
+            let body = NewtonBody::new_not_owned(body as _);
+            if callback(&body, &body.collision) {
                 1
             } else {
                 0
             }
         }
     }
-    */
 }
 
 impl<T> NewtonWorld<T> {

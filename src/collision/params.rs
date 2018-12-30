@@ -21,6 +21,19 @@ pub enum Params {
     Null,
 }
 
+#[repr(i32)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub enum GridConstruction {
+    NormalDiagonals = 0,
+    InvertedDiagonals = 1,
+    AlternateOddRowsDiagonals = 2,
+    AlternateEvenRowsDiagonals = 3,
+    AlternateOddColumsDiagonals = 4,
+    AlternateEvenColumsDiagonals = 5,
+    StarDiagonals = 6,
+    StarInvertexDiagonals = 7,
+}
+
 #[derive(Debug, Clone)]
 pub struct Field<T>(Vec<T>, /*rows*/ usize, /*columns*/ usize);
 
@@ -30,6 +43,9 @@ pub struct HeightFieldParams<T> {
     rows: usize,
     /// Height of the heightfield
     columns: usize,
+
+    /// grid construction
+    grid: GridConstruction,
 
     /// Height elevation (width * height elements)
     elevation: Field<T>,
@@ -83,6 +99,10 @@ impl<T> Field<T> {
         &mut self.0[offset..offset + c]
     }
 
+    pub fn as_ptr(&self) -> *const T {
+        self.0.as_ptr()
+    }
+
     #[inline]
     pub fn get(&self, row: usize, column: usize) -> Option<&T> {
         self.0.get(row * self.columns() + column)
@@ -129,6 +149,16 @@ impl<T> IndexMut<usize> for Field<T> {
 
 impl<T> HeightFieldParams<T> {
     #[inline]
+    pub fn set_grid(&mut self, grid: GridConstruction) {
+        self.grid = grid
+    }
+
+    #[inline]
+    pub fn grid(&self) -> GridConstruction {
+        self.grid
+    }
+
+    #[inline]
     pub fn set_scale_x(&mut self, scale: f32) {
         self.scale.0 = scale;
     }
@@ -149,24 +179,38 @@ impl<T> HeightFieldParams<T> {
         self.scale.2 = z;
     }
 
+    #[inline]
+    pub fn rows(&self) -> usize {
+        self.rows
+    }
+
+    #[inline]
+    pub fn columns(&self) -> usize {
+        self.columns
+    }
+
     /// The scale along (x, y, z) dimensions
     #[inline]
     pub fn scale(&self) -> (f32, f32, f32) {
         self.scale
     }
 
+    #[inline]
     pub fn elevation(&self) -> &Field<T> {
         &self.elevation
     }
 
+    #[inline]
     pub fn elevation_mut(&mut self) -> &mut Field<T> {
         &mut self.elevation
     }
 
+    #[inline]
     pub fn ids(&self) -> &Field<i8> {
         &self.attribs
     }
 
+    #[inline]
     pub fn ids_mut(&mut self) -> &mut Field<i8> {
         &mut self.attribs
     }
@@ -175,6 +219,7 @@ impl<T> HeightFieldParams<T> {
 impl<T: HeightFieldType> HeightFieldParams<T> {
     pub fn new(rows: usize, columns: usize) -> Self {
         HeightFieldParams {
+            grid: GridConstruction::NormalDiagonals,
             rows,
             columns,
             elevation: Field(vec![T::ZERO; rows * columns], rows, columns),

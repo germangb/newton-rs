@@ -10,6 +10,7 @@ use self::params::HeightFieldParams;
 
 use std::{
     mem,
+    ptr,
     ops::{Deref, DerefMut},
     os::raw,
 };
@@ -20,6 +21,9 @@ pub struct Collision<T>(
     Shared<Lock<NewtonWorld<T>>>,
     *const ffi::NewtonCollision,
 );
+
+unsafe impl<T> Send for Collision<T> {}
+unsafe impl<T> Sync for Collision<T> {}
 
 #[derive(Debug)]
 pub struct NewtonCollision<T> {
@@ -42,6 +46,28 @@ pub struct CollisionData<T> {
 
     /// Debug name
     debug: Option<&'static str>,
+
+    /// collision parameters
+    params: Params,
+}
+
+impl<T> CollisionData<T> {
+    /// Get collision data from a given collision
+    ///
+    /// Collision data is unique to the NewtonCollision object
+    pub fn from(collision: &NewtonCollision<T>) -> Shared<Self> {
+        unsafe { userdata(collision.as_raw()) }
+    }
+
+    /// The debug name given to the collision on creation
+    pub fn debug(&self) -> Option<&'static str> {
+        self.debug
+    }
+
+    /// Collision params given to the collision on creation
+    pub fn params(&self) -> &Params {
+        &self.params
+    }
 }
 
 /*
@@ -82,6 +108,11 @@ impl<'a, T: Types> Builder<'a, T> {
         Collision::new(self.world, self.params, self.shape_id, self.debug)
     }
 
+    pub fn offset(mut self, offset: T::Matrix) -> Self {
+        self.offset = Some(offset);
+        self
+    }
+
     /// Set a descriptive name
     pub fn debug(mut self, name: &'static str) -> Self {
         self.debug = Some(name);
@@ -93,24 +124,38 @@ impl<'a, T: Types> Builder<'a, T> {
         self
     }
 
+    pub fn params(mut self, params: Params) -> Self {
+        self.params = params;
+        self
+    }
+
+    pub fn sphere(mut self, radius: f32) -> Self {
+        self.params(Params::Sphere(radius))
+    }
+
     /// Set Box collision params. `Volume = dx*dy*dz`
     pub fn cuboid(mut self, dx: f32, dy: f32, dz: f32) -> Self {
-        self.params = Params::Box(dx, dy, dz);
-        self
+        self.params(Params::Box(dx, dy, dz))
     }
 
     pub fn heightfield_f32(mut self, params: HeightFieldParams<f32>) -> Self {
-        self.params = Params::HeightFieldF32(params);
-        self
+        self.params(Params::HeightFieldF32(params))
     }
 
     pub fn heightfield_u16(mut self, params: HeightFieldParams<u16>) -> Self {
-        self.params = Params::HeightFieldU16(params);
-        self
+        self.params(Params::HeightFieldU16(params))
     }
 }
 
 impl<T> NewtonCollision<T> {
+    pub(crate) unsafe fn null(world: Shared<Lock<NewtonWorld<T>>>) -> Self {
+        NewtonCollision {
+            owned: false,
+            collision: ptr::null_mut(),
+            world,
+        }
+    }
+
     /// Wraps a raw `ffi::NewtonCollision` pointer
     pub(crate) unsafe fn new_not_owned(collision: *mut ffi::NewtonCollision) -> Self {
         let udata = userdata::<T>(collision);
@@ -147,6 +192,10 @@ impl<T: Types> Collision<T> {
 
         let collision_raw = unsafe {
             let offset = std::ptr::null();
+
+            const FIELD_F32_TYPE: i32 = 0;
+            const FIELD_U16_TYPE: i32 = 1;
+
             match &params {
                 &Params::Box(dx, dy, dz) => {
                     ffi::NewtonCreateBox(world, dx, dy, dz, shape_id, offset)
@@ -162,8 +211,38 @@ impl<T: Types> Collision<T> {
                     ffi::NewtonCreateCapsule(world, radius0, radius1, height, shape_id, offset)
                 }
                 &Params::Null => ffi::NewtonCreateNull(world),
-                &Params::HeightFieldF32(_) => unimplemented!(),
-                &Params::HeightFieldU16(_) => unimplemented!(),
+                &Params::HeightFieldF32(ref h) => {
+                    let (s_x, s_y, s_z) = h.scale();
+                    ffi::NewtonCreateHeightFieldCollision(
+                        world,
+                        h.rows() as _,    // width
+                        h.columns() as _, // height
+                        mem::transmute(h.grid()), // gridsDiagonals
+                        FIELD_F32_TYPE,   // elevationdatType
+                        h.elevation().as_ptr() as *const raw::c_void,
+                        h.ids().as_ptr(),
+                        s_y, // verticalScale
+                        s_x, // horizontalScale_x
+                        s_z, // horizontalScale_z
+                        shape_id,
+                    )
+                }
+                &Params::HeightFieldU16(ref h) => {
+                    let (s_x, s_y, s_z) = h.scale();
+                    ffi::NewtonCreateHeightFieldCollision(
+                        world,
+                        h.rows() as _,    // width
+                        h.columns() as _, // height
+                        mem::transmute(h.grid()), // gridsDiagonals
+                        FIELD_U16_TYPE,   // elevationdatType
+                        h.elevation().as_ptr() as *const raw::c_void,
+                        h.ids().as_ptr(),
+                        s_y, // verticalScale
+                        s_x, // horizontalScale_x
+                        s_z, // horizontalScale_z
+                        shape_id,
+                    )
+                }
             }
         };
 
@@ -179,6 +258,7 @@ impl<T: Types> Collision<T> {
             collision: Shared::downgrade(&collision_lock),
             world: Shared::downgrade(&world_lock),
             debug,
+            params,
         });
 
         unsafe {
