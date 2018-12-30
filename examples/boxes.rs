@@ -15,14 +15,22 @@ use std::time::Duration;
 
 fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
     let sphere = collision::Builder::new(&mut world.write())
-        .sphere(1.0)
+        .capsule(1.0, 1.0, 2.0)
+        //.offset(Matrix4::from_angle_z(cgmath::Deg(90.0)))
         .debug("sphere_col")
         .build();
+
+    let mut faces = 0;
+    let id = Matrix4::identity();
+    sphere.read().polygons(&id, |_, face| {
+        println!("face: {:?}", face);
+        faces += 1;
+    });
+
     let agent = body::Builder::new(&mut world.write(), &sphere.read())
         .kinematic()
         .transform(pos(8.0, 2.0, 8.0))
         .build();
-    agent.write().set_collidable(true);
 
     sandbox.set_handler(move |input| {
         let position = agent.read().position();
@@ -93,21 +101,20 @@ fn main() {
                 .cuboid(24.0, 1.0, 24.0)
                 .build(),
             collision::Builder::new(&mut world)
-                .cuboid(1.0, 1.0, 1.0)
+                .cuboid(0.9, 0.9, 0.9)
                 .build(),
         ]
     };
 
-    let floor = world
-        .write()
-        .body(&pool[0].read())
+    let floor = body::Builder::new(&mut world.write(), &pool[0].read())
         .transform(Matrix4::identity())
         .build();
+    drop(floor);
 
     let transforms = (0..16 * 4)
         .map(|i| (i % 16 / 4, i / 16, i % 16 % 4))
         .map(|(x, y, z)| vec3(x as f32, y as f32, z as f32))
-        .map(|p| Matrix4::from_translation(p - vec3(1.5, -4.0, 1.5)));
+        .map(|p| Matrix4::from_translation(p - vec3(1.5, -3.0, 1.5)));
 
     let cubes: Vec<_> = transforms
         .map(|p| {

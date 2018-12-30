@@ -1,10 +1,10 @@
 use ffi;
 
 use super::collision::NewtonCollision;
-use super::command::Command;
 use super::joint::{Contacts, Joints};
-use super::world::{NewtonWorld, WorldLockedMut};
-use super::{Lock, Locked, LockedMut, Result, Shared, Tx, Types, Weak};
+use super::lock::{Lock, LockError, Locked, LockedMut, Shared, Weak};
+use super::world::{Command, NewtonWorld, WorldLockedMut};
+use super::{Result, Tx, Types};
 
 use std::{
     cell::Cell,
@@ -43,6 +43,33 @@ pub struct NewtonBody<T> {
     owned: bool,
     /// The Tx end of the command channel. Only for owned variants,
     tx: Option<Tx<Command>>,
+}
+
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct BodyData<T> {
+    /// A reference to the `World` context so it can be referenced in callbacks and so on
+    world: Weak<Lock<NewtonWorld<T>>>,
+    /// A reference to itself
+    body: Weak<Lock<NewtonBody<T>>>,
+
+    /// Debug name
+    debug: Option<&'static str>,
+
+    /// A callback that is called by the `NewtonBody` to apply gravity and other forces to update
+    /// the state of a dynamic body.
+    force_and_torque: Cell<Option<*mut ()>>,
+}
+
+impl<T> Drop for BodyData<T> {
+    fn drop(&mut self) {
+        if let Some(closure) = self.force_and_torque.get() {
+            // TODO FIXME Is this OK? Probably not
+            unsafe {
+                ::std::ptr::drop_in_place(closure);
+            }
+        }
+    }
 }
 
 pub struct Builder<'a, 'b, T: Types> {
@@ -143,33 +170,6 @@ pub(crate) unsafe fn userdata<T>(body: *const ffi::NewtonBody) -> Shared<BodyDat
     let udata_cloned = udata.clone();
     mem::forget(udata);
     udata_cloned
-}
-
-#[doc(hidden)]
-#[derive(Debug)]
-pub struct BodyData<T> {
-    /// A reference to the `World` context so it can be referenced in callbacks and so on
-    world: Weak<Lock<NewtonWorld<T>>>,
-    /// A reference to itself
-    body: Weak<Lock<NewtonBody<T>>>,
-
-    /// Debug name
-    debug: Option<&'static str>,
-
-    /// A callback that is called by the `NewtonBody` to apply gravity and other forces to update
-    /// the state of a dynamic body.
-    force_and_torque: Cell<Option<*mut ()>>,
-}
-
-impl<T> Drop for BodyData<T> {
-    fn drop(&mut self) {
-        if let Some(closure) = self.force_and_torque.get() {
-            // TODO FIXME Is this OK? Probably not
-            unsafe {
-                ::std::ptr::drop_in_place(closure);
-            }
-        }
-    }
 }
 
 macro_rules! bodies_iterator {
@@ -280,8 +280,6 @@ impl<T: Types> Body<T> {
             });
 
             ffi::NewtonBodySetUserData(body_ptr, mem::transmute(userdata));
-
-            // TODO not happy
             mem::forget(super::collision::userdata::<T>(collision));
 
             Body(world_lock, body_lock, body_ptr)
@@ -430,11 +428,30 @@ impl<T: Types> NewtonBody<T> {
         unsafe { ffi::NewtonBodySetMatrixNoSleep(self.body, mem::transmute(matrix)) };
     }
 
+    // TODO test this
+    pub fn set_collision(&mut self, collision: &NewtonCollision<T>) {
+        unsafe {
+            let current_collision = ffi::NewtonBodyGetCollision(self.body);
+            let new_collision = collision.as_raw();
+
+            // decrement ref count of the collision
+            let _: Shared<super::collision::CollisionData<T>> =
+                mem::transmute(ffi::NewtonCollisionGetUserData(current_collision));
+
+            ffi::NewtonBodySetCollision(self.body, new_collision);
+            self.collision.collision = collision.as_raw() as _;
+
+            mem::forget(super::collision::userdata::<T>(new_collision));
+        }
+    }
+
+    /*
     pub fn set_collidable(&mut self, collidable: bool) {
         unsafe {
             ffi::NewtonBodySetCollidable(self.body, collidable as _);
         }
     }
+    */
 
     pub fn matrix(&self) -> T::Matrix {
         unsafe {

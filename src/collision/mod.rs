@@ -3,8 +3,9 @@ pub mod params;
 use ffi;
 
 use self::params::Params;
+use super::lock::{Lock, LockError, Locked, LockedMut, Shared, Weak};
 use super::world::{NewtonWorld, WorldLockedMut};
-use super::{Lock, Locked, LockedMut, Result, Shared, Types, Weak};
+use super::{Result, Types};
 
 use self::params::HeightFieldParams;
 
@@ -12,7 +13,7 @@ use std::{
     mem,
     ops::{Deref, DerefMut},
     os::raw,
-    ptr,
+    ptr, slice,
 };
 
 #[derive(Debug, Clone)]
@@ -105,7 +106,13 @@ impl<'a, T: Types> Builder<'a, T> {
 
     /// Consumes the builder and returns a collision
     pub fn build(self) -> Collision<T> {
-        Collision::new(self.world, self.params, self.shape_id, self.debug)
+        Collision::new(
+            self.world,
+            self.params,
+            self.shape_id,
+            self.offset.as_ref(),
+            self.debug,
+        )
     }
 
     pub fn offset(mut self, offset: T::Matrix) -> Self {
@@ -127,6 +134,10 @@ impl<'a, T: Types> Builder<'a, T> {
     pub fn params(mut self, params: Params) -> Self {
         self.params = params;
         self
+    }
+
+    pub fn capsule(mut self, radius0: f32, radius1: f32, height: f32) -> Self {
+        self.params(Params::Capsule(radius0, radius1, height))
     }
 
     pub fn sphere(mut self, radius: f32) -> Self {
@@ -184,6 +195,7 @@ impl<T: Types> Collision<T> {
         world: &mut NewtonWorld<T>,
         params: Params,
         shape_id: raw::c_int,
+        offset: Option<&T::Matrix>,
         debug: Option<&'static str>,
     ) -> Self {
         let world = world.as_raw();
@@ -191,7 +203,7 @@ impl<T: Types> Collision<T> {
         let world_lock = Weak::upgrade(&world_udata.world).unwrap();
 
         let collision_raw = unsafe {
-            let offset = std::ptr::null();
+            let offset = mem::transmute(offset);
 
             const FIELD_F32_TYPE: i32 = 0;
             const FIELD_U16_TYPE: i32 = 1;
@@ -213,7 +225,7 @@ impl<T: Types> Collision<T> {
                 &Params::Null => ffi::NewtonCreateNull(world),
                 &Params::HeightFieldF32(ref h) => {
                     let (s_x, s_y, s_z) = h.scale();
-                    ffi::NewtonCreateHeightFieldCollision(
+                    let field = ffi::NewtonCreateHeightFieldCollision(
                         world,
                         h.rows() as _,            // width
                         h.columns() as _,         // height
@@ -225,11 +237,13 @@ impl<T: Types> Collision<T> {
                         s_x, // horizontalScale_x
                         s_z, // horizontalScale_z
                         shape_id,
-                    )
+                    );
+                    ffi::NewtonCollisionSetMatrix(field, offset);
+                    field
                 }
                 &Params::HeightFieldU16(ref h) => {
                     let (s_x, s_y, s_z) = h.scale();
-                    ffi::NewtonCreateHeightFieldCollision(
+                    let field = ffi::NewtonCreateHeightFieldCollision(
                         world,
                         h.rows() as _,            // width
                         h.columns() as _,         // height
@@ -241,7 +255,9 @@ impl<T: Types> Collision<T> {
                         s_x, // horizontalScale_x
                         s_z, // horizontalScale_z
                         shape_id,
-                    )
+                    );
+                    ffi::NewtonCollisionSetMatrix(field, offset);
+                    field
                 }
             }
         };
@@ -299,17 +315,43 @@ impl<T: Types> Collision<T> {
 }
 
 impl<T: Types> NewtonCollision<T> {
+    /// Sets the offset transformation
     pub fn set_matrix(&mut self, matrix: &T::Matrix) {
         unsafe {
             ffi::NewtonCollisionSetMatrix(self.collision, mem::transmute(matrix));
         }
     }
 
+    /// Offset transformation
     pub fn matrix(&self) -> T::Matrix {
         unsafe {
             let mut mat: T::Matrix = mem::zeroed();
             ffi::NewtonCollisionGetMatrix(self.collision, mem::transmute(&mut mat));
             mat
+        }
+    }
+
+    /// Calls the given closure for each polygon in the collision shape.
+    ///
+    /// Use this method to display the geometry of a collision:
+    pub fn polygons<F: FnMut(raw::c_int, &[f32])>(&self, matrix: &T::Matrix, mut call: F) {
+        unsafe {
+            ffi::NewtonCollisionForEachPolygonDo(
+                self.collision,
+                mem::transmute(matrix),
+                Some(callback::<F>),
+                mem::transmute(&mut call),
+            );
+        }
+
+        unsafe extern "C" fn callback<F: FnMut(raw::c_int, &[f32])>(
+            user_data: *const raw::c_void,
+            vertex_count: raw::c_int,
+            face_array: *const f32,
+            face_id: raw::c_int,
+        ) {
+            let slice = slice::from_raw_parts(face_array, vertex_count as usize);
+            mem::transmute::<_, &mut F>(user_data)(face_id, slice);
         }
     }
 }
@@ -325,6 +367,20 @@ impl<T> NewtonCollision<T> {
 
     pub fn as_raw_mut(&mut self) -> *mut ffi::NewtonCollision {
         self.collision
+    }
+
+    /// Sets the collision scale
+    pub fn set_scale(&mut self, x: f32, y: f32, z: f32) {
+        unsafe { ffi::NewtonCollisionSetScale(self.collision, x, y, z) };
+    }
+
+    /// Collision scale
+    pub fn scale(&self) -> (f32, f32, f32) {
+        let mut scale = (0.0, 0.0, 0.0);
+        unsafe {
+            ffi::NewtonCollisionGetScale(self.collision, &mut scale.0, &mut scale.1, &mut scale.2)
+        };
+        scale
     }
 }
 

@@ -13,7 +13,12 @@ fn main() {
 
     println!("cargo:rustc-link-search={}/lib64/", dst.display());
     println!("cargo:rustc-link-search={}/lib/", dst.display());
-    println!("cargo:rustc-link-lib=Newton_d");
+
+    if cfg!(debug_assertions) {
+        println!("cargo:rustc-link-lib=Newton_d");
+    } else {
+        println!("cargo:rustc-link-lib=Newton");
+    }
 
     let mut header = PathBuf::from(env::var("OUT_DIR").unwrap());
     header.push("include/");

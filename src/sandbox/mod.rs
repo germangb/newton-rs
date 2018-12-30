@@ -64,7 +64,7 @@ pub struct Sandbox {
     width: usize,
     height: usize,
 
-    // render
+    // renderer
     background: Color,
     awake_color: Color,
     sleep_color: Color,
@@ -377,7 +377,7 @@ impl Sandbox {
                     );
                 }
                 id @ _ => {
-                    eprintln!("unimplemented shape. ID = {}", id);
+                    //eprintln!("unimplemented shape. ID = {}", id);
                 }
             }
         }

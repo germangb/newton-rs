@@ -1,9 +1,11 @@
-pub extern crate ffi;
+pub use ffi;
 
 pub mod body;
 pub mod collision;
 pub mod joint;
 pub mod macros;
+#[cfg(feature = "renderer")]
+pub mod renderer;
 #[cfg(feature = "sandbox")]
 pub mod sandbox;
 pub mod world;
@@ -13,19 +15,8 @@ use self::lock::*;
 
 use failure::Error;
 
-use std::{
-    error, fmt,
-    os::raw,
-    sync::mpsc::{self, Receiver, Sender},
-    time::Duration,
-};
-
-mod command {
-    #[derive(Debug, Clone, Copy)]
-    pub enum Command {
-        DestroyBody(*mut ffi::NewtonBody),
-    }
-}
+use std::sync::mpsc;
+use std::sync::mpsc::{Receiver, Sender};
 
 /// Custom Result type
 pub type Result<T> = std::result::Result<T, Error>;
@@ -37,7 +28,6 @@ fn channel<T>() -> (Tx<T>, Rx<T>) {
     mpsc::channel()
 }
 
-/// Algebraic types
 pub unsafe trait Types: Clone {
     /// Vector 3D type. It must have a memory layout of 3 consecutive `f32`.
     type Vector: Copy + Sync + Send;

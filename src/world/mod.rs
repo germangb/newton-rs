@@ -1,23 +1,56 @@
 use ffi;
 
-use super::body::{
-    Bodies, BodiesMut, Body, BodyLocked, BodyLockedMut, Builder as BodyBuilder, NewtonBody,
-};
-use super::command::Command;
-use super::{channel, Lock, LockError, Locked, LockedMut, Result, Rx, Shared, Tx, Types, Weak};
-use crate::collision::{Builder as CollisionBuilder, NewtonCollision};
+use super::body::{Bodies, BodiesMut, BodyData, BodyLocked, NewtonBody};
+use super::collision::NewtonCollision;
+use super::lock::{Lock, LockError, Locked, LockedMut, Shared, Weak};
+use super::{channel, Result, Rx, Tx, Types};
 
-use crate::body::BodyData;
 use std::{
     marker::PhantomData,
     mem,
-    num::NonZeroU32,
     ops::{Deref, DerefMut},
     os::raw,
     ptr,
-    sync::mpsc,
     time::Duration,
 };
+
+/// A world is the heart of the physics simulation.
+#[derive(Debug, Clone)]
+pub struct World<T>(Shared<Lock<NewtonWorld<T>>>, *const ffi::NewtonWorld);
+
+unsafe impl<T> Send for World<T> {}
+unsafe impl<T> Sync for World<T> {}
+
+#[derive(Debug)]
+pub struct NewtonWorld<T> {
+    world: *mut ffi::NewtonWorld,
+
+    /// Tx end of the command channel.
+    pub(crate) tx: Tx<Command>,
+    /// Rx end of the command channel, used by NewtonBody to signal the destruction of a body.
+    rx: Rx<Command>,
+
+    _phantom: PhantomData<T>,
+}
+
+#[doc(hidden)]
+#[derive(Debug)]
+pub struct WorldData<T> {
+    /// We keep a reference to the world so we can obtain a copy of the lock from a `NewtonWorld`
+    /// when needed.
+    pub(crate) world: Weak<Lock<NewtonWorld<T>>>,
+
+    /// Debug name
+    debug: Option<&'static str>,
+
+    /// A Tx end of the command channel, to recover it quickly from the userdata.
+    tx: Tx<Command>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Command {
+    DestroyBody(*mut ffi::NewtonBody),
+}
 
 pub struct Builder<T> {
     solver: Solver,
@@ -84,25 +117,6 @@ pub enum Solver {
     Linear(usize),
 }
 
-/// A world is the heart of the physics simulation.
-#[derive(Debug, Clone)]
-pub struct World<T>(Shared<Lock<NewtonWorld<T>>>, *const ffi::NewtonWorld);
-
-unsafe impl<T> Send for World<T> {}
-unsafe impl<T> Sync for World<T> {}
-
-#[derive(Debug)]
-pub struct NewtonWorld<T> {
-    world: *mut ffi::NewtonWorld,
-
-    /// Tx end of the command channel.
-    pub(crate) tx: Tx<Command>,
-    /// Rx end of the command channel, used by NewtonBody to signal the destruction of a body.
-    rx: Rx<Command>,
-
-    _phantom: PhantomData<T>,
-}
-
 fn create_world<T>() -> NewtonWorld<T> {
     let world = unsafe { ffi::NewtonCreate() };
     let (tx, rx) = channel();
@@ -112,20 +126,6 @@ fn create_world<T>() -> NewtonWorld<T> {
         rx,
         _phantom: PhantomData,
     }
-}
-
-#[doc(hidden)]
-#[derive(Debug)]
-pub struct WorldData<T> {
-    /// We keep a reference to the world so we can obtain a copy of the lock from a `NewtonWorld`
-    /// when needed.
-    pub(crate) world: Weak<Lock<NewtonWorld<T>>>,
-
-    /// Debug name
-    debug: Option<&'static str>,
-
-    /// A Tx end of the command channel, to recover it quickly from the userdata.
-    tx: Tx<Command>,
 }
 
 /// A read-only lock of a newton world.
@@ -355,6 +355,34 @@ impl<T: Types> NewtonWorld<T> {
             }
         }
     }
+
+    /// Calls the given closure for every body inside the given AABB
+    pub fn for_each_body_in_aabb<I>(&self, (min, max): (&T::Vector, &T::Vector), mut it: I)
+    where
+        I: FnMut(&NewtonBody<T>) -> bool,
+    {
+        unsafe {
+            ffi::NewtonWorldForEachBodyInAABBDo(
+                self.world,
+                mem::transmute(min),
+                mem::transmute(max),
+                Some(body_iterator::<T, I>),
+                mem::transmute(&mut it),
+            );
+        }
+
+        unsafe extern "C" fn body_iterator<T, I: FnMut(&NewtonBody<T>) -> bool>(
+            body: *const ffi::NewtonBody,
+            user_data: *const raw::c_void,
+        ) -> raw::c_int {
+            let body = NewtonBody::new_not_owned(body as _);
+            if mem::transmute::<_, &mut I>(user_data)(&body) {
+                1
+            } else {
+                0
+            }
+        }
+    }
 }
 
 impl<T> NewtonWorld<T> {
@@ -431,23 +459,6 @@ impl<T> NewtonWorld<T> {
                 }
             }
         }
-    }
-}
-
-impl<T: Types> NewtonWorld<T> {
-    pub fn collision(&mut self) -> CollisionBuilder<T> {
-        CollisionBuilder::new(self)
-    }
-
-    pub fn body<'b>(&mut self, collision: &'b NewtonCollision<T>) -> BodyBuilder<'_, 'b, T> {
-        BodyBuilder::new(self, collision)
-    }
-
-    pub fn for_each_body_in_aabb<I>(&mut self, (min, max): (&T::Vector, &T::Vector), it: I)
-    where
-        I: Fn(&mut NewtonBody<T>) -> i32 + 'static,
-    {
-        unimplemented!()
     }
 }
 
