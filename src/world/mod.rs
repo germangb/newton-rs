@@ -288,11 +288,101 @@ impl<'a, T: Types> Iterator for ConvexCast<'a, T> {
 }
 
 impl<T: Types> NewtonWorld<T> {
+    /// Shoots a ray from `p0` to `p1` and calls the application callback whenever the ray hits a body.
+    pub fn ray_cast<F, P>(&self, p0: &T::Vector, p1: &T::Vector, filt: F, prefilt: P)
+    where
+        F: Fn(
+            &NewtonBody<T>,
+            &NewtonCollision<T>,
+            &T::Vector,
+            &T::Vector,
+            raw::c_longlong,
+            f32,
+        ) -> f32,
+        P: Fn(&NewtonBody<T>, &NewtonCollision<T>) -> bool,
+    {
+        unsafe {
+            ffi::NewtonWorldRayCast(
+                self.world,
+                mem::transmute(p0),
+                mem::transmute(p1),
+                Some(filter::<T, F, P>),
+                mem::transmute(&(&filt, &prefilt)),
+                Some(prefilter::<T, F, P>),
+                0,
+            );
+        }
+
+        unsafe extern "C" fn prefilter<T, F, P>(
+            body: *const ffi::NewtonBody,
+            collision: *const ffi::NewtonCollision,
+            user_data: *const raw::c_void,
+        ) -> raw::c_uint
+        where
+            T: Types,
+            P: Fn(&NewtonBody<T>, &NewtonCollision<T>) -> bool,
+            F: Fn(
+                &NewtonBody<T>,
+                &NewtonCollision<T>,
+                &T::Vector,
+                &T::Vector,
+                raw::c_longlong,
+                f32,
+            ) -> f32,
+        {
+            let body = NewtonBody::new_not_owned(body as _);
+            let collision = NewtonCollision::new_not_owned(collision as _);
+
+            if mem::transmute::<_, &(&F, &P)>(user_data).1(&body, &collision) {
+                1
+            } else {
+                0
+            }
+        }
+
+        unsafe extern "C" fn filter<T, F, P>(
+            body: *const ffi::NewtonBody,
+            shape_hit: *const ffi::NewtonCollision,
+            hit_contact: *const f32,
+            hit_normal: *const f32,
+            collision_id: raw::c_longlong,
+            user_data: *const raw::c_void,
+            intersect_param: f32,
+        ) -> f32
+        where
+            T: Types,
+            P: Fn(&NewtonBody<T>, &NewtonCollision<T>) -> bool,
+            F: Fn(
+                &NewtonBody<T>,
+                &NewtonCollision<T>,
+                &T::Vector,
+                &T::Vector,
+                raw::c_longlong,
+                f32,
+            ) -> f32,
+        {
+            let body = NewtonBody::new_not_owned(body as _);
+            let collision = NewtonCollision::new_not_owned(shape_hit as _);
+
+            mem::transmute::<_, &(&F, &P)>(user_data).0(
+                &body,
+                &collision,
+                mem::transmute(hit_contact),
+                mem::transmute(hit_normal),
+                collision_id,
+                intersect_param,
+            )
+        }
+    }
+
+    /// Projects a collision shape from matrix origin towards a target returning all hits that
+    /// the geometry would produce.
     pub fn convex_cast<C>(
         &self,
         matrix: &T::Matrix,
         target: &T::Vector,
         shape: &NewtonCollision<T>,
+        hit_param: &mut f32,
         max_contacts: usize,
         prefilter: C,
     ) -> ConvexCast<T>
@@ -310,7 +400,7 @@ impl<T: Types> NewtonWorld<T> {
                 mem::transmute(target),
                 shape.as_raw(),
                 // hitParam
-                &mut 0.0,
+                hit_param,
                 // userdata
                 mem::transmute(&prefilter_world),
                 Some(prefilter_callback::<T, C>),

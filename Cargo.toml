@@ -19,9 +19,8 @@ imgui-opengl-renderer = { version = "0.3.1", optional = true }
 log = { version = "0.4.6", optional = true }
 
 [features]
-default = ["sandbox", "cgmath_types", "debug", "renderer"]
+default = ["sandbox", "cgmath_types", "debug"]
 
 sandbox = ["cgmath", "sdl2", "lazy_static", "imgui-sdl2", "imgui", "imgui-opengl-renderer", "gl"]
 cgmath_types = ["cgmath"]
 debug = ["log"]
-renderer = ["gl"]

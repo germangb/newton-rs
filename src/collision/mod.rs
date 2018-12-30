@@ -350,7 +350,7 @@ impl<T: Types> NewtonCollision<T> {
             face_array: *const f32,
             face_id: raw::c_int,
         ) {
-            let slice = slice::from_raw_parts(face_array, vertex_count as usize);
+            let slice = slice::from_raw_parts(face_array, vertex_count as usize * 3);
             mem::transmute::<_, &mut F>(user_data)(face_id, slice);
         }
     }

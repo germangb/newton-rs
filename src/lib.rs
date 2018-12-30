@@ -4,8 +4,6 @@ pub mod body;
 pub mod collision;
 pub mod joint;
 pub mod macros;
-#[cfg(feature = "renderer")]
-pub mod renderer;
 #[cfg(feature = "sandbox")]
 pub mod sandbox;
 pub mod world;
