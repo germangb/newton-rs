@@ -16,14 +16,14 @@ use std::time::Duration;
 fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
     let sphere = collision::Builder::new(&mut world.write())
         .capsule(1.0, 1.0, 2.0)
-        //.offset(Matrix4::from_angle_z(cgmath::Deg(90.0)))
+        .cuboid(1.0, 1.0, 1.0)
         .debug("sphere_col")
         .build();
 
     let mut faces = 0;
     let id = Matrix4::identity();
     sphere.read().polygons(&id, |_, face| {
-        println!("face: {:?}", face);
+        println!("face: {:?}", face.chunks(3).collect::<Vec<_>>());
         faces += 1;
     });
 
@@ -31,6 +31,8 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
         .kinematic()
         .transform(pos(8.0, 2.0, 8.0))
         .build();
+
+    world.read().ray_cast(&vec3(0.0, 1.0, 0.0), &vec3(0.0, 16.0, 0.0), |_, _, _, _, _, _| 1.0, |_, _| true);
 
     sandbox.set_handler(move |input| {
         let position = agent.read().position();
@@ -42,24 +44,14 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
         let left = vec3(look.z, 0.0, -look.x);
         let up = vec3(0.0, 1.0, 0.0);
 
-        if input.w {
-            dp -= look;
-        }
-        if input.s {
-            dp += look;
-        }
-        if input.a {
-            dp -= left;
-        }
-        if input.d {
-            dp += left;
-        }
-        if input.space {
-            dp += up;
-        }
-        if input.lshift {
-            dp -= up;
-        }
+        if input.w { dp -= look; }
+        if input.s { dp += look; }
+        if input.a { dp -= left; }
+        if input.d { dp += left; }
+
+        if input.space { dp += up; }
+        if input.lshift { dp -= up; }
+
         if dp.magnitude() < 0.001 {
             agent.write().set_sleep_state(SleepState::Sleeping);
             return;
@@ -67,12 +59,16 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
 
         let mut dp = dp.normalize() * 4.0 / 60.0;
         let mut target = position + dp;
-        let sphere = sphere.read();
 
-        for (_, info) in world
+        let mut param = 0.0;
+        if let Some((_, info)) = world
             .read()
-            .convex_cast(&matrix, &target, &sphere, 1, |b, _| b.is_dynamic())
+            .convex_cast(&matrix, &target, &sphere.read(), &mut param, 1, |b, _| {
+                b.is_dynamic()
+            })
+            .next()
         {
+            //println!("{}", param);
             dp = (dp - info.normal * cgmath::dot(info.normal, dp)) * 0.5;
 
             if dp.magnitude() < 0.01 {
