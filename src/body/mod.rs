@@ -333,6 +333,7 @@ pub enum FreezeState {
 }
 
 impl<T: Types> NewtonBody<T> {
+    #[inline]
     pub fn collision(&self) -> &NewtonCollision<T> {
         &self.collision
     }
@@ -345,42 +346,53 @@ impl<T: Types> NewtonBody<T> {
         unimplemented!()
     }
 
+    #[inline]
     pub fn body_type(&self) -> Type {
         unsafe { mem::transmute(ffi::NewtonBodyGetType(self.body)) }
     }
 
+    #[inline]
     pub fn is_dynamic(&self) -> bool {
         self.body_type() == Type::Dynamic
     }
 
+    #[inline]
     pub fn is_kinematic(&self) -> bool {
         self.body_type() == Type::Kinematic
     }
 
+    #[inline]
     pub fn as_raw(&self) -> *const ffi::NewtonBody {
         self.body
     }
 
+    #[inline]
     pub fn as_raw_mut(&mut self) -> *mut ffi::NewtonBody {
         self.body
     }
 
+    #[inline]
     pub fn sleep_state(&self) -> SleepState {
         unsafe { mem::transmute(ffi::NewtonBodyGetSleepState(self.body)) }
     }
 
+    #[inline]
     pub fn set_sleep_state(&mut self, state: SleepState) {
         unsafe { ffi::NewtonBodySetSleepState(self.body, mem::transmute(state)) }
     }
 
+    #[inline]
     pub fn set_freeze_state(&mut self, state: FreezeState) {
         unsafe { ffi::NewtonBodySetFreezeState(self.body, mem::transmute(state)) }
     }
 
+    #[inline]
     pub fn awake(&mut self) {
         self.set_sleep_state(SleepState::Awake)
     }
 
+    /// Returns the AABB in local space.
+    #[inline]
     pub fn aabb(&self) -> (T::Vector, T::Vector) {
         unsafe {
             let (mut min, mut max) = mem::zeroed();
@@ -393,6 +405,12 @@ impl<T: Types> NewtonBody<T> {
         }
     }
 
+    /// Returns the AABB in world space
+    pub fn aabb_world(&self) -> (T::Vector, T::Vector) {
+        unimplemented!()
+    }
+
+    #[inline]
     pub fn set_mass(&mut self, mass: f32) {
         unsafe {
             let collision = ffi::NewtonBodyGetCollision(self.body);
@@ -400,35 +418,43 @@ impl<T: Types> NewtonBody<T> {
         }
     }
 
+    #[inline]
     pub fn set_linear_damping(&mut self, damping: f32) {
         unsafe { ffi::NewtonBodySetLinearDamping(self.body, damping) };
     }
 
+    #[inline]
     pub fn set_matrix(&mut self, matrix: &T::Matrix) {
         unsafe { ffi::NewtonBodySetMatrix(self.body, mem::transmute(matrix)) };
     }
 
+    #[inline]
     pub fn set_velocity(&mut self, matrix: &T::Vector) {
         unsafe { ffi::NewtonBodySetVelocity(self.body, mem::transmute(matrix)) };
     }
 
+    #[inline]
     pub fn set_force(&mut self, force: &T::Vector) {
         unsafe { ffi::NewtonBodySetForce(self.body, mem::transmute(force)) };
     }
 
+    #[inline]
     pub fn set_torque(&mut self, torque: &T::Vector) {
         unsafe { ffi::NewtonBodySetTorque(self.body, mem::transmute(torque)) };
     }
 
+    #[inline]
     pub fn id(&self) -> raw::c_int {
         unsafe { ffi::NewtonBodyGetID(self.body) }
     }
 
+    #[inline]
     pub fn set_matrix_no_sleep(&mut self, matrix: &T::Matrix) {
         unsafe { ffi::NewtonBodySetMatrixNoSleep(self.body, mem::transmute(matrix)) };
     }
 
     // TODO test this
+    #[inline]
     pub fn set_collision(&mut self, collision: &NewtonCollision<T>) {
         unsafe {
             let current_collision = ffi::NewtonBodyGetCollision(self.body);
@@ -445,14 +471,12 @@ impl<T: Types> NewtonBody<T> {
         }
     }
 
-    /*
+    #[inline]
     pub fn set_collidable(&mut self, collidable: bool) {
-        unsafe {
-            ffi::NewtonBodySetCollidable(self.body, collidable as _);
-        }
+        unsafe { ffi::NewtonBodySetCollidable(self.body, collidable as _) };
     }
-    */
 
+    #[inline]
     pub fn matrix(&self) -> T::Matrix {
         unsafe {
             let mut mat: T::Matrix = mem::zeroed();
@@ -461,6 +485,7 @@ impl<T: Types> NewtonBody<T> {
         }
     }
 
+    #[inline]
     pub fn position(&self) -> T::Vector {
         unsafe {
             let mut pos: T::Vector = mem::zeroed();

@@ -32,7 +32,12 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
         .transform(pos(8.0, 2.0, 8.0))
         .build();
 
-    world.read().ray_cast(&vec3(0.0, 1.0, 0.0), &vec3(0.0, 16.0, 0.0), |_, _, _, _, _, _| 1.0, |_, _| true);
+    world.read().ray_cast(
+        &vec3(0.0, 1.0, 0.0),
+        &vec3(0.0, 16.0, 0.0),
+        |_, _, _, _, _, _| 1.0,
+        |_, _| true,
+    );
 
     sandbox.set_handler(move |input| {
         let position = agent.read().position();
@@ -44,13 +49,25 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
         let left = vec3(look.z, 0.0, -look.x);
         let up = vec3(0.0, 1.0, 0.0);
 
-        if input.w { dp -= look; }
-        if input.s { dp += look; }
-        if input.a { dp -= left; }
-        if input.d { dp += left; }
+        if input.w {
+            dp -= look;
+        }
+        if input.s {
+            dp += look;
+        }
+        if input.a {
+            dp -= left;
+        }
+        if input.d {
+            dp += left;
+        }
 
-        if input.space { dp += up; }
-        if input.lshift { dp -= up; }
+        if input.space {
+            dp += up;
+        }
+        if input.lshift {
+            dp -= up;
+        }
 
         if dp.magnitude() < 0.001 {
             agent.write().set_sleep_state(SleepState::Sleeping);
