@@ -10,9 +10,9 @@ use std::{
     cell::Cell,
     marker::PhantomData,
     mem,
-    ptr,
     ops::{Deref, DerefMut},
     os::raw,
+    ptr,
     sync::mpsc,
     time::Duration,
 };

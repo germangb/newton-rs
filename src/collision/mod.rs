@@ -10,9 +10,9 @@ use self::params::HeightFieldParams;
 
 use std::{
     mem,
-    ptr,
     ops::{Deref, DerefMut},
     os::raw,
+    ptr,
 };
 
 #[derive(Debug, Clone)]
@@ -215,10 +215,10 @@ impl<T: Types> Collision<T> {
                     let (s_x, s_y, s_z) = h.scale();
                     ffi::NewtonCreateHeightFieldCollision(
                         world,
-                        h.rows() as _,    // width
-                        h.columns() as _, // height
+                        h.rows() as _,            // width
+                        h.columns() as _,         // height
                         mem::transmute(h.grid()), // gridsDiagonals
-                        FIELD_F32_TYPE,   // elevationdatType
+                        FIELD_F32_TYPE,           // elevationdatType
                         h.elevation().as_ptr() as *const raw::c_void,
                         h.ids().as_ptr(),
                         s_y, // verticalScale
@@ -231,10 +231,10 @@ impl<T: Types> Collision<T> {
                     let (s_x, s_y, s_z) = h.scale();
                     ffi::NewtonCreateHeightFieldCollision(
                         world,
-                        h.rows() as _,    // width
-                        h.columns() as _, // height
+                        h.rows() as _,            // width
+                        h.columns() as _,         // height
                         mem::transmute(h.grid()), // gridsDiagonals
-                        FIELD_U16_TYPE,   // elevationdatType
+                        FIELD_U16_TYPE,           // elevationdatType
                         h.elevation().as_ptr() as *const raw::c_void,
                         h.ids().as_ptr(),
                         s_y, // verticalScale

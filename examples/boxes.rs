@@ -7,15 +7,25 @@ use newton::world::World;
 use newton::sandbox::{self, Sandbox};
 
 use cgmath::{prelude::*, vec3, Matrix4, Vector3};
-use std::time::Duration;
 use newton::body::SleepState;
+use newton::collision::params::HeightFieldParams;
 use newton::collision::NewtonCollision;
 use newton::world::NewtonWorld;
-use newton::collision::params::HeightFieldParams;
+use std::time::Duration;
 
 fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
-    let sphere = world.write().collision().sphere(1.0).debug("sphere_col").build();
-    let agent = world.write().body(&sphere.read()).kinematic().transform(pos(8.0, 2.0, 8.0)).build();
+    let sphere = world
+        .write()
+        .collision()
+        .sphere(1.0)
+        .debug("sphere_col")
+        .build();
+    let agent = world
+        .write()
+        .body(&sphere.read())
+        .kinematic()
+        .transform(pos(8.0, 2.0, 8.0))
+        .build();
     agent.write().set_collidable(true);
 
     sandbox.set_handler(move |input| {
@@ -28,12 +38,24 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
         let left = vec3(look.z, 0.0, -look.x);
         let up = vec3(0.0, 1.0, 0.0);
 
-        if input.w { dp -= look; }
-        if input.s { dp += look; }
-        if input.a { dp -= left; }
-        if input.d { dp += left; }
-        if input.space { dp += up; }
-        if input.lshift { dp -= up; }
+        if input.w {
+            dp -= look;
+        }
+        if input.s {
+            dp += look;
+        }
+        if input.a {
+            dp -= left;
+        }
+        if input.d {
+            dp += left;
+        }
+        if input.space {
+            dp += up;
+        }
+        if input.lshift {
+            dp -= up;
+        }
         if dp.magnitude() < 0.001 {
             agent.write().set_sleep_state(SleepState::Sleeping);
             return;
@@ -44,16 +66,17 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
         let sphere = sphere.read();
         while let Some((_, info)) = world
             .read()
-            .convex_cast(&matrix, &target, &sphere, 1, |b, _| b.is_dynamic()).next()
-            {
-                dp = (dp - info.normal * cgmath::dot(info.normal, dp)) * 0.5;
+            .convex_cast(&matrix, &target, &sphere, 1, |b, _| b.is_dynamic())
+            .next()
+        {
+            dp = (dp - info.normal * cgmath::dot(info.normal, dp)) * 0.5;
 
-                if dp.magnitude() < 0.01 {
-                    return;
-                } else {
-                    target = position + dp;
-                }
+            if dp.magnitude() < 0.01 {
+                return;
+            } else {
+                target = position + dp;
             }
+        }
 
         agent.write().set_matrix(&Matrix4::from_translation(target))
     })
@@ -107,8 +130,14 @@ fn main() {
 
     // heightfield
     let mut params = HeightFieldParams::<f32>::new(32, 32);
-    let collision = collision::Builder::new(&mut world.write()).heightfield_f32(params).offset(pos(-16.0, 0.0, -16.0)).build();
-    let terrain = body::Builder::new(&mut world.write(), &collision.read()).dynamic().transform(pos(0.0, 0.0, 0.0)).build();
+    let collision = collision::Builder::new(&mut world.write())
+        .heightfield_f32(params)
+        .offset(pos(-16.0, 0.0, -16.0))
+        .build();
+    let terrain = body::Builder::new(&mut world.write(), &collision.read())
+        .dynamic()
+        .transform(pos(0.0, 0.0, 0.0))
+        .build();
 
     world.write().update(Duration::new(0, 1000000000 / 60));
     sandbox.run();
