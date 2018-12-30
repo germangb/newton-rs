@@ -4,7 +4,7 @@ use failure::Fail;
 
 use std::cell::Cell;
 use std::marker::PhantomData;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Debug, Fail)]
 pub enum LockError {
@@ -64,7 +64,7 @@ impl<T> Lock<T> {
             Ok(lock) => Ok(lock),
             Err(TryLockError::WouldBlock) => Err(LockError::WouldBlock {
                 writer: self.writer.get(),
-                readers: 0,
+                readers: self.readers.load(Ordering::Relaxed),
             }
             .into()),
 
@@ -87,7 +87,7 @@ impl<T> Lock<T> {
             }
             Err(TryLockError::WouldBlock) => Err(LockError::WouldBlock {
                 writer: self.writer.get(),
-                readers: 0,
+                readers: self.readers.load(Ordering::Relaxed),
             }
             .into()),
             Err(TryLockError::Poisoned(e)) => {

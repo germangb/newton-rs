@@ -76,12 +76,16 @@ pub struct Sandbox {
     elapsed: Duration,
     time_scale: f32,
 
+    // how bodies are drawn
     solid: bool,
     wireframe: bool,
 
+    // what to draw
+    origins: bool,
     aabb: bool,
     constraints: bool,
     bodies: bool,
+
     stats: bool,
 
     input: Input,
@@ -141,6 +145,7 @@ impl Sandbox {
             aabb: false,
             constraints: false,
             bodies: true,
+            origins: false,
 
             stats: true,
 
@@ -382,7 +387,7 @@ impl Sandbox {
         let video_subsystem = sdl_context.video().unwrap();
 
         let window = video_subsystem
-            .window("Window", self.width as _, self.height as _)
+            .window("Sandbox", self.width as _, self.height as _)
             .opengl()
             .resizable()
             .position_centered()
@@ -559,6 +564,7 @@ impl Sandbox {
                 ui.checkbox(im_str!("Solid"), &mut self.solid);
                 ui.checkbox(im_str!("Wireframe"), &mut self.wireframe);
                 ui.checkbox(im_str!("Lighting"), &mut self.lighting);
+                ui.checkbox(im_str!("Origins"), &mut self.lighting);
                 ui.separator();
                 ui.checkbox(im_str!("Stats"), &mut self.stats);
             });

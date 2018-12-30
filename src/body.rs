@@ -1,6 +1,6 @@
 use ffi;
 
-use super::collision::{CollisionData, CollisionLockedMut, NewtonCollision, Params};
+use super::collision::NewtonCollision;
 use super::command::Command;
 use super::joint::{Contacts, Joints};
 use super::world::{NewtonWorld, WorldLockedMut};
@@ -12,6 +12,7 @@ use std::{
     mem,
     ops::{Deref, DerefMut},
     os::raw,
+    ptr,
     sync::mpsc,
     time::Duration,
 };
@@ -23,13 +24,18 @@ pub struct Body<T>(
     *const ffi::NewtonBody,
 );
 
+unsafe impl<T> Send for Body<T> {}
+unsafe impl<T> Sync for Body<T> {}
+
 #[derive(Debug)]
 pub struct NewtonBody<T> {
-    body: *mut ffi::NewtonBody,
+    // TODO remove pub(crate). It is used by the convex cast
+    pub(crate) body: *mut ffi::NewtonBody,
 
     /// Bodies must be dropped before the world is.
     world: Shared<Lock<NewtonWorld<T>>>,
 
+    // TODO remove pub(crate). It is used by the convex cast
     /// A non-owned `NewtonCollision`
     pub(crate) collision: NewtonCollision<T>,
 
@@ -96,6 +102,16 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
 }
 
 impl<T> NewtonBody<T> {
+    pub(crate) unsafe fn null(world: Shared<Lock<NewtonWorld<T>>>) -> Self {
+        NewtonBody {
+            owned: false,
+            body: ptr::null_mut(),
+            collision: NewtonCollision::null(world.clone()),
+            world,
+            tx: None,
+        }
+    }
+
     /// Wraps a raw `ffi::NewtonBody` pointer
     pub(crate) unsafe fn new_not_owned(body: *mut ffi::NewtonBody) -> Self {
         let udata = userdata::<T>(body);
@@ -111,7 +127,14 @@ impl<T> NewtonBody<T> {
 }
 
 pub(crate) unsafe fn drop_body<T>(body: *const ffi::NewtonBody) {
+    let collision = ffi::NewtonBodyGetCollision(body);
+
     let _: Shared<BodyData<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+
+    // decrement ref count of the collision
+    let _: Shared<super::collision::CollisionData<T>> =
+        mem::transmute(ffi::NewtonCollisionGetUserData(collision));
+
     ffi::NewtonDestroyBody(body);
 }
 
@@ -149,20 +172,46 @@ impl<T> Drop for BodyData<T> {
     }
 }
 
-// TODO remove pub visibility
-/// Iterator over the bodies in a `NewtonWorld`
-#[derive(Debug)]
-pub struct Bodies<'a, T> {
-    pub(crate) world: *mut ffi::NewtonWorld,
+macro_rules! bodies_iterator {
+    (
+        $struct_name:ident < 'a, T > ,
+        $item:ty
+    ) => {
+        // TODO remove pub visibility
+        /// Iterator over the bodies in a `NewtonWorld`
+        #[derive(Debug)]
+        pub struct $struct_name<'a, T> {
+            pub(crate) world: *mut ffi::NewtonWorld,
+            /// A raw pointer to the next body to be returned by the iterator
+            pub(crate) next: *mut ffi::NewtonBody,
+            /// The NewtonBody reference that gets returned by the iterator. This data is stored on the
+            /// heap so it may have a slight effect in performance.
+            pub(crate) body: *mut NewtonBody<T>,
+            pub(crate) _phantom: PhantomData<&'a T>,
+        }
+        impl<'a, T> Iterator for $struct_name<'a, T> {
+            type Item = $item;
 
-    /// A raw pointer to the next body to be returned by the iterator
-    pub(crate) next: *mut ffi::NewtonBody,
-    /// The NewtonBody reference that gets returned by the iterator. This data is stored on the
-    /// heap so it may have a slight effect in performance.
-    pub(crate) body: *mut NewtonBody<T>,
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.next.is_null() {
+                    None
+                } else {
+                    unsafe {
+                        let mut boxed = unsafe { Box::from_raw(self.body) };
+                        boxed.body = self.next;
+                        boxed.collision.collision = ffi::NewtonBodyGetCollision(self.next);
 
-    pub(crate) _phantom: PhantomData<&'a T>,
+                        self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
+                        Some(mem::transmute(Box::into_raw(boxed)))
+                    }
+                }
+            }
+        }
+    };
 }
+
+bodies_iterator! { Bodies<'a, T>, &'a NewtonBody<T> }
+bodies_iterator! { BodiesMut<'a, T>, &'a mut NewtonBody<T> }
 
 /// Reference to a `NewtonWorld`
 #[derive(Debug)]
@@ -190,6 +239,11 @@ impl<T> Body<T> {
 }
 
 impl<T: Types> Body<T> {
+    /*
+    pub fn builder<'a, 'b>(world: &'a mut NewtonWorld<T>, collision: &'b NewtonCollision<T>) -> Builder<'a, 'b, T> {
+        Builder::new(world, collision)
+    }
+    */
     pub fn new(
         world: &mut NewtonWorld<T>,
         collision: &NewtonCollision<T>,
@@ -226,6 +280,9 @@ impl<T: Types> Body<T> {
             });
 
             ffi::NewtonBodySetUserData(body_ptr, mem::transmute(userdata));
+
+            // TODO not happy
+            mem::forget(super::collision::userdata::<T>(collision));
 
             Body(world_lock, body_lock, body_ptr)
         }
@@ -417,25 +474,6 @@ impl<T: Types> NewtonBody<T> {
                 self.body,
                 Some(force_and_torque_callback::<T, C>),
             );
-        }
-    }
-}
-
-impl<'a, T> Iterator for Bodies<'a, T> {
-    type Item = &'a NewtonBody<T>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.next.is_null() {
-            None
-        } else {
-            unsafe {
-                let mut boxed = unsafe { Box::from_raw(self.body) };
-                boxed.body = self.next;
-                boxed.collision.collision = ffi::NewtonBodyGetCollision(self.next);
-
-                self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
-                Some(mem::transmute(Box::into_raw(boxed)))
-            }
         }
     }
 }

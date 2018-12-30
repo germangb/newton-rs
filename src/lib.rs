@@ -9,17 +9,9 @@ pub mod sandbox;
 pub mod world;
 
 mod lock;
-pub(crate) use self::lock::*;
+use self::lock::*;
 
-/// Custom Result type
-pub type Result<T> = std::result::Result<T, Error>;
-
-mod command {
-    #[derive(Debug, Clone, Copy)]
-    pub enum Command {
-        DestroyBody(*mut ffi::NewtonBody),
-    }
-}
+use failure::Error;
 
 use std::{
     error, fmt,
@@ -28,7 +20,15 @@ use std::{
     time::Duration,
 };
 
-use failure::Error;
+mod command {
+    #[derive(Debug, Clone, Copy)]
+    pub enum Command {
+        DestroyBody(*mut ffi::NewtonBody),
+    }
+}
+
+/// Custom Result type
+pub type Result<T> = std::result::Result<T, Error>;
 
 type Tx<T> = Sender<T>;
 type Rx<T> = Receiver<T>;
