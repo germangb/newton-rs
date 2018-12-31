@@ -7,7 +7,6 @@ use super::world::{Command, NewtonWorld, WorldLockedMut};
 use super::{Result, Tx, Types};
 
 use std::{
-    cell::Cell,
     marker::PhantomData,
     mem,
     ops::{Deref, DerefMut},
@@ -55,12 +54,9 @@ pub struct BodyData<T> {
 
     /// Debug name
     debug: Option<&'static str>,
-
-    /// A callback that is called by the `NewtonBody` to apply gravity and other forces to update
-    /// the state of a dynamic body.
-    force_and_torque: Cell<Option<*mut ()>>,
 }
 
+/*
 impl<T> Drop for BodyData<T> {
     fn drop(&mut self) {
         if let Some(closure) = self.force_and_torque.get() {
@@ -71,6 +67,7 @@ impl<T> Drop for BodyData<T> {
         }
     }
 }
+*/
 
 pub struct Builder<'a, 'b, T: Types> {
     world: &'a mut NewtonWorld<T>,
@@ -207,6 +204,13 @@ macro_rules! body_iterator {
                 }
             }
         }
+        impl<'a, T> Drop for $struct_name<'a, T> {
+            fn drop(&mut self) {
+                unsafe {
+                    let _: Box<NewtonBody<T>> = Box::from_raw(self.body);
+                }
+            }
+        }
     };
 }
 
@@ -275,7 +279,6 @@ impl<T: Types> Body<T> {
             let userdata = Shared::new(BodyData {
                 body: Shared::downgrade(&body_lock),
                 world: Shared::downgrade(&world_lock),
-                force_and_torque: Cell::new(None),
                 debug,
             });
 
@@ -330,6 +333,16 @@ pub enum SleepState {
 pub enum FreezeState {
     Freeze = 1,
     Unfreeze = 0,
+}
+
+impl<T> NewtonBody<T> {
+    pub fn set_material_id(&mut self, id: raw::c_int) {
+        unsafe { ffi::NewtonBodySetMaterialGroupID(self.body, id) }
+    }
+
+    pub fn material_id(&self) -> raw::c_int {
+        unsafe { ffi::NewtonBodyGetMaterialGroupID(self.body) }
+    }
 }
 
 impl<T: Types> NewtonBody<T> {
@@ -494,27 +507,11 @@ impl<T: Types> NewtonBody<T> {
         }
     }
 
-    // TODO FIXME unsafe unsafe unsafe...
-    pub fn set_force_and_torque<C>(&mut self, callback: C)
-    where
-        C: Fn(&mut NewtonBody<T>, Duration, raw::c_int) + 'static,
-    {
-        let datum = unsafe { userdata::<T>(self.body) };
-
-        if let Some(ptr) = datum.force_and_torque.get() {
-            unsafe {
-                let _: Box<C> = Box::from_raw(ptr as _);
-            }
-        }
-
+    pub fn apply_force_and_torque(&mut self) {
         unsafe {
-            datum
-                .force_and_torque
-                .set(Some(mem::transmute(Box::new(callback))));
-
             ffi::NewtonBodySetForceAndTorqueCallback(
                 self.body,
-                Some(force_and_torque_callback::<T, C>),
+                Some(force_and_torque_callback::<T>),
             );
         }
     }
@@ -555,35 +552,22 @@ impl<T> Drop for NewtonBody<T> {
     }
 }
 
-impl<'a, T> Drop for Bodies<'a, T> {
-    fn drop(&mut self) {
-        unsafe {
-            let _: Box<NewtonBody<T>> = Box::from_raw(self.body);
-        }
-    }
-}
-
-extern "C" fn force_and_torque_callback<T, C>(
+extern "C" fn force_and_torque_callback<T: Types>(
     body: *const ffi::NewtonBody,
     timestep: raw::c_float,
     thread: raw::c_int,
-) where
-    T: Types,
-    C: Fn(&mut NewtonBody<T>, Duration, raw::c_int) + 'static,
-{
-    let udata = unsafe { userdata::<T>(body as _) };
+) {
+    fn to_duration(timestep: f32) -> Duration {
+        const NANO: u64 = 1_000_000_000;
+        let nanos = (NANO as f32 * timestep) as u64;
+        Duration::new(nanos / NANO, (nanos % NANO) as u32)
+    }
 
-    if let Some(ptr) = udata.force_and_torque.get() {
-        let callback = unsafe { mem::transmute::<_, Box<C>>(ptr) };
+    let world = unsafe { ffi::NewtonBodyGetWorld(body) };
+    let world_udata = unsafe { super::world::userdata::<T>(world) };
 
+    if let &Some(ref callback) = &world_udata.force_torque {
         let mut body = unsafe { NewtonBody::<T>::new_not_owned(body as _) };
         callback(&mut body, to_duration(timestep), thread);
-        mem::forget(callback);
     }
-}
-
-fn to_duration(timestep: f32) -> Duration {
-    const NANO: u64 = 1_000_000_000;
-    let nanos = (NANO as f32 * timestep) as u64;
-    Duration::new(nanos / NANO, (nanos % NANO) as u32)
 }

@@ -4,6 +4,7 @@ pub mod body;
 pub mod collision;
 pub mod joint;
 pub mod macros;
+pub mod material;
 #[cfg(feature = "sandbox")]
 pub mod sandbox;
 pub mod world;
@@ -24,6 +25,11 @@ type Rx<T> = Receiver<T>;
 
 fn channel<T>() -> (Tx<T>, Rx<T>) {
     mpsc::channel()
+}
+
+/// Memory used by the Newton engine, in bytes
+fn memory_used() -> usize {
+    unsafe { ffi::NewtonGetMemoryUsed() as usize }
 }
 
 pub unsafe trait Types: Clone {

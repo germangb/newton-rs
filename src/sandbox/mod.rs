@@ -472,8 +472,8 @@ impl Sandbox {
                 let step_dur = Duration::new(0, step as u32);
 
                 unsafe {
-                    ffi::NewtonWaitForUpdateToFinish(self.world);
-                    ffi::NewtonUpdateAsync(self.world, step / 1_000_000_000.0);
+                    //ffi::NewtonWaitForUpdateToFinish(self.world);
+                    ffi::NewtonUpdate(self.world, step / 1_000_000_000.0);
                     //ffi::NewtonUpdateAsync(self.world, step / 1_000_000_000.0);
                 }
 

@@ -2,7 +2,8 @@ use newton::Cgmath;
 
 use newton::body::{self, Body, Type};
 use newton::collision::{self, params::Params, Collision};
-use newton::world::World;
+use newton::material::GroupId;
+use newton::world::{self, World};
 
 use newton::sandbox::{self, Sandbox};
 
@@ -49,13 +50,25 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
         let left = vec3(look.z, 0.0, -look.x);
         let up = vec3(0.0, 1.0, 0.0);
 
-        if input.w { dp -= look; }
-        if input.s { dp += look; }
-        if input.a { dp -= left; }
-        if input.d { dp += left; }
+        if input.w {
+            dp -= look;
+        }
+        if input.s {
+            dp += look;
+        }
+        if input.a {
+            dp -= left;
+        }
+        if input.d {
+            dp += left;
+        }
 
-        if input.space { dp += up; }
-        if input.lshift { dp -= up; }
+        if input.space {
+            dp += up;
+        }
+        if input.lshift {
+            dp -= up;
+        }
 
         if dp.magnitude() < 0.001 {
             agent.write().set_sleep_state(SleepState::Sleeping);
@@ -88,11 +101,11 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
 }
 
 fn main() {
-    let world: World<Cgmath> = World::builder()
-        .debug("world_0")
-        .max_threads()
-        .exact_solver()
+    let world: World<Cgmath> = world::Builder::new()
+        .force_torque_callback(|b, _, _| b.set_force(&vec3(0.0, -9.8, 0.0)))
         .build();
+
+    let (_a, _b, _c): (GroupId, GroupId, GroupId) = world.write().create_materials();
 
     // collision pool
     let pool = {
@@ -125,8 +138,7 @@ fn main() {
             let g = vec3(0.0, -9.8, 0.0);
 
             cube.write().set_mass(1.0);
-            cube.write()
-                .set_force_and_torque(move |b, _, _| b.set_force(&g));
+            cube.write().apply_force_and_torque();
             cube
         })
         .collect();

@@ -16,6 +16,9 @@ use std::{
     ptr, slice,
 };
 
+/// Numeric ID type to identity collision faces in callbacks
+pub type ShapeId = raw::c_int;
+
 #[derive(Debug, Clone)]
 pub struct Collision<T>(
     Shared<Lock<NewtonCollision<T>>>,
@@ -30,7 +33,6 @@ unsafe impl<T> Sync for Collision<T> {}
 pub struct NewtonCollision<T> {
     // TODO remove pub(crate) visibility
     pub(crate) collision: *mut ffi::NewtonCollision,
-
     /// We need all collisions to `drop` before the `NewtonWorld` is.
     world: Shared<Lock<NewtonWorld<T>>>,
     /// If `owned` is set to true, the `NewtonCollision` will get destroyed
@@ -44,10 +46,8 @@ pub struct CollisionData<T> {
     world: Weak<Lock<NewtonWorld<T>>>,
     /// Reference to the `NewtonCollision` itself.
     collision: Weak<Lock<NewtonCollision<T>>>,
-
     /// Debug name
     debug: Option<&'static str>,
-
     /// collision parameters
     params: Params,
 }
@@ -81,14 +81,12 @@ impl<T> Drop for CollisionData<T> {
 
 pub struct Builder<'a, T: Types> {
     world: &'a mut NewtonWorld<T>,
-
     /// Collision shape params
     params: Params,
     // TODO docs
-    shape_id: raw::c_int,
+    shape_id: ShapeId,
     /// Collision offset transform
     offset: Option<T::Matrix>,
-
     /// A name given to the collision.
     debug: Option<&'static str>,
 }
@@ -126,7 +124,7 @@ impl<'a, T: Types> Builder<'a, T> {
         self
     }
 
-    pub fn shape_id(mut self, shape_id: raw::c_int) -> Self {
+    pub fn shape_id(mut self, shape_id: ShapeId) -> Self {
         self.shape_id = shape_id;
         self
     }
@@ -194,7 +192,7 @@ impl<T: Types> Collision<T> {
     pub fn new(
         world: &mut NewtonWorld<T>,
         params: Params,
-        shape_id: raw::c_int,
+        shape_id: ShapeId,
         offset: Option<&T::Matrix>,
         debug: Option<&'static str>,
     ) -> Self {
@@ -334,7 +332,7 @@ impl<T: Types> NewtonCollision<T> {
     /// Calls the given closure for each polygon in the collision shape.
     ///
     /// Use this method to display the geometry of a collision:
-    pub fn polygons<F: FnMut(raw::c_int, &[f32])>(&self, matrix: &T::Matrix, mut call: F) {
+    pub fn polygons<F: FnMut(ShapeId, &[f32])>(&self, matrix: &T::Matrix, mut call: F) {
         unsafe {
             ffi::NewtonCollisionForEachPolygonDo(
                 self.collision,
@@ -344,7 +342,7 @@ impl<T: Types> NewtonCollision<T> {
             );
         }
 
-        unsafe extern "C" fn callback<F: FnMut(raw::c_int, &[f32])>(
+        unsafe extern "C" fn callback<F: FnMut(ShapeId, &[f32])>(
             user_data: *const raw::c_void,
             vertex_count: raw::c_int,
             face_array: *const f32,
