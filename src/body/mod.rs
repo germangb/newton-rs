@@ -172,7 +172,7 @@ pub(crate) unsafe fn userdata<T>(body: *const ffi::NewtonBody) -> Shared<BodyDat
     udata_cloned
 }
 
-macro_rules! bodies_iterator {
+macro_rules! body_iterator {
     (
         $struct_name:ident < 'a, T > ,
         $item:ty
@@ -210,8 +210,8 @@ macro_rules! bodies_iterator {
     };
 }
 
-bodies_iterator! { Bodies<'a, T>, &'a NewtonBody<T> }
-bodies_iterator! { BodiesMut<'a, T>, &'a mut NewtonBody<T> }
+body_iterator! { Bodies<'a, T>, &'a NewtonBody<T> }
+body_iterator! { BodiesMut<'a, T>, &'a mut NewtonBody<T> }
 
 /// Reference to a `NewtonWorld`
 #[derive(Debug)]

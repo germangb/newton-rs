@@ -49,25 +49,13 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
         let left = vec3(look.z, 0.0, -look.x);
         let up = vec3(0.0, 1.0, 0.0);
 
-        if input.w {
-            dp -= look;
-        }
-        if input.s {
-            dp += look;
-        }
-        if input.a {
-            dp -= left;
-        }
-        if input.d {
-            dp += left;
-        }
+        if input.w { dp -= look; }
+        if input.s { dp += look; }
+        if input.a { dp -= left; }
+        if input.d { dp += left; }
 
-        if input.space {
-            dp += up;
-        }
-        if input.lshift {
-            dp -= up;
-        }
+        if input.space { dp += up; }
+        if input.lshift { dp -= up; }
 
         if dp.magnitude() < 0.001 {
             agent.write().set_sleep_state(SleepState::Sleeping);
@@ -102,7 +90,7 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
 fn main() {
     let world: World<Cgmath> = World::builder()
         .debug("world_0")
-        .threads(1)
+        .max_threads()
         .exact_solver()
         .build();
 
@@ -114,7 +102,7 @@ fn main() {
                 .cuboid(24.0, 1.0, 24.0)
                 .build(),
             collision::Builder::new(&mut world)
-                .cuboid(0.9, 0.9, 0.9)
+                .cuboid(0.75, 0.75, 0.75)
                 .build(),
         ]
     };
@@ -124,7 +112,7 @@ fn main() {
         .build();
     drop(floor);
 
-    let transforms = (0..16 * 4)
+    let transforms = (0..16 * 8)
         .map(|i| (i % 16 / 4, i / 16, i % 16 % 4))
         .map(|(x, y, z)| vec3(x as f32, y as f32, z as f32))
         .map(|p| Matrix4::from_translation(p - vec3(1.5, -3.0, 1.5)));

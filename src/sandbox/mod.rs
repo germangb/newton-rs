@@ -472,9 +472,9 @@ impl Sandbox {
                 let step_dur = Duration::new(0, step as u32);
 
                 unsafe {
-                    ffi::NewtonUpdate(self.world, step / 1_000_000_000.0);
+                    ffi::NewtonWaitForUpdateToFinish(self.world);
+                    ffi::NewtonUpdateAsync(self.world, step / 1_000_000_000.0);
                     //ffi::NewtonUpdateAsync(self.world, step / 1_000_000_000.0);
-                    //ffi::NewtonWaitForUpdateToFinish(self.world);
                 }
 
                 self.elapsed += step_dur;
@@ -537,6 +537,9 @@ impl Sandbox {
             imgui_renderer.render(ui);
 
             window.gl_swap_window();
+        }
+        unsafe {
+            ffi::NewtonWaitForUpdateToFinish(self.world);
         }
     }
 

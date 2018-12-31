@@ -580,11 +580,14 @@ impl<'w, T> DerefMut for WorldLockedMut<'w, T> {
 impl<T> Drop for NewtonWorld<T> {
     fn drop(&mut self) {
         let world = self.world;
+        unsafe {
+            ffi::NewtonWaitForUpdateToFinish(world);
+        }
         self.flush_commands();
         unsafe {
             let _: Shared<WorldData<T>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
-            ffi::NewtonWaitForUpdateToFinish(world);
             ffi::NewtonMaterialDestroyAllGroupID(world);
+            //ffi::NewtonDestroyAllBodies(world);
             ffi::NewtonDestroy(world);
         }
     }
