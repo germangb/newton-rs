@@ -103,9 +103,18 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
 fn main() {
     let world: World<Cgmath> = world::Builder::new()
         .force_torque_callback(|b, _, _| b.set_force(&vec3(0.0, -9.8, 0.0)))
+        .contact_gen_callback(|mat, _, _, _, _, _| {
+            mat.set_elasticity(0.01);
+            true
+        })
         .build();
 
-    let (_a, _b, _c): (GroupId, GroupId, GroupId) = world.write().create_materials();
+    let (mat_a, mat_b) = world.write().create_materials();
+    //world.write().handle_contact(mat_a, mat_b);
+
+    unsafe {
+        newton::ffi::NewtonMaterialSetDefaultElasticity(world.read().as_raw(), mat_a, mat_b, 0.0);
+    }
 
     // collision pool
     let pool = {
@@ -132,13 +141,14 @@ fn main() {
 
     let cubes: Vec<_> = transforms
         .map(|p| {
-            let cube = body::Builder::new(&mut world.write(), &pool[1].read())
+            let cube: Body<Cgmath> = body::Builder::new(&mut world.write(), &pool[1].read())
+                .material(mat_b)
+                .inherit()
                 .transform(p)
                 .build();
             let g = vec3(0.0, -9.8, 0.0);
 
             cube.write().set_mass(1.0);
-            cube.write().apply_force_and_torque();
             cube
         })
         .collect();
@@ -155,8 +165,11 @@ fn main() {
     let collision = collision::Builder::new(&mut world.write())
         .heightfield_f32(params)
         .offset(pos(-16.0, 0.0, -16.0))
+        //.cuboid(16.0, 1.0, 16.0)
         .build();
+
     let terrain = body::Builder::new(&mut world.write(), &collision.read())
+        .material(mat_a)
         .dynamic()
         .transform(pos(0.0, 0.0, 0.0))
         .build();

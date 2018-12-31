@@ -3,6 +3,7 @@ use ffi;
 use super::collision::NewtonCollision;
 use super::joint::{Contacts, Joints};
 use super::lock::{Lock, LockError, Locked, LockedMut, Shared, Weak};
+use super::material::GroupId;
 use super::world::{Command, NewtonWorld, WorldLockedMut};
 use super::{Result, Tx, Types};
 
@@ -22,6 +23,15 @@ pub struct Body<T>(
     Shared<Lock<NewtonBody<T>>>,
     *const ffi::NewtonBody,
 );
+
+pub enum ForceTorqueCallback<T> {
+    /// Don't set a force and torque callback
+    None,
+    /// Use the global callback. The one defined in the `world::Builder`.
+    Inherit,
+    /// Callback unique to the `NewtonBody`
+    Owned(Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>),
+}
 
 unsafe impl<T> Send for Body<T> {}
 unsafe impl<T> Sync for Body<T> {}
@@ -45,52 +55,66 @@ pub struct NewtonBody<T> {
 }
 
 #[doc(hidden)]
-#[derive(Debug)]
 pub struct BodyData<T> {
     /// A reference to the `World` context so it can be referenced in callbacks and so on
     world: Weak<Lock<NewtonWorld<T>>>,
     /// A reference to itself
     body: Weak<Lock<NewtonBody<T>>>,
-
     /// Debug name
     debug: Option<&'static str>,
+    /// Force and torque callback. If None, the global one will be used
+    pub(crate) force_torque: Option<Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>>,
 }
-
-/*
-impl<T> Drop for BodyData<T> {
-    fn drop(&mut self) {
-        if let Some(closure) = self.force_and_torque.get() {
-            // TODO FIXME Is this OK? Probably not
-            unsafe {
-                ::std::ptr::drop_in_place(closure);
-            }
-        }
-    }
-}
-*/
 
 pub struct Builder<'a, 'b, T: Types> {
     world: &'a mut NewtonWorld<T>,
     collision: &'b NewtonCollision<T>,
-
+    /// Force and torque callback
+    force_torque: ForceTorqueCallback<T>,
     /// Type of the body (Dynamic or Kinematic)
     type_: Type,
     /// A name given to the collision.
     debug: Option<&'static str>,
-
     /// Initial transformation
     transform: Option<T::Matrix>,
+    /// Material group ID
+    material_group: GroupId,
 }
 
 impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
     pub fn new(world: &'a mut NewtonWorld<T>, collision: &'b NewtonCollision<T>) -> Self {
+        let world_ptr = world.as_raw();
         Builder {
             world,
             collision,
+            force_torque: ForceTorqueCallback::Inherit,
             type_: Type::Dynamic,
             debug: None,
             transform: None,
+            material_group: unsafe { ffi::NewtonMaterialGetDefaultGroupID(world_ptr) },
         }
+    }
+
+    /// Sets material `GroupID`
+    pub fn material(mut self, group: GroupId) -> Self {
+        self.material_group = group;
+        self
+    }
+
+    /// Inherit default callbacks from World
+    pub fn inherit(mut self) -> Self {
+        self.force_torque = ForceTorqueCallback::Inherit;
+        self
+    }
+
+    /// Set the force and torque callback
+    /// A `None` means the callback will not be called
+    pub fn force_torque_callback<C>(mut self, callback: C) -> Self
+    where
+        C: Fn(&mut NewtonBody<T>, Duration, raw::c_int) + 'static,
+    {
+        self.force_torque = ForceTorqueCallback::Owned(Box::new(callback));
+        self
     }
 
     /// Consumes the builder and returns a body
@@ -101,6 +125,8 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
             self.type_,
             &self.transform.unwrap(),
             self.debug,
+            self.force_torque,
+            self.material_group,
         )
     }
 
@@ -254,6 +280,8 @@ impl<T: Types> Body<T> {
         ty: Type,
         matrix: &T::Matrix,
         debug: Option<&'static str>,
+        force_torque: ForceTorqueCallback<T>,
+        material: GroupId,
     ) -> Self {
         let collision = collision.as_raw();
         let world_ptr = world.as_raw_mut();
@@ -276,9 +304,25 @@ impl<T: Types> Body<T> {
                 owned: true,
             }));
 
+            match &force_torque {
+                &ForceTorqueCallback::Inherit | &ForceTorqueCallback::Owned(_) => unsafe {
+                    ffi::NewtonBodySetForceAndTorqueCallback(
+                        body_ptr,
+                        Some(super::callbacks::force_and_torque_callback::<T>),
+                    );
+                },
+                _ => {}
+            }
+
+            ffi::NewtonBodySetMaterialGroupID(body_ptr, material);
+
             let userdata = Shared::new(BodyData {
                 body: Shared::downgrade(&body_lock),
                 world: Shared::downgrade(&world_lock),
+                force_torque: match force_torque {
+                    ForceTorqueCallback::Owned(call) => Some(call),
+                    _ => None,
+                },
                 debug,
             });
 
@@ -507,6 +551,7 @@ impl<T: Types> NewtonBody<T> {
         }
     }
 
+    /*
     pub fn apply_force_and_torque(&mut self) {
         unsafe {
             ffi::NewtonBodySetForceAndTorqueCallback(
@@ -515,6 +560,7 @@ impl<T: Types> NewtonBody<T> {
             );
         }
     }
+    */
 }
 
 impl<'a, T> Deref for BodyLocked<'a, T> {
@@ -549,25 +595,5 @@ impl<T> Drop for NewtonBody<T> {
                 }
             }
         }
-    }
-}
-
-extern "C" fn force_and_torque_callback<T: Types>(
-    body: *const ffi::NewtonBody,
-    timestep: raw::c_float,
-    thread: raw::c_int,
-) {
-    fn to_duration(timestep: f32) -> Duration {
-        const NANO: u64 = 1_000_000_000;
-        let nanos = (NANO as f32 * timestep) as u64;
-        Duration::new(nanos / NANO, (nanos % NANO) as u32)
-    }
-
-    let world = unsafe { ffi::NewtonBodyGetWorld(body) };
-    let world_udata = unsafe { super::world::userdata::<T>(world) };
-
-    if let &Some(ref callback) = &world_udata.force_torque {
-        let mut body = unsafe { NewtonBody::<T>::new_not_owned(body as _) };
-        callback(&mut body, to_duration(timestep), thread);
     }
 }

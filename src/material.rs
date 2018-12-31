@@ -20,16 +20,17 @@ pub(crate) fn create_materials<T: Materials>(world: *mut ffi::NewtonWorld) -> T 
 
 impl<T> NewtonMaterial<T> {
     /// Override the default value of the kinetic coefficient of friction for this contact.
-    pub fn set_contact_friction_coef(
-        &mut self,
-        static_coef: f32,
-        kinematic_coef: f32,
-        index: raw::c_int,
-    ) {
+    pub fn set_friction(&mut self, static_coef: f32, kinematic_coef: f32, index: raw::c_int) {
         assert!(static_coef >= 0.0 && kinematic_coef >= 0.0);
         unsafe {
             ffi::NewtonMaterialSetContactFrictionCoef(self.0, static_coef, kinematic_coef, index)
         };
+    }
+
+    /// Sets restitution coefficient
+    pub fn set_elasticity(&mut self, rest: f32) {
+        assert!(rest >= 0.0);
+        unsafe { ffi::NewtonMaterialSetContactElasticity(self.0, rest) };
     }
 }
 
@@ -62,4 +63,3 @@ materials! { A, B, C, D, E, F, G, H }
 materials! { A, B, C, D, E, F, G, H, I }
 materials! { A, B, C, D, E, F, G, H, I, J }
 materials! { A, B, C, D, E, F, G, H, I, J, K }
-// More would be insane

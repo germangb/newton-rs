@@ -138,6 +138,7 @@ impl<T> Builder<T> {
         self
     }
 
+    /// Set debug name, for use in Error reporting
     pub fn debug(mut self, name: &'static str) -> Self {
         self.debug = Some(name);
         self
@@ -220,21 +221,6 @@ unsafe impl<'a, T> Sync for WorldUpdateAsync<'a, T> {}
 impl<'a, T> WorldUpdateAsync<'a, T> {
     /// Consumes the object and blocks the current thread until the world update is finished.
     pub fn finish(self) {}
-}
-
-impl<T> Default for World<T> {
-    #[inline]
-    fn default() -> Self {
-        Self::new(
-            Broadphase::Default,
-            Solver::Exact,
-            1,
-            None,
-            None,
-            None,
-            None,
-        )
-    }
 }
 
 impl<T> World<T> {
@@ -572,6 +558,16 @@ impl<T: Types> NewtonWorld<T> {
 }
 
 impl<T> NewtonWorld<T> {
+    /// Get an iterator for Materials
+    pub fn materials(&self) -> ! {
+        unimplemented!()
+    }
+
+    /// Get a mutable iterator for Materials
+    pub fn materials_mut(&mut self) -> ! {
+        unimplemented!()
+    }
+
     /// Generates a single or a touple of material group IDs
     pub fn create_materials<M: super::material::Materials>(&mut self) -> M {
         unsafe { M::from(self.world) }
@@ -579,7 +575,14 @@ impl<T> NewtonWorld<T> {
 
     /// Handle contacts between two groups
     pub fn handle_contact(&mut self, u: GroupId, v: GroupId) {
-        unimplemented!()
+        unsafe {
+            ffi::NewtonMaterialSetContactGenerationCallback(
+                self.world,
+                u,
+                v,
+                Some(super::callbacks::contact_generation_callback),
+            )
+        }
     }
 
     /// Handle collisions between two

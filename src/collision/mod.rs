@@ -104,7 +104,7 @@ impl<'a, T: Types> Builder<'a, T> {
 
     /// Consumes the builder and returns a collision
     pub fn build(self) -> Collision<T> {
-        Collision::new(
+        Collision::with_params(
             self.world,
             self.params,
             self.shape_id,
@@ -189,7 +189,7 @@ pub struct CollisionLockedMut<'a, T>(
 
 impl<T: Types> Collision<T> {
     /// Creates a new collision.
-    pub fn new(
+    pub fn with_params(
         world: &mut NewtonWorld<T>,
         params: Params,
         shape_id: ShapeId,
