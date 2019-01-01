@@ -5,7 +5,7 @@ use ffi;
 use self::params::Params;
 use super::lock::{Lock, LockError, Locked, LockedMut, Shared, Weak};
 use super::world::{NewtonWorld, WorldLockedMut};
-use super::{Result, Types};
+use super::{Matrix, Quaternion, Result, Vector};
 
 use self::params::HeightFieldParams;
 
@@ -20,59 +20,79 @@ use std::{
 pub type ShapeId = raw::c_int;
 
 #[derive(Debug, Clone)]
-pub struct Collision<T>(
-    Shared<Lock<NewtonCollision<T>>>,
-    Shared<Lock<NewtonWorld<T>>>,
+pub struct Collision<B, C>(
+    Shared<Lock<NewtonCollision<B, C>>>,
+    Shared<Lock<NewtonWorld<B, C>>>,
     *const ffi::NewtonCollision,
 );
 
-unsafe impl<T> Send for Collision<T> {}
-unsafe impl<T> Sync for Collision<T> {}
+unsafe impl<B, C> Send for Collision<B, C> {}
+unsafe impl<B, C> Sync for Collision<B, C> {}
 
 #[derive(Debug, Clone)]
-pub struct WeakCollision<T>(
-    Weak<Lock<NewtonCollision<T>>>,
-    Weak<Lock<NewtonWorld<T>>>,
+pub struct WeakCollision<B, C>(
+    Weak<Lock<NewtonCollision<B, C>>>,
+    Weak<Lock<NewtonWorld<B, C>>>,
     *const ffi::NewtonCollision,
 );
 
-unsafe impl<T> Send for WeakCollision<T> {}
-unsafe impl<T> Sync for WeakCollision<T> {}
+unsafe impl<B, C> Send for WeakCollision<B, C> {}
+unsafe impl<B, C> Sync for WeakCollision<B, C> {}
 
-impl<T> WeakCollision<T> {
-    fn upgrade(weak: &WeakCollision<T>) -> Option<Collision<T>> {
-        unimplemented!()
+impl<B, C> WeakCollision<B, C> {
+    fn upgrade(weak: &WeakCollision<B, C>) -> Option<Collision<B, C>> {
+        let coll = Weak::upgrade(&weak.0);
+        if coll.is_some() {
+            let world = Weak::upgrade(&weak.1);
+            if world.is_some() {
+                return Some(Collision(coll.unwrap(), world.unwrap(), weak.2));
+            }
+        }
+        None
     }
 }
 
+/// Reference to a `NewtonCollision`.
 #[derive(Debug)]
-pub struct NewtonCollision<T> {
+pub struct CollisionLocked<'a, B, C>(Locked<'a, NewtonCollision<B, C>>);
+
+/// Mutable reference to a `NewtonCollision`.
+#[derive(Debug)]
+pub struct CollisionLockedMut<'a, B, C>(
+    LockedMut<'a, NewtonCollision<B, C>>,
+    LockedMut<'a, NewtonWorld<B, C>>,
+);
+
+#[derive(Debug)]
+pub struct NewtonCollision<B, C> {
     // TODO remove pub(crate) visibility
     pub(crate) collision: *mut ffi::NewtonCollision,
     /// We need all collisions to `drop` before the `NewtonWorld` is.
-    world: Shared<Lock<NewtonWorld<T>>>,
+    world: Shared<Lock<NewtonWorld<B, C>>>,
     /// If `owned` is set to true, the `NewtonCollision` will get destroyed
     owned: bool,
 }
 
 #[doc(hidden)]
 #[derive(Debug)]
-pub struct CollisionData<T> {
+pub struct CollisionData<B, C> {
     /// Reference to the `NewtonWorld` that allocated this `NewtonCollision`
-    world: Weak<Lock<NewtonWorld<T>>>,
+    world: Weak<Lock<NewtonWorld<B, C>>>,
     /// Reference to the `NewtonCollision` itself.
-    collision: Weak<Lock<NewtonCollision<T>>>,
+    collision: Weak<Lock<NewtonCollision<B, C>>>,
     /// Debug name
     debug: Option<&'static str>,
     /// collision parameters
     params: Params,
+    /// Contained data
+    contained: Option<C>,
 }
 
-impl<T> CollisionData<T> {
+impl<B, C> CollisionData<B, C> {
     /// Get collision data from a given collision
     ///
     /// Collision data is unique to the NewtonCollision object
-    pub fn from(collision: &NewtonCollision<T>) -> Shared<Self> {
+    pub fn from(collision: &NewtonCollision<B, C>) -> Shared<Self> {
         unsafe { userdata(collision.as_raw()) }
     }
 
@@ -87,49 +107,50 @@ impl<T> CollisionData<T> {
     }
 }
 
-/*
-impl<T> Drop for CollisionData<T> {
-    fn drop(&mut self) {
-        println!("Dropping collision!");
-    }
-}
-*/
-
-pub struct Builder<'a, T: Types> {
-    world: &'a mut NewtonWorld<T>,
+pub struct Builder<'a, B, C> {
+    world: &'a mut NewtonWorld<B, C>,
     /// Collision shape params
     params: Params,
     // TODO docs
     shape_id: ShapeId,
     /// Collision offset transform
-    offset: Option<T::Matrix>,
+    offset: Option<Matrix>,
     /// A name given to the collision.
     debug: Option<&'static str>,
+    /// Contained data
+    contained: Option<C>,
 }
 
-impl<'a, T: Types> Builder<'a, T> {
-    pub fn new(world: &mut NewtonWorld<T>) -> Builder<T> {
+impl<'a, B, C> Builder<'a, B, C> {
+    pub fn new(world: &mut NewtonWorld<B, C>) -> Builder<B, C> {
         Builder {
             world,
             params: Params::Null,
             shape_id: 0,
             debug: None,
             offset: None,
+            contained: None,
         }
     }
 
     /// Consumes the builder and returns a collision
-    pub fn build(self) -> Collision<T> {
-        Collision::with_params(
+    pub fn build(self) -> Collision<B, C> {
+        Collision::new(
             self.world,
             self.params,
             self.shape_id,
             self.offset.as_ref(),
             self.debug,
+            self.contained,
         )
     }
 
-    pub fn offset(mut self, offset: T::Matrix) -> Self {
+    pub fn data(mut self, data: C) -> Self {
+        self.contained = Some(data);
+        self
+    }
+
+    pub fn offset(mut self, offset: Matrix) -> Self {
         self.offset = Some(offset);
         self
     }
@@ -172,54 +193,32 @@ impl<'a, T: Types> Builder<'a, T> {
     }
 }
 
-impl<T> NewtonCollision<T> {
-    pub(crate) unsafe fn null(world: Shared<Lock<NewtonWorld<T>>>) -> Self {
-        NewtonCollision {
-            owned: false,
-            collision: ptr::null_mut(),
-            world,
-        }
+impl<B, C> Collision<B, C> {
+    /// Clone ref-counted collision
+    pub fn clone(rc: &Collision<B, C>) -> Collision<B, C> {
+        Collision(Shared::clone(&rc.0), Shared::clone(&rc.1), rc.2)
     }
 
-    /// Wraps a raw `ffi::NewtonCollision` pointer
-    pub(crate) unsafe fn new_not_owned(collision: *mut ffi::NewtonCollision) -> Self {
-        let udata = userdata::<T>(collision);
-        NewtonCollision {
-            owned: false,
-            collision,
-            world: Weak::upgrade(&udata.world).unwrap(),
-        }
-    }
-}
-
-/// Reference to a `NewtonCollision`.
-#[derive(Debug)]
-pub struct CollisionLocked<'a, T>(Locked<'a, NewtonCollision<T>>);
-
-/// Mutable reference to a `NewtonCollision`.
-#[derive(Debug)]
-pub struct CollisionLockedMut<'a, T>(
-    LockedMut<'a, NewtonCollision<T>>,
-    LockedMut<'a, NewtonWorld<T>>,
-);
-
-impl<T> Collision<T> {
-    fn downgrade(rc: &Collision<T>) -> WeakCollision<T> {
+    /// Downgrade from a strong reference to a Weak one
+    pub fn downgrade(rc: &Collision<B, C>) -> WeakCollision<B, C> {
         WeakCollision(Shared::downgrade(&rc.0), Shared::downgrade(&rc.1), rc.2)
     }
-}
 
-impl<T: Types> Collision<T> {
+    pub unsafe fn from_raw_parts(raw: *mut ffi::NewtonCollision) -> Collision<B, C> {
+        unimplemented!()
+    }
+
     /// Creates a new collision.
-    pub fn with_params(
-        world: &mut NewtonWorld<T>,
+    fn new(
+        world: &mut NewtonWorld<B, C>,
         params: Params,
         shape_id: ShapeId,
-        offset: Option<&T::Matrix>,
+        offset: Option<&Matrix>,
         debug: Option<&'static str>,
+        data: Option<C>,
     ) -> Self {
         let world = world.as_raw();
-        let world_udata = unsafe { super::world::userdata::<T>(world) };
+        let world_udata = unsafe { super::world::userdata(world) };
         let world_lock = Weak::upgrade(&world_udata.world).unwrap();
 
         let collision_raw = unsafe {
@@ -295,6 +294,7 @@ impl<T: Types> Collision<T> {
             world: Shared::downgrade(&world_lock),
             debug,
             params,
+            contained: data,
         });
 
         unsafe {
@@ -304,14 +304,14 @@ impl<T: Types> Collision<T> {
         Collision(collision_lock, world_lock, collision_raw)
     }
 
-    pub fn try_read(&self) -> Result<CollisionLocked<T>> {
+    pub fn try_read(&self) -> Result<CollisionLocked<B, C>> {
         unimplemented!()
     }
 
-    pub fn try_write(&self) -> Result<CollisionLockedMut<T>> {
+    pub fn try_write(&self) -> Result<CollisionLockedMut<B, C>> {
         #[cfg(feature = "debug")]
         {
-            let udata = unsafe { userdata::<T>(self.2) };
+            let udata = unsafe { userdata::<B, C>(self.2) };
             let collision_ref = self.0.try_write(udata.debug)?;
             let world_ref = self.1.try_write(udata.debug)?;
             Ok(CollisionLockedMut(collision_ref, world_ref))
@@ -324,28 +324,46 @@ impl<T: Types> Collision<T> {
         }
     }
 
-    pub fn read(&self) -> CollisionLocked<T> {
+    pub fn read(&self) -> CollisionLocked<B, C> {
         let collision_ref = self.0.read();
         CollisionLocked(collision_ref)
     }
 
-    pub fn write(&self) -> CollisionLockedMut<T> {
+    pub fn write(&self) -> CollisionLockedMut<B, C> {
         self.try_write().unwrap()
     }
 }
 
-impl<T: Types> NewtonCollision<T> {
+impl<B, C> NewtonCollision<B, C> {
+    pub(crate) unsafe fn null(world: Shared<Lock<NewtonWorld<B, C>>>) -> Self {
+        NewtonCollision {
+            owned: false,
+            collision: ptr::null_mut(),
+            world,
+        }
+    }
+
+    /// Wraps a raw `ffi::NewtonCollision` pointer
+    pub(crate) unsafe fn new_not_owned(collision: *mut ffi::NewtonCollision) -> Self {
+        let udata = userdata(collision);
+        NewtonCollision {
+            owned: false,
+            collision,
+            world: Weak::upgrade(&udata.world).unwrap(),
+        }
+    }
+
     /// Sets the offset transformation
-    pub fn set_matrix(&mut self, matrix: &T::Matrix) {
+    pub fn set_matrix(&mut self, matrix: &Matrix) {
         unsafe {
             ffi::NewtonCollisionSetMatrix(self.collision, mem::transmute(matrix));
         }
     }
 
     /// Offset transformation
-    pub fn matrix(&self) -> T::Matrix {
+    pub fn matrix(&self) -> Matrix {
         unsafe {
-            let mut mat: T::Matrix = mem::zeroed();
+            let mut mat: Matrix = mem::zeroed();
             ffi::NewtonCollisionGetMatrix(self.collision, mem::transmute(&mut mat));
             mat
         }
@@ -354,7 +372,7 @@ impl<T: Types> NewtonCollision<T> {
     /// Calls the given closure for each polygon in the collision shape.
     ///
     /// Use this method to display the geometry of a collision:
-    pub fn polygons<F: FnMut(ShapeId, &[f32])>(&self, matrix: &T::Matrix, mut call: F) {
+    pub fn polygons<F: FnMut(ShapeId, &[f32])>(&self, matrix: &Matrix, mut call: F) {
         unsafe {
             ffi::NewtonCollisionForEachPolygonDo(
                 self.collision,
@@ -374,9 +392,7 @@ impl<T: Types> NewtonCollision<T> {
             mem::transmute::<_, &mut F>(user_data)(face_id, slice);
         }
     }
-}
 
-impl<T> NewtonCollision<T> {
     pub fn params(&self) -> &Params {
         unimplemented!()
     }
@@ -404,37 +420,37 @@ impl<T> NewtonCollision<T> {
     }
 }
 
-impl<'a, T> Deref for CollisionLocked<'a, T> {
-    type Target = NewtonCollision<T>;
+impl<'a, B, C> Deref for CollisionLocked<'a, B, C> {
+    type Target = NewtonCollision<B, C>;
 
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
 }
 
-impl<'a, T> Deref for CollisionLockedMut<'a, T> {
-    type Target = NewtonCollision<T>;
+impl<'a, B, C> Deref for CollisionLockedMut<'a, B, C> {
+    type Target = NewtonCollision<B, C>;
 
     fn deref(&self) -> &Self::Target {
         self.0.deref()
     }
 }
 
-impl<'a, T> DerefMut for CollisionLockedMut<'a, T> {
+impl<'a, B, C> DerefMut for CollisionLockedMut<'a, B, C> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.0.deref_mut()
     }
 }
 
 // TODO FIXME CollisionData is dropped but the collision may still be active in some body!!!
-impl<T> Drop for NewtonCollision<T> {
+impl<B, C> Drop for NewtonCollision<B, C> {
     fn drop(&mut self) {
         if self.owned {
             let collision = self.collision;
             //let _ = self.world.write();
             unsafe {
                 // TODO FIXME CollisionData is dropped but the collision may still be active in some body!!!
-                let _: Shared<CollisionData<T>> =
+                let _: Shared<CollisionData<B, C>> =
                     mem::transmute(ffi::NewtonCollisionGetUserData(collision));
                 ffi::NewtonDestroyCollision(collision)
             }
@@ -442,8 +458,10 @@ impl<T> Drop for NewtonCollision<T> {
     }
 }
 
-pub(crate) unsafe fn userdata<T>(col: *const ffi::NewtonCollision) -> Shared<CollisionData<T>> {
-    let udata: Shared<CollisionData<T>> = mem::transmute(ffi::NewtonCollisionGetUserData(col));
+pub(crate) unsafe fn userdata<B, C>(
+    col: *const ffi::NewtonCollision,
+) -> Shared<CollisionData<B, C>> {
+    let udata: Shared<CollisionData<B, C>> = mem::transmute(ffi::NewtonCollisionGetUserData(col));
     let udata_cloned = udata.clone();
     mem::forget(udata);
     udata_cloned

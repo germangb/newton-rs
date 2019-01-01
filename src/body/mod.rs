@@ -5,7 +5,7 @@ use super::joint::{Contacts, Joints};
 use super::lock::{Lock, LockError, Locked, LockedMut, Shared, Weak};
 use super::material::GroupId;
 use super::world::{Command, NewtonWorld, WorldLockedMut};
-use super::{Result, Tx, Types};
+use super::{Matrix, Quaternion, Result, Tx, Vector};
 
 use std::{
     marker::PhantomData,
@@ -17,28 +17,30 @@ use std::{
     time::Duration,
 };
 
+/// Ref-counted body
 #[derive(Debug, Clone)]
-pub struct Body<T>(
-    Shared<Lock<NewtonWorld<T>>>,
-    Shared<Lock<NewtonBody<T>>>,
+pub struct Body<B, C>(
+    Shared<Lock<NewtonWorld<B, C>>>,
+    Shared<Lock<NewtonBody<B, C>>>,
     *const ffi::NewtonBody,
 );
 
-unsafe impl<T> Send for Body<T> {}
-unsafe impl<T> Sync for Body<T> {}
+unsafe impl<B, C> Send for Body<B, C> {}
+unsafe impl<B, C> Sync for Body<B, C> {}
 
+/// Weak version of Body
 #[derive(Debug, Clone)]
-pub struct WeakBody<T>(
-    Weak<Lock<NewtonWorld<T>>>,
-    Weak<Lock<NewtonBody<T>>>,
+pub struct WeakBody<B, C>(
+    Weak<Lock<NewtonWorld<B, C>>>,
+    Weak<Lock<NewtonBody<B, C>>>,
     *const ffi::NewtonBody,
 );
 
-unsafe impl<T> Send for WeakBody<T> {}
-unsafe impl<T> Sync for WeakBody<T> {}
+unsafe impl<B, C> Send for WeakBody<B, C> {}
+unsafe impl<B, C> Sync for WeakBody<B, C> {}
 
-impl<T> WeakBody<T> {
-    fn upgrade(weak: &WeakBody<T>) -> Option<Body<T>> {
+impl<B, C> WeakBody<B, C> {
+    pub fn upgrade(weak: &WeakBody<B, C>) -> Option<Body<B, C>> {
         let world = Weak::upgrade(&weak.0);
         if world.is_some() {
             let body = Weak::upgrade(&weak.1);
@@ -46,59 +48,64 @@ impl<T> WeakBody<T> {
                 return Some(Body(world.unwrap(), body.unwrap(), weak.2));
             }
         }
-
         None
     }
 }
 
 #[derive(Debug)]
-pub struct NewtonBody<T> {
+pub struct NewtonBody<B, C> {
     // TODO remove pub(crate). It is used by the convex cast
     pub(crate) body: *mut ffi::NewtonBody,
     /// Bodies must be dropped before the world is.
-    world: Shared<Lock<NewtonWorld<T>>>,
+    world: Shared<Lock<NewtonWorld<B, C>>>,
     // TODO remove pub(crate). It is used by the convex cast
-    /// A non-owned `NewtonCollision`
-    pub(crate) collision: NewtonCollision<T>,
-    /// Owned `NewtonBody`s, when dropped, are destroyed and therefore removed from the simulation
+    /// A non-owned NewtonCollision
+    pub(crate) collision: NewtonCollision<B, C>,
+    /// Owned NewtonBody s, when dropped, are destroyed and therefore removed from the simulation
     owned: bool,
+    /// Destroyed flag
+    destroyed: bool,
     /// The Tx end of the command channel. Only for owned variants,
     tx: Option<Tx<Command>>,
 }
 
 #[doc(hidden)]
-pub struct BodyData<T> {
-    /// A reference to the `World` context so it can be referenced in callbacks and so on
-    world: Weak<Lock<NewtonWorld<T>>>,
+pub struct BodyData<B, C> {
+    /// A reference to the World context so it can be referenced in callbacks and so on
+    world: Weak<Lock<NewtonWorld<B, C>>>,
     /// A reference to itself
-    body: Weak<Lock<NewtonBody<T>>>,
+    body: Weak<Lock<NewtonBody<B, C>>>,
     /// Debug name
     debug: Option<&'static str>,
     /// Force and torque callback. If None, the global one will be used
-    pub(crate) force_torque: Option<Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>>,
+    pub(crate) force_torque: Option<Box<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
+    /// Contained value
+    contained: Option<B>,
 }
 
-pub struct Builder<'a, 'b, T: Types> {
-    world: &'a mut NewtonWorld<T>,
-    collision: &'b NewtonCollision<T>,
+pub struct Builder<'a, 'b, B, C> {
+    world: &'a mut NewtonWorld<B, C>,
+    collision: &'b NewtonCollision<B, C>,
     /// Force and torque callback
-    force_torque: Option<Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>>,
+    force_torque: Option<Box<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
     /// Type of the body (Dynamic or Kinematic)
     type_: Type,
     /// A name given to the collision.
     debug: Option<&'static str>,
     /// Initial transformation
-    transform: Option<T::Matrix>,
+    transform: Option<Matrix>,
     /// Material group ID
     material_group: GroupId,
     /// Continuous collision enabled/disabled
     continuous: bool,
     /// Mass
     mass: f32,
+    /// Userdata value
+    contained: Option<B>,
 }
 
-impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
-    pub fn new(world: &'a mut NewtonWorld<T>, collision: &'b NewtonCollision<T>) -> Self {
+impl<'a, 'b, B, C> Builder<'a, 'b, B, C> {
+    pub fn new(world: &'a mut NewtonWorld<B, C>, collision: &'b NewtonCollision<B, C>) -> Self {
         let world_ptr = world.as_raw();
         Builder {
             world,
@@ -110,7 +117,13 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
             material_group: unsafe { GroupId(ffi::NewtonMaterialGetDefaultGroupID(world_ptr)) },
             continuous: false,
             mass: 0.0,
+            contained: None,
         }
+    }
+
+    pub fn data(mut self, data: B) -> Self {
+        self.contained = Some(data);
+        self
     }
 
     /// Enable continuous collision mode
@@ -119,24 +132,24 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
         self
     }
 
-    /// Sets material `GroupID`
+    /// Sets material GroupID
     pub fn material(mut self, group: GroupId) -> Self {
         self.material_group = group;
         self
     }
 
     /// Set the force and torque callback
-    /// A `None` means the callback will not be called
-    pub fn force_torque_callback<C>(mut self, callback: C) -> Self
+    /// A None means the callback will not be called
+    pub fn force_torque_callback<Callback>(mut self, callback: Callback) -> Self
     where
-        C: Fn(&mut NewtonBody<T>, Duration, raw::c_int) + 'static,
+        Callback: Fn(&mut NewtonBody<B, C>, Duration, raw::c_int) + 'static,
     {
         self.force_torque = Some(Box::new(callback));
         self
     }
 
     /// Consumes the builder and returns a body
-    pub fn build(self) -> Body<T> {
+    pub fn build(self) -> Body<B, C> {
         Body::new(
             self.world,
             self.collision,
@@ -147,6 +160,7 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
             self.material_group,
             self.continuous,
             self.mass,
+            self.contained,
         )
     }
 
@@ -155,7 +169,7 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
         self
     }
 
-    pub fn transform(mut self, transform: T::Matrix) -> Self {
+    pub fn transform(mut self, transform: Matrix) -> Self {
         self.transform = Some(transform);
         self
     }
@@ -176,45 +190,20 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
     }
 }
 
-impl<T> NewtonBody<T> {
-    pub(crate) unsafe fn null(world: Shared<Lock<NewtonWorld<T>>>) -> Self {
-        NewtonBody {
-            owned: false,
-            body: ptr::null_mut(),
-            collision: NewtonCollision::null(world.clone()),
-            world,
-            tx: None,
-        }
-    }
-
-    /// Wraps a raw `ffi::NewtonBody` pointer
-    pub(crate) unsafe fn new_not_owned(body: *mut ffi::NewtonBody) -> Self {
-        let udata = userdata::<T>(body);
-        let collision = ffi::NewtonBodyGetCollision(body);
-        NewtonBody {
-            owned: false,
-            body,
-            world: Weak::upgrade(&udata.world).unwrap(),
-            collision: NewtonCollision::new_not_owned(collision),
-            tx: None,
-        }
-    }
-}
-
-pub(crate) unsafe fn drop_body<T>(body: *const ffi::NewtonBody) {
+pub(crate) unsafe fn drop_body<B, C>(body: *const ffi::NewtonBody) {
     let collision = ffi::NewtonBodyGetCollision(body);
 
-    let _: Shared<BodyData<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+    let _: Shared<BodyData<B, C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
 
     // decrement ref count of the collision
-    let _: Shared<super::collision::CollisionData<T>> =
+    let _: Shared<super::collision::CollisionData<B, C>> =
         mem::transmute(ffi::NewtonCollisionGetUserData(collision));
 
     ffi::NewtonDestroyBody(body);
 }
 
-pub(crate) unsafe fn userdata<T>(body: *const ffi::NewtonBody) -> Shared<BodyData<T>> {
-    let udata: Shared<BodyData<T>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+pub(crate) unsafe fn userdata<B, C>(body: *const ffi::NewtonBody) -> Shared<BodyData<B, C>> {
+    let udata: Shared<BodyData<B, C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
     let udata_cloned = udata.clone();
     mem::forget(udata);
     udata_cloned
@@ -222,22 +211,22 @@ pub(crate) unsafe fn userdata<T>(body: *const ffi::NewtonBody) -> Shared<BodyDat
 
 macro_rules! body_iterator {
     (
-        $struct_name:ident < 'a, T > ,
+        $struct_name:ident < 'a, B, C > ,
         $item:ty
     ) => {
         // TODO remove pub visibility
-        /// Iterator over the bodies in a `NewtonWorld`
+        /// Iterator that yields NewtonBodys
         #[derive(Debug)]
-        pub struct $struct_name<'a, T> {
+        pub struct $struct_name<'a, B, C> {
             pub(crate) world: *mut ffi::NewtonWorld,
             /// A raw pointer to the next body to be returned by the iterator
             pub(crate) next: *mut ffi::NewtonBody,
             /// The NewtonBody reference that gets returned by the iterator. This data is stored on the
             /// heap so it may have a slight effect in performance.
-            pub(crate) body: *mut NewtonBody<T>,
-            pub(crate) _phantom: PhantomData<&'a T>,
+            pub(crate) body: *mut NewtonBody<B, C>,
+            pub(crate) _phantom: PhantomData<&'a ()>,
         }
-        impl<'a, T> Iterator for $struct_name<'a, T> {
+        impl<'a, B: 'a, C: 'a> Iterator for $struct_name<'a, B, C> {
             type Item = $item;
 
             fn next(&mut self) -> Option<Self::Item> {
@@ -255,27 +244,43 @@ macro_rules! body_iterator {
                 }
             }
         }
-        impl<'a, T> Drop for $struct_name<'a, T> {
+        impl<'a, B, C> Drop for $struct_name<'a, B, C> {
             fn drop(&mut self) {
                 unsafe {
-                    let _: Box<NewtonBody<T>> = Box::from_raw(self.body);
+                    let _: Box<NewtonBody<B, C>> = Box::from_raw(self.body);
                 }
             }
         }
     };
 }
 
-body_iterator! { Bodies<'a, T>, &'a NewtonBody<T> }
-body_iterator! { BodiesMut<'a, T>, &'a mut NewtonBody<T> }
+body_iterator! { NewtonBodies<'a, B, C>, &'a NewtonBody<B, C> }
+body_iterator! { NewtonBodiesMut<'a, B, C>, &'a mut NewtonBody<B, C> }
 
-/// Reference to a `NewtonWorld`
+/// Reference to a NewtonWorld
 #[derive(Debug)]
-pub struct BodyLocked<'a, T>(Locked<'a, NewtonWorld<T>>, Locked<'a, NewtonBody<T>>);
+pub struct BodyLocked<'a, B, C>(Locked<'a, NewtonWorld<B, C>>, Locked<'a, NewtonBody<B, C>>);
 
-/// Mutable reference to a `NewtonWorld`
+/// Mutable reference to a NewtonWorld
 #[derive(Debug)]
-pub struct BodyLockedMut<'a, T>(LockedMut<'a, NewtonWorld<T>>, LockedMut<'a, NewtonBody<T>>);
+pub struct BodyLockedMut<'a, B, C>(
+    LockedMut<'a, NewtonWorld<B, C>>,
+    LockedMut<'a, NewtonBody<B, C>>,
+);
 
+impl<'a, B, C> BodyLockedMut<'a, B, C> {
+    /// Destroys the body
+    pub fn destroy(mut self) {
+        if self.destroyed {
+            return;
+        }
+
+        self.destroyed = true;
+        unsafe { drop_body::<B, C>(self.body) };
+    }
+}
+
+/// Dynamic / Kinematic type
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum Type {
@@ -284,31 +289,80 @@ pub enum Type {
     Kinematic = ffi::NEWTON_KINEMATIC_BODY as _,
 }
 
-impl<T> Body<T> {
+impl<B, C> Body<B, C> {
+    /// Clones the ref-counted body
+    pub fn clone(body: &Body<B, C>) -> Self {
+        Body(Shared::clone(&body.0), Shared::clone(&body.1), body.2)
+    }
+
     /// Downgrade ref-counted body
-    pub fn downgrade(rc: &Body<T>) -> WeakBody<T> {
+    pub fn downgrade(rc: &Body<B, C>) -> WeakBody<B, C> {
         WeakBody(Shared::downgrade(&rc.0), Shared::downgrade(&rc.1), rc.2)
     }
 
+    /// Destroys the inner body. panic! if it can't
+    pub fn destroy(self) {
+        self.try_destroy().unwrap()
+    }
+
+    /// Destroys the inner `NewtonBody`
+    pub fn try_destroy(self) -> Result<()> {
+        self.try_write()?.destroy();
+        Ok(())
+    }
+
     pub unsafe fn from_raw_parts(body: *mut ffi::NewtonBody) -> Self {
-        let udata = userdata::<T>(body);
+        let udata = userdata(body);
         let body_rc = Weak::upgrade(&udata.body).unwrap();
         let world_rc = Weak::upgrade(&udata.world).unwrap();
         Body(world_rc, body_rc, body as *const _)
     }
-}
 
-impl<T: Types> Body<T> {
-    pub fn new(
-        world: &mut NewtonWorld<T>,
-        collision: &NewtonCollision<T>,
+    pub fn try_read(&self) -> Result<BodyLocked<B, C>> {
+        let world = self.0.try_read()?;
+        let body = self.1.try_read()?;
+        if body.destroyed {
+            Err(super::lock::LockError::Destroyed.into())
+        } else {
+            Ok(BodyLocked(world, body))
+        }
+    }
+
+    pub fn try_write(&self) -> Result<BodyLockedMut<B, C>> {
+        #[cfg(feature = "debug")]
+        let name = unsafe { userdata::<B, C>(self.2).debug };
+        #[cfg(not(feature = "debug"))]
+        let name = None;
+
+        let world = self.0.try_write(name)?;
+        let body = self.1.try_write(name)?;
+
+        if body.destroyed {
+            Err(super::lock::LockError::Destroyed.into())
+        } else {
+            Ok(BodyLockedMut(world, body))
+        }
+    }
+
+    pub fn read(&self) -> BodyLocked<B, C> {
+        self.try_read().unwrap()
+    }
+
+    pub fn write(&self) -> BodyLockedMut<B, C> {
+        self.try_write().unwrap()
+    }
+
+    fn new(
+        world: &mut NewtonWorld<B, C>,
+        collision: &NewtonCollision<B, C>,
         type_: Type,
-        matrix: &T::Matrix,
+        matrix: &Matrix,
         debug: Option<&'static str>,
-        force_torque: Option<Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>>,
+        force_torque: Option<Box<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
         material: GroupId,
         continuous: bool,
         mass: f32,
+        contained: Option<B>,
     ) -> Self {
         let collision = collision.as_raw();
         let world_ptr = world.as_raw_mut();
@@ -329,13 +383,14 @@ impl<T: Types> Body<T> {
                 tx: Some(world.tx.clone()),
                 collision: NewtonCollision::new_not_owned(collision as _),
                 owned: true,
+                destroyed: false,
             }));
 
             match &force_torque {
                 &Some(_) => unsafe {
                     ffi::NewtonBodySetForceAndTorqueCallback(
                         body_ptr,
-                        Some(super::callbacks::force_and_torque_callback::<T>),
+                        Some(super::callbacks::force_and_torque_callback::<B, C>),
                     );
                 },
                 _ => {}
@@ -350,38 +405,14 @@ impl<T: Types> Body<T> {
                 world: Shared::downgrade(&world_lock),
                 force_torque,
                 debug,
+                contained,
             });
 
             ffi::NewtonBodySetUserData(body_ptr, mem::transmute(userdata));
-            mem::forget(super::collision::userdata::<T>(collision));
+            mem::forget(super::collision::userdata::<B, C>(collision));
 
             Body(world_lock, body_lock, body_ptr)
         }
-    }
-
-    pub fn try_read(&self) -> Result<BodyLocked<T>> {
-        let world = self.0.try_read()?;
-        let body = self.1.try_read()?;
-        Ok(BodyLocked(world, body))
-    }
-
-    pub fn try_write(&self) -> Result<BodyLockedMut<T>> {
-        #[cfg(feature = "debug")]
-        let name = unsafe { userdata::<T>(self.2).debug };
-        #[cfg(not(feature = "debug"))]
-        let name = None;
-
-        let world = self.0.try_write(name)?;
-        let body = self.1.try_write(name)?;
-        Ok(BodyLockedMut(world, body))
-    }
-
-    pub fn read(&self) -> BodyLocked<T> {
-        self.try_read().unwrap()
-    }
-
-    pub fn write(&self) -> BodyLockedMut<T> {
-        self.try_write().unwrap()
     }
 }
 
@@ -400,7 +431,18 @@ pub enum FreezeState {
     Unfreeze = 0,
 }
 
-impl<T> NewtonBody<T> {
+impl<B, C> NewtonBody<B, C> {
+    pub(crate) unsafe fn null(world: Shared<Lock<NewtonWorld<B, C>>>) -> Self {
+        NewtonBody {
+            owned: false,
+            destroyed: false,
+            body: ptr::null_mut(),
+            collision: NewtonCollision::null(world.clone()),
+            world,
+            tx: None,
+        }
+    }
+
     pub fn set_material_id(&mut self, id: GroupId) {
         unsafe { ffi::NewtonBodySetMaterialGroupID(self.body, id.0) }
     }
@@ -408,35 +450,17 @@ impl<T> NewtonBody<T> {
     pub fn material_id(&self) -> GroupId {
         unsafe { GroupId(ffi::NewtonBodyGetMaterialGroupID(self.body)) }
     }
-}
-
-impl<T: Types> NewtonBody<T> {
-    pub fn add_impulse(&mut self, vel: &T::Vector, point: &T::Vector, step: Duration) {
-        unsafe {
-            ffi::NewtonBodyAddImpulse(
-                self.body,
-                mem::transmute(vel),
-                mem::transmute(point),
-                as_seconds(step),
-            )
-        }
-
-        fn as_seconds(step: Duration) -> f32 {
-            let nanos = step.as_secs() as f32 * 1_000_000_000.0 + step.subsec_nanos() as f32;
-            nanos / 1_000_000_000.0
-        }
-    }
 
     #[inline]
-    pub fn collision(&self) -> &NewtonCollision<T> {
+    pub fn collision(&self) -> &NewtonCollision<B, C> {
         &self.collision
     }
 
-    pub fn contact_joints(&self) -> Contacts<T> {
+    pub fn contact_joints(&self) -> Contacts {
         unimplemented!()
     }
 
-    pub fn joints(&self) -> Joints<T> {
+    pub fn joints(&self) -> Joints {
         unimplemented!()
     }
 
@@ -485,9 +509,66 @@ impl<T: Types> NewtonBody<T> {
         self.set_sleep_state(SleepState::Awake)
     }
 
+    #[inline]
+    pub fn id(&self) -> raw::c_int {
+        unsafe { ffi::NewtonBodyGetID(self.body) }
+    }
+
+    #[inline]
+    pub fn set_collidable(&mut self, collidable: bool) {
+        unsafe { ffi::NewtonBodySetCollidable(self.body, collidable as _) };
+    }
+
+    #[inline]
+    pub fn set_collision(&mut self, collision: &NewtonCollision<B, C>) {
+        unsafe {
+            let current_collision = ffi::NewtonBodyGetCollision(self.body);
+            let new_collision = collision.as_raw();
+
+            // decrement ref count of the collision
+            let _: Shared<super::collision::CollisionData<B, C>> =
+                mem::transmute(ffi::NewtonCollisionGetUserData(current_collision));
+
+            ffi::NewtonBodySetCollision(self.body, new_collision);
+            self.collision.collision = collision.as_raw() as _;
+
+            mem::forget(super::collision::userdata::<B, C>(new_collision));
+        }
+    }
+
+    /// Wraps a raw NewtonBody pointer
+    pub(crate) unsafe fn new_not_owned(body: *mut ffi::NewtonBody) -> Self {
+        let udata = userdata(body);
+        let collision = ffi::NewtonBodyGetCollision(body);
+        NewtonBody {
+            owned: false,
+            destroyed: false,
+            body,
+            world: Weak::upgrade(&udata.world).unwrap(),
+            collision: NewtonCollision::new_not_owned(collision),
+            tx: None,
+        }
+    }
+
+    pub fn add_impulse(&mut self, vel: &Vector, point: &Vector, step: Duration) {
+        unsafe {
+            ffi::NewtonBodyAddImpulse(
+                self.body,
+                mem::transmute(vel),
+                mem::transmute(point),
+                as_seconds(step),
+            )
+        }
+
+        fn as_seconds(step: Duration) -> f32 {
+            let nanos = step.as_secs() as f32 * 1_000_000_000.0 + step.subsec_nanos() as f32;
+            nanos / 1_000_000_000.0
+        }
+    }
+
     /// Returns the AABB in local space.
     #[inline]
-    pub fn aabb(&self) -> (T::Vector, T::Vector) {
+    pub fn aabb(&self) -> (Vector, Vector) {
         unsafe {
             let (mut min, mut max) = mem::zeroed();
             ffi::NewtonBodyGetAABB(
@@ -500,7 +581,7 @@ impl<T: Types> NewtonBody<T> {
     }
 
     /// Returns the AABB in world space
-    pub fn aabb_world(&self) -> (T::Vector, T::Vector) {
+    pub fn aabb_world(&self) -> (Vector, Vector) {
         unimplemented!()
     }
 
@@ -520,76 +601,48 @@ impl<T: Types> NewtonBody<T> {
     }
 
     #[inline]
-    pub fn set_angular_damping(&mut self, damping: &T::Vector) {
+    pub fn set_angular_damping(&mut self, damping: &Vector) {
         unsafe { ffi::NewtonBodySetAngularDamping(self.body, mem::transmute(damping)) };
     }
 
     #[inline]
-    pub fn set_matrix(&mut self, matrix: &T::Matrix) {
+    pub fn set_matrix(&mut self, matrix: &Matrix) {
         unsafe { ffi::NewtonBodySetMatrix(self.body, mem::transmute(matrix)) };
     }
 
     #[inline]
-    pub fn set_velocity(&mut self, matrix: &T::Vector) {
+    pub fn set_velocity(&mut self, matrix: &Vector) {
         unsafe { ffi::NewtonBodySetVelocity(self.body, mem::transmute(matrix)) };
     }
 
     #[inline]
-    pub fn set_force(&mut self, force: &T::Vector) {
+    pub fn set_force(&mut self, force: &Vector) {
         unsafe { ffi::NewtonBodySetForce(self.body, mem::transmute(force)) };
     }
 
     #[inline]
-    pub fn set_torque(&mut self, torque: &T::Vector) {
+    pub fn set_torque(&mut self, torque: &Vector) {
         unsafe { ffi::NewtonBodySetTorque(self.body, mem::transmute(torque)) };
     }
 
     #[inline]
-    pub fn id(&self) -> raw::c_int {
-        unsafe { ffi::NewtonBodyGetID(self.body) }
-    }
-
-    #[inline]
-    pub fn set_matrix_no_sleep(&mut self, matrix: &T::Matrix) {
+    pub fn set_matrix_no_sleep(&mut self, matrix: &Matrix) {
         unsafe { ffi::NewtonBodySetMatrixNoSleep(self.body, mem::transmute(matrix)) };
     }
 
-    // TODO test this
     #[inline]
-    pub fn set_collision(&mut self, collision: &NewtonCollision<T>) {
+    pub fn matrix(&self) -> Matrix {
         unsafe {
-            let current_collision = ffi::NewtonBodyGetCollision(self.body);
-            let new_collision = collision.as_raw();
-
-            // decrement ref count of the collision
-            let _: Shared<super::collision::CollisionData<T>> =
-                mem::transmute(ffi::NewtonCollisionGetUserData(current_collision));
-
-            ffi::NewtonBodySetCollision(self.body, new_collision);
-            self.collision.collision = collision.as_raw() as _;
-
-            mem::forget(super::collision::userdata::<T>(new_collision));
-        }
-    }
-
-    #[inline]
-    pub fn set_collidable(&mut self, collidable: bool) {
-        unsafe { ffi::NewtonBodySetCollidable(self.body, collidable as _) };
-    }
-
-    #[inline]
-    pub fn matrix(&self) -> T::Matrix {
-        unsafe {
-            let mut mat: T::Matrix = mem::zeroed();
+            let mut mat: Matrix = mem::zeroed();
             ffi::NewtonBodyGetMatrix(self.body, mem::transmute(&mut mat));
             mat
         }
     }
 
     #[inline]
-    pub fn position(&self) -> T::Vector {
+    pub fn position(&self) -> Vector {
         unsafe {
-            let mut pos: T::Vector = mem::zeroed();
+            let mut pos: Vector = mem::zeroed();
             ffi::NewtonBodyGetPosition(self.body, mem::transmute(&mut pos));
             pos
         }
@@ -607,31 +660,33 @@ impl<T: Types> NewtonBody<T> {
     */
 }
 
-impl<'a, T> Deref for BodyLocked<'a, T> {
-    type Target = NewtonBody<T>;
+impl<'a, B, C> Deref for BodyLocked<'a, B, C> {
+    type Target = NewtonBody<B, C>;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.1.deref()
     }
 }
 
-impl<'a, T> Deref for BodyLockedMut<'a, T> {
-    type Target = NewtonBody<T>;
+impl<'a, B, C> Deref for BodyLockedMut<'a, B, C> {
+    type Target = NewtonBody<B, C>;
 
+    #[inline]
     fn deref(&self) -> &Self::Target {
         self.1.deref()
     }
 }
 
-impl<'a, T> DerefMut for BodyLockedMut<'a, T> {
+impl<'a, B, C> DerefMut for BodyLockedMut<'a, B, C> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.1.deref_mut()
     }
 }
 
-impl<T> Drop for NewtonBody<T> {
+impl<B, C> Drop for NewtonBody<B, C> {
     fn drop(&mut self) {
-        if self.owned {
+        if self.owned && !self.destroyed {
             unsafe {
                 let body = self.body;
                 if let &Some(ref tx) = &self.tx {

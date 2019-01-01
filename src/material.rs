@@ -15,11 +15,11 @@ impl GroupId {
 }
 
 #[derive(Debug, Clone)]
-pub struct NewtonMaterial<T>(*mut ffi::NewtonMaterial, PhantomData<T>);
+pub struct NewtonMaterial(*mut ffi::NewtonMaterial);
 
-impl<T> NewtonMaterial<T> {
+impl NewtonMaterial {
     pub unsafe fn from_raw(mat: *mut ffi::NewtonMaterial) -> Self {
-        NewtonMaterial(mat, PhantomData)
+        NewtonMaterial(mat)
     }
 
     /// Get material as a raw pointer
@@ -37,7 +37,7 @@ pub(crate) fn create_materials<T: Materials>(world: *mut ffi::NewtonWorld) -> T 
     unsafe { T::from(world) }
 }
 
-impl<T> NewtonMaterial<T> {
+impl NewtonMaterial {
     /// Override the default value of the kinetic coefficient of friction for this contact.
     pub fn set_friction(&mut self, static_coef: f32, kinematic_coef: f32, index: raw::c_int) {
         assert!(static_coef >= 0.0 && kinematic_coef >= 0.0);

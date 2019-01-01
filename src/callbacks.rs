@@ -3,13 +3,12 @@ use ffi;
 use super::body::NewtonBody;
 use super::collision::NewtonCollision;
 use super::material::NewtonMaterial;
-use super::Types;
 
 use std::mem;
 use std::os::raw;
 use std::time::Duration;
 
-pub unsafe extern "C" fn force_and_torque_callback<T: Types>(
+pub unsafe extern "C" fn force_and_torque_callback<B, C>(
     body: *const ffi::NewtonBody,
     timestep: raw::c_float,
     thread: raw::c_int,
@@ -21,27 +20,28 @@ pub unsafe extern "C" fn force_and_torque_callback<T: Types>(
     }
 
     // TODO refactor
-    let body_udata = super::body::userdata::<T>(body);
+    let body_udata = super::body::userdata::<B, C>(body);
 
     if let &Some(ref callback) = &body_udata.force_torque {
-        let mut body = NewtonBody::<T>::new_not_owned(body as _);
+        let mut body = NewtonBody::new_not_owned(body as _);
         callback(&mut body, to_duration(timestep), thread);
     }
 }
 
-pub unsafe extern "C" fn aabb_overlap_callback<T, C>(
+pub unsafe extern "C" fn aabb_overlap_callback<B, C, Callback>(
     material: *const ffi::NewtonMaterial,
     body0: *const ffi::NewtonBody,
     body1: *const ffi::NewtonBody,
     thread_index: raw::c_int,
 ) -> raw::c_int
 where
-    C: Fn(&NewtonMaterial<T>, &NewtonBody<T>, &NewtonBody<T>, raw::c_int) -> bool + 'static,
+    Callback:
+        Fn(&NewtonMaterial, &NewtonBody<B, C>, &NewtonBody<B, C>, raw::c_int) -> bool + 'static,
 {
     let userdata = ffi::NewtonMaterialGetMaterialPairUserData(material);
 
     if !userdata.is_null() {
-        let boxed_callback: Box<C> = Box::from_raw(userdata as _);
+        let boxed_callback: Box<Callback> = Box::from_raw(userdata as _);
         //let resol = boxed_callback();
 
         let material = NewtonMaterial::from_raw(material as _);
@@ -60,6 +60,16 @@ where
     } else {
         1
     }
+}
+
+pub unsafe extern "C" fn contacts_process_callback(
+    contact: *const ffi::NewtonJoint,
+    timestep: f32,
+    thread_index: raw::c_int,
+) {
+    let material = ffi::NewtonContactGetMaterial(contact as _);
+    eprintln!("{:?}", material);
+    //println!("hit");
 }
 
 pub unsafe extern "C" fn contact_generation_callback(
