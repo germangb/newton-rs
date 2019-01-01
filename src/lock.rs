@@ -58,7 +58,8 @@ impl<T> Lock<T> {
     }
 
     pub fn read(&self) -> Locked<T> {
-        self.try_read().unwrap()
+        let lock = self.inner.read().unwrap();
+        lock
     }
 
     pub fn try_read(&self) -> Result<Locked<T>> {
@@ -78,7 +79,9 @@ impl<T> Lock<T> {
     }
 
     pub fn write(&self, writer: Option<&'static str>) -> LockedMut<T> {
-        self.try_write(writer).unwrap()
+        let lock = self.inner.write().unwrap();
+        self.writer.set(writer);
+        lock
     }
 
     pub fn try_write(&self, writer: Option<&'static str>) -> Result<LockedMut<T>> {

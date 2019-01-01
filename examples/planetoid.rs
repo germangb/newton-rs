@@ -12,7 +12,6 @@ use std::sync::mpsc::{self, Receiver, Sender};
 fn main() {
     let world: World<(), ()> = World::default();
 
-    let (tx, rx) = mpsc::channel();
     let (pm, sm) = world.write().create_materials();
 
     let cube = collision::Builder::new(&mut world.write())
@@ -43,25 +42,24 @@ fn main() {
     let s = Duration::new(0, 1000000000 / 60);
     sat.write().add_impulse(&vec3(0.0, 8.0, 4.0), &sat_pos, s);
 
+    let (tx, rx) = mpsc::channel::<()>();
+
     // Destroy sat after 4 seconds
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::new(4, 0));
-        println!("bye bye");
-        sat.write().destroy();
+        if let Ok(_) = rx.recv() {
+            sat.write().destroy();
+            //drop(sat);
+        }
     });
 
     world
         .write()
         .material_set_collision_callback((pm, sm), move |_m, _b0, _b1, _| {
-            tx.send(());
+            &tx.send(());
             true
         });
 
-    world.write().update(s);
-    run(world);
-}
+    //world.write().update(s);
 
-fn run(world: World<(), ()>) {
-    let ptr = world.read().as_raw();
-    sandbox::run(ptr);
+    sandbox::run(world);
 }

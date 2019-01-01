@@ -226,12 +226,17 @@ impl<B, C> World<B, C> {
 
     #[inline]
     pub fn read(&self) -> WorldLocked<B, C> {
-        self.try_read().unwrap()
+        WorldLocked(self.0.read())
     }
 
     #[inline]
     pub fn write(&self) -> WorldLockedMut<B, C> {
-        self.try_write().unwrap()
+        #[cfg(feature = "debug")]
+        let udata = unsafe { userdata::<B, C>(self.1).debug };
+        #[cfg(not(feature = "debug"))]
+        let udata = None;
+
+        WorldLockedMut(self.0.write(udata))
     }
 }
 

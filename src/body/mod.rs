@@ -345,11 +345,20 @@ impl<B, C> Body<B, C> {
     }
 
     pub fn read(&self) -> BodyLocked<B, C> {
-        self.try_read().unwrap()
+        let world = self.0.read();
+        let body = self.1.read();
+        BodyLocked(world, body)
     }
 
     pub fn write(&self) -> BodyLockedMut<B, C> {
-        self.try_write().unwrap()
+        #[cfg(feature = "debug")]
+        let name = unsafe { userdata::<B, C>(self.2).debug };
+        #[cfg(not(feature = "debug"))]
+        let name = None;
+
+        let world = self.0.write(name);
+        let body = self.1.write(name);
+        BodyLockedMut(world, body)
     }
 
     fn new(
@@ -686,12 +695,13 @@ impl<'a, B, C> DerefMut for BodyLockedMut<'a, B, C> {
 
 impl<B, C> Drop for NewtonBody<B, C> {
     fn drop(&mut self) {
-        if self.owned && !self.destroyed {
-            unsafe {
-                let body = self.body;
-                if let &Some(ref tx) = &self.tx {
-                    tx.send(Command::DestroyBody(body)).unwrap();
-                }
+        if self.destroyed || !self.owned {
+            return;
+        }
+
+        unsafe {
+            if let &Some(ref tx) = &self.tx {
+                tx.send(Command::DestroyBody(self.body)).unwrap();
             }
         }
     }
