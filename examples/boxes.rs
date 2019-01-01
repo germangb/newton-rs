@@ -101,20 +101,14 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
 }
 
 fn main() {
-    let world: World<Cgmath> = world::Builder::new()
-        .force_torque_callback(|b, _, _| b.set_force(&vec3(0.0, -9.8, 0.0)))
-        .contact_gen_callback(|mat, _, _, _, _, _| {
-            mat.set_elasticity(0.01);
-            true
-        })
-        .build();
+    let world: World<Cgmath> = world::Builder::new().max_threads().build();
 
-    let (mat_a, mat_b) = world.write().create_materials();
-    //world.write().handle_contact(mat_a, mat_b);
-
-    unsafe {
-        newton::ffi::NewtonMaterialSetDefaultElasticity(world.read().as_raw(), mat_a, mat_b, 0.0);
-    }
+    let mat = world.write().create_materials();
+    world
+        .write()
+        .material_set_collision_callback(mat, |_, _, _, _| true);
+    world.write().material_set_friction(mat, 4.0, 4.0);
+    world.write().material_set_elasticity(mat, 0.0);
 
     // collision pool
     let pool = {
@@ -124,7 +118,7 @@ fn main() {
                 .cuboid(24.0, 1.0, 24.0)
                 .build(),
             collision::Builder::new(&mut world)
-                .cuboid(0.75, 0.75, 0.75)
+                .cuboid(0.95, 0.95, 0.95)
                 .build(),
         ]
     };
@@ -134,16 +128,16 @@ fn main() {
         .build();
     drop(floor);
 
-    let transforms = (0..16 * 8)
+    let transforms = (0..16 * 4)
         .map(|i| (i % 16 / 4, i / 16, i % 16 % 4))
         .map(|(x, y, z)| vec3(x as f32, y as f32, z as f32))
-        .map(|p| Matrix4::from_translation(p - vec3(1.5, -3.0, 1.5)));
+        .map(|p| Matrix4::from_translation((p - vec3(1.5, -1.5, 1.5))));
 
     let cubes: Vec<_> = transforms
         .map(|p| {
             let cube: Body<Cgmath> = body::Builder::new(&mut world.write(), &pool[1].read())
-                .material(mat_b)
-                .inherit()
+                .force_torque_callback(|b, _, _| b.set_force(&vec3(0.0, -9.8, 0.0)))
+                .material(mat.1)
                 .transform(p)
                 .build();
             let g = vec3(0.0, -9.8, 0.0);
@@ -169,7 +163,7 @@ fn main() {
         .build();
 
     let terrain = body::Builder::new(&mut world.write(), &collision.read())
-        .material(mat_a)
+        .material(mat.0)
         .dynamic()
         .transform(pos(0.0, 0.0, 0.0))
         .build();

@@ -28,11 +28,6 @@ fn channel<T>() -> (Tx<T>, Rx<T>) {
     mpsc::channel()
 }
 
-/// Memory used by the Newton engine, in bytes
-fn memory_used() -> usize {
-    unsafe { ffi::NewtonGetMemoryUsed() as usize }
-}
-
 pub unsafe trait Types: Clone {
     /// Vector 3D type. It must have a memory layout of 3 consecutive `f32`.
     type Vector: Copy + Sync + Send;

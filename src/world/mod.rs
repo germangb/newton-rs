@@ -41,23 +41,6 @@ pub struct WorldData<T> {
     pub(crate) world: Weak<Lock<NewtonWorld<T>>>,
     /// Debug name
     debug: Option<&'static str>,
-    /// Force and torque callback
-    pub(crate) force_torque: Option<Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>>,
-    /// Contact generation callback
-    contact_gen: Option<
-        Box<
-            dyn Fn(
-                &mut NewtonMaterial<T>,
-                &NewtonBody<T>,
-                &NewtonCollision<T>,
-                &NewtonBody<T>,
-                &NewtonCollision<T>,
-                &[()],
-            ) -> bool,
-        >,
-    >,
-    /// Collision callback
-    collision: Option<Box<dyn Fn(&mut NewtonMaterial<T>, &NewtonBody<T>, &NewtonBody<T>)>>,
     /// A Tx end of the command channel, to recover it quickly from the userdata.
     tx: Tx<Command>,
 }
@@ -72,20 +55,7 @@ pub struct Builder<T> {
     threads: usize,
     broad: Broadphase,
     debug: Option<&'static str>,
-    force_torque: Option<Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>>,
-    contact_gen: Option<
-        Box<
-            dyn Fn(
-                &mut NewtonMaterial<T>,
-                &NewtonBody<T>,
-                &NewtonCollision<T>,
-                &NewtonBody<T>,
-                &NewtonCollision<T>,
-                &[()],
-            ) -> bool,
-        >,
-    >,
-    collision: Option<Box<dyn Fn(&mut NewtonMaterial<T>, &NewtonBody<T>, &NewtonBody<T>)>>,
+    _phantom: PhantomData<T>,
 }
 
 impl<T> Builder<T> {
@@ -95,36 +65,8 @@ impl<T> Builder<T> {
             threads: 1,
             broad: Broadphase::Default,
             debug: None,
-            force_torque: None,
-            contact_gen: None,
-            collision: None,
+            _phantom: PhantomData,
         }
-    }
-
-    /// Set the contact generation callback used in material interaction
-    pub fn contact_gen_callback<C>(mut self, callback: C) -> Self
-    where
-        C: Fn(
-                &mut NewtonMaterial<T>,
-                &NewtonBody<T>,
-                &NewtonCollision<T>,
-                &NewtonBody<T>,
-                &NewtonCollision<T>,
-                &[()],
-            ) -> bool
-            + 'static,
-    {
-        self.contact_gen = Some(Box::new(callback));
-        self
-    }
-
-    /// Set the force and torque callback
-    pub fn force_torque_callback<C>(mut self, callback: C) -> Self
-    where
-        C: Fn(&mut NewtonBody<T>, Duration, raw::c_int) + 'static,
-    {
-        self.force_torque = Some(Box::new(callback));
-        self
     }
 
     pub fn threads(mut self, th: usize) -> Self {
@@ -165,15 +107,7 @@ impl<T> Builder<T> {
     }
 
     pub fn build(self) -> World<T> {
-        World::new(
-            self.broad,
-            self.solver,
-            self.threads,
-            self.debug,
-            self.force_torque,
-            self.contact_gen,
-            self.collision,
-        )
+        World::new(self.broad, self.solver, self.threads, self.debug)
     }
 }
 
@@ -223,6 +157,13 @@ impl<'a, T> WorldUpdateAsync<'a, T> {
     pub fn finish(self) {}
 }
 
+impl<T> Default for World<T> {
+    #[inline]
+    fn default() -> Self {
+        World::new(Broadphase::Default, Solver::Exact, 1, None)
+    }
+}
+
 impl<T> World<T> {
     /// Creates a new World
     pub fn new(
@@ -230,20 +171,6 @@ impl<T> World<T> {
         solver: Solver,
         threads: usize,
         debug: Option<&'static str>,
-        force_torque: Option<Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>>,
-        contact_gen: Option<
-            Box<
-                dyn Fn(
-                    &mut NewtonMaterial<T>,
-                    &NewtonBody<T>,
-                    &NewtonCollision<T>,
-                    &NewtonBody<T>,
-                    &NewtonCollision<T>,
-                    &[()],
-                ) -> bool,
-            >,
-        >,
-        collision: Option<Box<dyn Fn(&mut NewtonMaterial<T>, &NewtonBody<T>, &NewtonBody<T>)>>,
     ) -> Self {
         let newton_world = create_world::<T>();
 
@@ -254,9 +181,6 @@ impl<T> World<T> {
         let userdata = Shared::new(WorldData {
             world: Shared::downgrade(&lock),
             tx,
-            force_torque,
-            contact_gen,
-            collision,
             debug,
         });
 
@@ -573,21 +497,67 @@ impl<T> NewtonWorld<T> {
         unsafe { M::from(self.world) }
     }
 
-    /// Handle contacts between two groups
-    pub fn handle_contact(&mut self, u: GroupId, v: GroupId) {
-        unsafe {
-            ffi::NewtonMaterialSetContactGenerationCallback(
-                self.world,
-                u,
-                v,
-                Some(super::callbacks::contact_generation_callback),
-            )
-        }
+    #[inline]
+    pub fn material_set_thickness(&mut self, (u, v): (GroupId, GroupId), thick: f32) {
+        assert!(thick >= 0.0);
+        unsafe { ffi::NewtonMaterialSetSurfaceThickness(self.world, u.0, v.0, thick) };
     }
 
-    /// Handle collisions between two
-    pub fn handle_collision(&mut self, u: GroupId, v: GroupId) {
-        unimplemented!()
+    #[inline]
+    pub fn material_set_friction(&mut self, (u, v): (GroupId, GroupId), fs: f32, fk: f32) {
+        assert!(fs >= 0.0 && fk >= 0.0);
+        unsafe { ffi::NewtonMaterialSetDefaultFriction(self.world, u.0, v.0, fs, fk) };
+    }
+
+    #[inline]
+    pub fn material_set_elasticity(&mut self, (u, v): (GroupId, GroupId), rest: f32) {
+        assert!(rest >= 0.0);
+        unsafe { ffi::NewtonMaterialSetDefaultElasticity(self.world, u.0, v.0, rest) };
+    }
+
+    #[inline]
+    pub fn material_set_softness(&mut self, (u, v): (GroupId, GroupId), soft: f32) {
+        assert!(soft >= 0.0);
+        unsafe { ffi::NewtonMaterialSetDefaultSoftness(self.world, u.0, v.0, soft) };
+    }
+
+    #[inline]
+    pub fn material_set_collidable(&mut self, (u, v): (GroupId, GroupId), collid: bool) {
+        unsafe {
+            ffi::NewtonMaterialSetDefaultCollidable(
+                self.world,
+                u.0,
+                v.0,
+                if collid { 1 } else { 0 },
+            )
+        };
+    }
+
+    pub fn material_set_collision_callback<C>(&mut self, (u, v): (GroupId, GroupId), callback: C)
+    where
+        C: Fn(&NewtonMaterial<T>, &NewtonBody<T>, &NewtonBody<T>, raw::c_int) -> bool + 'static,
+    {
+        unsafe {
+            // free any previously set callback
+            let udata = ffi::NewtonMaterialGetUserData(self.world, u.0, v.0);
+            if !udata.is_null() {
+                let boxed_callback: Box<C> = Box::from_raw(udata as _);
+            }
+
+            ffi::NewtonMaterialSetCallbackUserData(
+                self.world,
+                u.0,
+                v.0,
+                mem::transmute(Box::new(callback)),
+            );
+            ffi::NewtonMaterialSetCollisionCallback(
+                self.world,
+                u.0,
+                v.0,
+                Some(super::callbacks::aabb_overlap_callback::<T, C>),
+                None,
+            )
+        }
     }
 
     /// Returns a body iterator
@@ -622,6 +592,7 @@ impl<T> NewtonWorld<T> {
         }
     }
 
+    #[inline]
     pub fn body_count(&self) -> raw::c_int {
         unsafe { ffi::NewtonWorldGetBodyCount(self.world) }
     }
@@ -645,14 +616,17 @@ impl<T> NewtonWorld<T> {
         unsafe { ffi::NewtonUpdate(self.world, as_seconds(step)) }
     }
 
+    #[inline]
     pub fn invalidate_cache(&mut self) {
         unsafe { ffi::NewtonInvalidateCache(self.world) }
     }
 
+    #[inline]
     pub fn as_raw(&self) -> *const ffi::NewtonWorld {
         self.world
     }
 
+    #[inline]
     pub fn as_raw_mut(&mut self) -> *mut ffi::NewtonWorld {
         self.world
     }
@@ -664,6 +638,25 @@ impl<T> NewtonWorld<T> {
                     unsafe { super::body::drop_body::<T>(b) };
                 }
             }
+        }
+    }
+
+    // TODO Is this a Hack? It looks like a Hack
+    fn destroy_materials<C>(&mut self, _: C)
+    where
+        C: Fn(&NewtonMaterial<T>, &NewtonBody<T>, &NewtonBody<T>, raw::c_int) -> bool + 'static,
+    {
+        unsafe {
+            ffi::NewtonMaterialDestroyAllGroupID(self.world);
+            let mut material = ffi::NewtonWorldGetFirstMaterial(self.world);
+            while !material.is_null() {
+                let udata = ffi::NewtonMaterialGetMaterialPairUserData(material);
+                if !udata.is_null() {
+                    let boxed_callback: Box<C> = Box::from_raw(udata as _);
+                }
+                material = ffi::NewtonWorldGetNextMaterial(self.world, material);
+            }
+            ffi::NewtonMaterialDestroyAllGroupID(self.world);
         }
     }
 }
@@ -700,7 +693,7 @@ impl<T> Drop for NewtonWorld<T> {
         self.flush_commands();
         unsafe {
             let _: Shared<WorldData<T>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
-            ffi::NewtonMaterialDestroyAllGroupID(world);
+            self.destroy_materials(|_, _, _, _| false);
             ffi::NewtonDestroyAllBodies(world);
             ffi::NewtonDestroy(world);
         }

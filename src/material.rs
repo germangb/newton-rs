@@ -4,10 +4,29 @@ use std::marker::PhantomData;
 use std::os::raw;
 
 /// Material group ID
-pub type GroupId = raw::c_int;
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct GroupId(pub(crate) raw::c_int);
+
+impl GroupId {
+    #[inline]
+    pub fn as_raw(&self) -> raw::c_int {
+        self.0
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct NewtonMaterial<T>(*mut ffi::NewtonMaterial, PhantomData<T>);
+
+impl<T> NewtonMaterial<T> {
+    pub unsafe fn from_raw(mat: *mut ffi::NewtonMaterial) -> Self {
+        NewtonMaterial(mat, PhantomData)
+    }
+
+    /// Get material as a raw pointer
+    pub fn as_raw(&self) -> *const ffi::NewtonMaterial {
+        self.0
+    }
+}
 
 /// Trait to generate touples of `GroupId`s
 pub trait Materials: Sized {
@@ -48,7 +67,7 @@ macro_rules! materials {
 impl Materials for GroupId {
     #[inline]
     unsafe fn from(world: *mut ffi::NewtonWorld) -> Self {
-        ffi::NewtonMaterialCreateGroupID(world)
+        GroupId(ffi::NewtonMaterialCreateGroupID(world))
     }
 }
 

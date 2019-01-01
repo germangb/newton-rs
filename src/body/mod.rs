@@ -24,15 +24,6 @@ pub struct Body<T>(
     *const ffi::NewtonBody,
 );
 
-pub enum ForceTorqueCallback<T> {
-    /// Don't set a force and torque callback
-    None,
-    /// Use the global callback. The one defined in the `world::Builder`.
-    Inherit,
-    /// Callback unique to the `NewtonBody`
-    Owned(Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>),
-}
-
 unsafe impl<T> Send for Body<T> {}
 unsafe impl<T> Sync for Body<T> {}
 
@@ -40,14 +31,11 @@ unsafe impl<T> Sync for Body<T> {}
 pub struct NewtonBody<T> {
     // TODO remove pub(crate). It is used by the convex cast
     pub(crate) body: *mut ffi::NewtonBody,
-
     /// Bodies must be dropped before the world is.
     world: Shared<Lock<NewtonWorld<T>>>,
-
     // TODO remove pub(crate). It is used by the convex cast
     /// A non-owned `NewtonCollision`
     pub(crate) collision: NewtonCollision<T>,
-
     /// Owned `NewtonBody`s, when dropped, are destroyed and therefore removed from the simulation
     owned: bool,
     /// The Tx end of the command channel. Only for owned variants,
@@ -70,7 +58,7 @@ pub struct Builder<'a, 'b, T: Types> {
     world: &'a mut NewtonWorld<T>,
     collision: &'b NewtonCollision<T>,
     /// Force and torque callback
-    force_torque: ForceTorqueCallback<T>,
+    force_torque: Option<Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>>,
     /// Type of the body (Dynamic or Kinematic)
     type_: Type,
     /// A name given to the collision.
@@ -79,6 +67,10 @@ pub struct Builder<'a, 'b, T: Types> {
     transform: Option<T::Matrix>,
     /// Material group ID
     material_group: GroupId,
+    /// Continuous collision enabled/disabled
+    continuous: bool,
+    /// Mass
+    mass: f32,
 }
 
 impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
@@ -87,23 +79,25 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
         Builder {
             world,
             collision,
-            force_torque: ForceTorqueCallback::Inherit,
+            force_torque: None,
             type_: Type::Dynamic,
             debug: None,
             transform: None,
-            material_group: unsafe { ffi::NewtonMaterialGetDefaultGroupID(world_ptr) },
+            material_group: unsafe { GroupId(ffi::NewtonMaterialGetDefaultGroupID(world_ptr)) },
+            continuous: false,
+            mass: 0.0,
         }
+    }
+
+    /// Enable continuous collision mode
+    pub fn continuous(mut self) -> Self {
+        self.continuous = true;
+        self
     }
 
     /// Sets material `GroupID`
     pub fn material(mut self, group: GroupId) -> Self {
         self.material_group = group;
-        self
-    }
-
-    /// Inherit default callbacks from World
-    pub fn inherit(mut self) -> Self {
-        self.force_torque = ForceTorqueCallback::Inherit;
         self
     }
 
@@ -113,7 +107,7 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
     where
         C: Fn(&mut NewtonBody<T>, Duration, raw::c_int) + 'static,
     {
-        self.force_torque = ForceTorqueCallback::Owned(Box::new(callback));
+        self.force_torque = Some(Box::new(callback));
         self
     }
 
@@ -127,7 +121,14 @@ impl<'a, 'b, T: Types> Builder<'a, 'b, T> {
             self.debug,
             self.force_torque,
             self.material_group,
+            self.continuous,
+            self.mass,
         )
+    }
+
+    pub fn mass(mut self, mass: f32) -> Self {
+        self.mass = mass;
+        self
     }
 
     pub fn transform(mut self, transform: T::Matrix) -> Self {
@@ -269,26 +270,23 @@ impl<T> Body<T> {
 }
 
 impl<T: Types> Body<T> {
-    /*
-    pub fn builder<'a, 'b>(world: &'a mut NewtonWorld<T>, collision: &'b NewtonCollision<T>) -> Builder<'a, 'b, T> {
-        Builder::new(world, collision)
-    }
-    */
     pub fn new(
         world: &mut NewtonWorld<T>,
         collision: &NewtonCollision<T>,
-        ty: Type,
+        type_: Type,
         matrix: &T::Matrix,
         debug: Option<&'static str>,
-        force_torque: ForceTorqueCallback<T>,
+        force_torque: Option<Box<dyn Fn(&mut NewtonBody<T>, Duration, raw::c_int)>>,
         material: GroupId,
+        continuous: bool,
+        mass: f32,
     ) -> Self {
         let collision = collision.as_raw();
         let world_ptr = world.as_raw_mut();
 
         unsafe {
             let transform = mem::transmute(matrix);
-            let body_ptr = match ty {
+            let body_ptr = match type_ {
                 Type::Dynamic => ffi::NewtonCreateDynamicBody(world_ptr, collision, transform),
                 Type::Kinematic => ffi::NewtonCreateKinematicBody(world_ptr, collision, transform),
             };
@@ -305,7 +303,7 @@ impl<T: Types> Body<T> {
             }));
 
             match &force_torque {
-                &ForceTorqueCallback::Inherit | &ForceTorqueCallback::Owned(_) => unsafe {
+                &Some(_) => unsafe {
                     ffi::NewtonBodySetForceAndTorqueCallback(
                         body_ptr,
                         Some(super::callbacks::force_and_torque_callback::<T>),
@@ -314,15 +312,14 @@ impl<T: Types> Body<T> {
                 _ => {}
             }
 
-            ffi::NewtonBodySetMaterialGroupID(body_ptr, material);
+            ffi::NewtonBodySetMaterialGroupID(body_ptr, material.0);
+            ffi::NewtonBodySetContinuousCollisionMode(body_ptr, if continuous { 1 } else { 0 });
+            ffi::NewtonBodySetMassProperties(body_ptr, mass, collision);
 
             let userdata = Shared::new(BodyData {
                 body: Shared::downgrade(&body_lock),
                 world: Shared::downgrade(&world_lock),
-                force_torque: match force_torque {
-                    ForceTorqueCallback::Owned(call) => Some(call),
-                    _ => None,
-                },
+                force_torque,
                 debug,
             });
 
@@ -341,18 +338,13 @@ impl<T: Types> Body<T> {
 
     pub fn try_write(&self) -> Result<BodyLockedMut<T>> {
         #[cfg(feature = "debug")]
-        {
-            let udata = unsafe { userdata::<T>(self.2) };
-            let world = self.0.try_write(udata.debug)?;
-            let body = self.1.try_write(udata.debug)?;
-            Ok(BodyLockedMut(world, body))
-        }
+        let name = unsafe { userdata::<T>(self.2).debug };
         #[cfg(not(feature = "debug"))]
-        {
-            let world = self.0.try_write(None)?;
-            let body = self.1.try_write(None)?;
-            Ok(BodyLockedMut(world, body))
-        }
+        let name = None;
+
+        let world = self.0.try_write(name)?;
+        let body = self.1.try_write(name)?;
+        Ok(BodyLockedMut(world, body))
     }
 
     pub fn read(&self) -> BodyLocked<T> {
@@ -380,16 +372,32 @@ pub enum FreezeState {
 }
 
 impl<T> NewtonBody<T> {
-    pub fn set_material_id(&mut self, id: raw::c_int) {
-        unsafe { ffi::NewtonBodySetMaterialGroupID(self.body, id) }
+    pub fn set_material_id(&mut self, id: GroupId) {
+        unsafe { ffi::NewtonBodySetMaterialGroupID(self.body, id.0) }
     }
 
-    pub fn material_id(&self) -> raw::c_int {
-        unsafe { ffi::NewtonBodyGetMaterialGroupID(self.body) }
+    pub fn material_id(&self) -> GroupId {
+        unsafe { GroupId(ffi::NewtonBodyGetMaterialGroupID(self.body)) }
     }
 }
 
 impl<T: Types> NewtonBody<T> {
+    pub fn add_impulse(&mut self, vel: &T::Vector, point: &T::Vector, step: Duration) {
+        unsafe {
+            ffi::NewtonBodyAddImpulse(
+                self.body,
+                mem::transmute(vel),
+                mem::transmute(point),
+                as_seconds(step),
+            )
+        }
+
+        fn as_seconds(step: Duration) -> f32 {
+            let nanos = step.as_secs() as f32 * 1_000_000_000.0 + step.subsec_nanos() as f32;
+            nanos / 1_000_000_000.0
+        }
+    }
+
     #[inline]
     pub fn collision(&self) -> &NewtonCollision<T> {
         &self.collision
@@ -467,6 +475,7 @@ impl<T: Types> NewtonBody<T> {
         unimplemented!()
     }
 
+    /*
     #[inline]
     pub fn set_mass(&mut self, mass: f32) {
         unsafe {
@@ -474,10 +483,16 @@ impl<T: Types> NewtonBody<T> {
             ffi::NewtonBodySetMassProperties(self.body, mass, collision);
         }
     }
+    */
 
     #[inline]
     pub fn set_linear_damping(&mut self, damping: f32) {
         unsafe { ffi::NewtonBodySetLinearDamping(self.body, damping) };
+    }
+
+    #[inline]
+    pub fn set_angular_damping(&mut self, damping: &T::Vector) {
+        unsafe { ffi::NewtonBodySetAngularDamping(self.body, mem::transmute(damping)) };
     }
 
     #[inline]

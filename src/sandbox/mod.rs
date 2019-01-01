@@ -472,9 +472,9 @@ impl Sandbox {
                 let step_dur = Duration::new(0, step as u32);
 
                 unsafe {
-                    //ffi::NewtonWaitForUpdateToFinish(self.world);
-                    ffi::NewtonUpdate(self.world, step / 1_000_000_000.0);
-                    //ffi::NewtonUpdateAsync(self.world, step / 1_000_000_000.0);
+                    ffi::NewtonWaitForUpdateToFinish(self.world);
+                    //ffi::NewtonUpdate(self.world, step / 1_000_000_000.0);
+                    ffi::NewtonUpdateAsync(self.world, step / 1_000_000_000.0);
                 }
 
                 self.elapsed += step_dur;
@@ -549,6 +549,7 @@ impl Sandbox {
                 ui.checkbox(im_str!("Simulate"), &mut self.simulate);
                 if ui.button(im_str!("Invalidate"), (100.0, 24.0)) {
                     unsafe {
+                        ffi::NewtonWaitForUpdateToFinish(self.world);
                         ffi::NewtonInvalidateCache(self.world);
                     }
                 }
