@@ -68,7 +68,7 @@ pub unsafe extern "C" fn contacts_process_callback(
     thread_index: raw::c_int,
 ) {
     let material = ffi::NewtonContactGetMaterial(contact as _);
-    eprintln!("{:?}", material);
+    //eprintln!("{:?}", material);
     //println!("hit");
 }
 

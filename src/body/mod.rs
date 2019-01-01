@@ -69,8 +69,8 @@ pub struct NewtonBody<B, C> {
     tx: Option<Tx<Command>>,
 }
 
-#[doc(hidden)]
-pub struct BodyData<B, C> {
+//#[doc(hidden)]
+pub struct NewtonBodyData<B, C> {
     /// A reference to the World context so it can be referenced in callbacks and so on
     world: Weak<Lock<NewtonWorld<B, C>>>,
     /// A reference to itself
@@ -81,6 +81,24 @@ pub struct BodyData<B, C> {
     pub(crate) force_torque: Option<Box<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
     /// Contained value
     contained: Option<B>,
+}
+
+impl<B, C> Drop for NewtonBodyData<B, C> {
+    fn drop(&mut self) {
+        println!("DROP NewtonBodyData");
+    }
+}
+
+impl<B, C> NewtonBodyData<B, C> {
+    /// Gets body data
+    pub fn from(body: &NewtonBody<B, C>) -> Shared<Self> {
+        unsafe { userdata(body.as_raw()) }
+    }
+
+    /// Gets the actual data
+    pub fn get(&self) -> Option<&B> {
+        self.contained.as_ref()
+    }
 }
 
 pub struct BodyBuilder<'a, 'b, B, C> {
@@ -191,19 +209,20 @@ impl<'a, 'b, B, C> BodyBuilder<'a, 'b, B, C> {
 }
 
 pub(crate) unsafe fn drop_body<B, C>(body: *const ffi::NewtonBody) {
+    eprintln!("DROP body");
     let collision = ffi::NewtonBodyGetCollision(body);
 
-    let _: Shared<BodyData<B, C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+    let _: Shared<NewtonBodyData<B, C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
 
     // decrement ref count of the collision
-    let _: Shared<super::collision::CollisionData<B, C>> =
+    let _: Shared<super::collision::NewtonCollisionData<B, C>> =
         mem::transmute(ffi::NewtonCollisionGetUserData(collision));
 
     ffi::NewtonDestroyBody(body);
 }
 
-pub(crate) unsafe fn userdata<B, C>(body: *const ffi::NewtonBody) -> Shared<BodyData<B, C>> {
-    let udata: Shared<BodyData<B, C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
+pub(crate) unsafe fn userdata<B, C>(body: *const ffi::NewtonBody) -> Shared<NewtonBodyData<B, C>> {
+    let udata: Shared<NewtonBodyData<B, C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));
     let udata_cloned = udata.clone();
     mem::forget(udata);
     udata_cloned
@@ -416,7 +435,7 @@ impl<B, C> Body<B, C> {
             ffi::NewtonBodySetContinuousCollisionMode(body_ptr, if continuous { 1 } else { 0 });
             ffi::NewtonBodySetMassProperties(body_ptr, mass, collision);
 
-            let userdata = Shared::new(BodyData {
+            let userdata = Shared::new(NewtonBodyData {
                 body: Shared::downgrade(&body_lock),
                 world: Shared::downgrade(&world_lock),
                 force_torque,
@@ -542,7 +561,7 @@ impl<B, C> NewtonBody<B, C> {
             let new_collision = collision.as_raw();
 
             // decrement ref count of the collision
-            let _: Shared<super::collision::CollisionData<B, C>> =
+            let _: Shared<super::collision::NewtonCollisionData<B, C>> =
                 mem::transmute(ffi::NewtonCollisionGetUserData(current_collision));
 
             ffi::NewtonBodySetCollision(self.body, new_collision);
@@ -707,8 +726,14 @@ impl<B, C> Drop for NewtonBody<B, C> {
         }
 
         unsafe {
-            if let &Some(ref tx) = &self.tx {
-                tx.send(Command::DestroyBody(self.body)).unwrap();
+            if let Ok(b) = self.world.try_write(None) {
+                drop_body::<B, C>(self.body)
+            } else {
+                self.tx
+                    .as_ref()
+                    .unwrap()
+                    .send(Command::DestroyBody(self.body))
+                    .unwrap();
             }
         }
     }

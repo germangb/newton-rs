@@ -1,6 +1,6 @@
 use ffi;
 
-use super::body::{BodyData, BodyLocked, NewtonBodies, NewtonBodiesMut, NewtonBody};
+use super::body::{BodyLocked, NewtonBodies, NewtonBodiesMut, NewtonBody, NewtonBodyData};
 use super::collision::NewtonCollision;
 //use super::contact::Contacts;
 use super::lock::{Lock, LockError, Locked, LockedMut};
@@ -42,7 +42,7 @@ pub struct NewtonWorld<B, C> {
 }
 
 #[doc(hidden)]
-pub struct WorldData<B, C> {
+pub struct NewtonWorldData<B, C> {
     /// We keep a reference to the world so we can obtain a copy of the lock from a `NewtonWorld`
     /// when needed.
     pub(crate) world: Weak<Lock<NewtonWorld<B, C>>>,
@@ -50,6 +50,12 @@ pub struct WorldData<B, C> {
     debug: Option<&'static str>,
     /// A Tx end of the command channel, to recover it quickly from the userdata.
     tx: Tx<Command>,
+}
+
+impl<B, C> Drop for NewtonWorldData<B, C> {
+    fn drop(&mut self) {
+        println!("DROP NewtonWorldData");
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -189,7 +195,7 @@ impl<B, C> World<B, C> {
         let tx = newton_world.tx.clone();
         let lock = Shared::new(Lock::new(newton_world));
 
-        let userdata = Shared::new(WorldData {
+        let userdata = Shared::new(NewtonWorldData {
             world: Shared::downgrade(&lock),
             tx,
             debug,
@@ -450,7 +456,7 @@ impl<B, C> NewtonWorld<B, C> {
         where
             Callback: Fn(&NewtonBody<B, C>, &NewtonCollision<B, C>) -> bool + 'static,
         {
-            let (ref callback, ref world): &(Callback, Shared<WorldData<B, C>>) =
+            let (ref callback, ref world): &(Callback, Shared<NewtonWorldData<B, C>>) =
                 mem::transmute(udata);
 
             let body = NewtonBody::new_not_owned(body as _);
@@ -615,7 +621,7 @@ impl<B, C> NewtonWorld<B, C> {
 
     /// Non-blocking variant of the `update` method.
     pub fn update_async(&mut self, step: Duration) -> WorldUpdateAsync {
-        self.flush_commands();
+        self.flush_commands(false);
         unsafe {
             ffi::NewtonUpdateAsync(self.world, as_seconds(step));
         }
@@ -624,7 +630,7 @@ impl<B, C> NewtonWorld<B, C> {
 
     /// Destroys unreferenced bodies and steps the simulation synchronously
     pub fn update(&mut self, step: Duration) {
-        self.flush_commands();
+        self.flush_commands(false);
         unsafe { ffi::NewtonUpdate(self.world, as_seconds(step)) }
     }
 
@@ -643,12 +649,23 @@ impl<B, C> NewtonWorld<B, C> {
         self.world
     }
 
-    fn flush_commands(&mut self) {
-        while let Ok(cmd) = self.rx.try_recv() {
-            match cmd {
-                Command::DestroyBody(b) => {
-                    unsafe { super::body::drop_body::<B, C>(b) };
-                }
+    fn dispatch_command(&self, cmd: Command) {
+        match cmd {
+            Command::DestroyBody(b) => {
+                unsafe { super::body::drop_body::<B, C>(b) };
+            }
+        }
+    }
+
+    fn flush_commands(&self, blocking: bool) {
+        if blocking {
+            /// TODO FIXME this blocks the thread without the timeout...
+            while let Ok(cmd) = self.rx.recv_timeout(Duration::new(0, 0)) {
+                self.dispatch_command(cmd)
+            }
+        } else {
+            for cmd in self.rx.try_iter() {
+                self.dispatch_command(cmd)
             }
         }
     }
@@ -702,10 +719,12 @@ impl<B, C> Drop for NewtonWorld<B, C> {
         let world = self.world;
         unsafe {
             ffi::NewtonWaitForUpdateToFinish(world);
+            let _: Shared<NewtonWorldData<B, C>> =
+                mem::transmute(ffi::NewtonWorldGetUserData(world));
         }
-        self.flush_commands();
+        self.flush_commands(true);
+        println!("DROP world");
         unsafe {
-            let _: Shared<WorldData<B, C>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
             self.destroy_materials(|_, _, _, _| false);
             ffi::NewtonDestroyAllBodies(world);
             ffi::NewtonDestroy(world);
@@ -724,8 +743,10 @@ fn as_seconds(step: Duration) -> f32 {
     nanos / 1_000_000_000.0
 }
 
-pub(crate) unsafe fn userdata<B, C>(world: *const ffi::NewtonWorld) -> Shared<WorldData<B, C>> {
-    let udata: Shared<WorldData<B, C>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
+pub(crate) unsafe fn userdata<B, C>(
+    world: *const ffi::NewtonWorld,
+) -> Shared<NewtonWorldData<B, C>> {
+    let udata: Shared<NewtonWorldData<B, C>> = mem::transmute(ffi::NewtonWorldGetUserData(world));
     let udata_cloned = udata.clone();
     mem::forget(udata);
     udata_cloned

@@ -75,7 +75,7 @@ pub struct NewtonCollision<B, C> {
 
 #[doc(hidden)]
 #[derive(Debug)]
-pub struct CollisionData<B, C> {
+pub struct NewtonCollisionData<B, C> {
     /// Reference to the `NewtonWorld` that allocated this `NewtonCollision`
     world: Weak<Lock<NewtonWorld<B, C>>>,
     /// Reference to the `NewtonCollision` itself.
@@ -88,7 +88,13 @@ pub struct CollisionData<B, C> {
     contained: Option<C>,
 }
 
-impl<B, C> CollisionData<B, C> {
+impl<B, C> Drop for NewtonCollisionData<B, C> {
+    fn drop(&mut self) {
+        println!("DROP NewtonCollisionData");
+    }
+}
+
+impl<B, C> NewtonCollisionData<B, C> {
     /// Get collision data from a given collision
     ///
     /// Collision data is unique to the NewtonCollision object
@@ -99,11 +105,6 @@ impl<B, C> CollisionData<B, C> {
     /// The debug name given to the collision on creation
     pub fn debug(&self) -> Option<&'static str> {
         self.debug
-    }
-
-    /// Collision params given to the collision on creation
-    pub fn params(&self) -> &Params {
-        &self.params
     }
 }
 
@@ -293,7 +294,7 @@ impl<B, C> Collision<B, C> {
 
         let collision_lock = Shared::new(Lock::new(collision));
 
-        let userdata = Shared::new(CollisionData {
+        let userdata = Shared::new(NewtonCollisionData {
             collision: Shared::downgrade(&collision_lock),
             world: Shared::downgrade(&world_lock),
             debug,
@@ -450,11 +451,12 @@ impl<'a, B, C> DerefMut for CollisionLockedMut<'a, B, C> {
 impl<B, C> Drop for NewtonCollision<B, C> {
     fn drop(&mut self) {
         if self.owned {
+            println!("DROP collision");
             let collision = self.collision;
             //let _ = self.world.write();
             unsafe {
                 // TODO FIXME CollisionData is dropped but the collision may still be active in some body!!!
-                let _: Shared<CollisionData<B, C>> =
+                let _: Shared<NewtonCollisionData<B, C>> =
                     mem::transmute(ffi::NewtonCollisionGetUserData(collision));
                 ffi::NewtonDestroyCollision(collision)
             }
@@ -464,8 +466,9 @@ impl<B, C> Drop for NewtonCollision<B, C> {
 
 pub(crate) unsafe fn userdata<B, C>(
     col: *const ffi::NewtonCollision,
-) -> Shared<CollisionData<B, C>> {
-    let udata: Shared<CollisionData<B, C>> = mem::transmute(ffi::NewtonCollisionGetUserData(col));
+) -> Shared<NewtonCollisionData<B, C>> {
+    let udata: Shared<NewtonCollisionData<B, C>> =
+        mem::transmute(ffi::NewtonCollisionGetUserData(col));
     let udata_cloned = udata.clone();
     mem::forget(udata);
     udata_cloned
