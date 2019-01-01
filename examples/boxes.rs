@@ -138,11 +138,11 @@ fn main() {
             let cube: Body<Cgmath> = body::Builder::new(&mut world.write(), &pool[1].read())
                 .force_torque_callback(|b, _, _| b.set_force(&vec3(0.0, -9.8, 0.0)))
                 .material(mat.1)
+                .mass(1.0)
                 .transform(p)
                 .build();
             let g = vec3(0.0, -9.8, 0.0);
 
-            cube.write().set_mass(1.0);
             cube
         })
         .collect();

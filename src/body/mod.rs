@@ -27,6 +27,30 @@ pub struct Body<T>(
 unsafe impl<T> Send for Body<T> {}
 unsafe impl<T> Sync for Body<T> {}
 
+#[derive(Debug, Clone)]
+pub struct WeakBody<T>(
+    Weak<Lock<NewtonWorld<T>>>,
+    Weak<Lock<NewtonBody<T>>>,
+    *const ffi::NewtonBody,
+);
+
+unsafe impl<T> Send for WeakBody<T> {}
+unsafe impl<T> Sync for WeakBody<T> {}
+
+impl<T> WeakBody<T> {
+    fn upgrade(weak: &WeakBody<T>) -> Option<Body<T>> {
+        let world = Weak::upgrade(&weak.0);
+        if world.is_some() {
+            let body = Weak::upgrade(&weak.1);
+            if body.is_some() {
+                return Some(Body(world.unwrap(), body.unwrap(), weak.2));
+            }
+        }
+
+        None
+    }
+}
+
 #[derive(Debug)]
 pub struct NewtonBody<T> {
     // TODO remove pub(crate). It is used by the convex cast
@@ -261,6 +285,11 @@ pub enum Type {
 }
 
 impl<T> Body<T> {
+    /// Downgrade ref-counted body
+    pub fn downgrade(rc: &Body<T>) -> WeakBody<T> {
+        WeakBody(Shared::downgrade(&rc.0), Shared::downgrade(&rc.1), rc.2)
+    }
+
     pub unsafe fn from_raw_parts(body: *mut ffi::NewtonBody) -> Self {
         let udata = userdata::<T>(body);
         let body_rc = Weak::upgrade(&udata.body).unwrap();

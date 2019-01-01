@@ -29,6 +29,22 @@ pub struct Collision<T>(
 unsafe impl<T> Send for Collision<T> {}
 unsafe impl<T> Sync for Collision<T> {}
 
+#[derive(Debug, Clone)]
+pub struct WeakCollision<T>(
+    Weak<Lock<NewtonCollision<T>>>,
+    Weak<Lock<NewtonWorld<T>>>,
+    *const ffi::NewtonCollision,
+);
+
+unsafe impl<T> Send for WeakCollision<T> {}
+unsafe impl<T> Sync for WeakCollision<T> {}
+
+impl<T> WeakCollision<T> {
+    fn upgrade(weak: &WeakCollision<T>) -> Option<Collision<T>> {
+        unimplemented!()
+    }
+}
+
 #[derive(Debug)]
 pub struct NewtonCollision<T> {
     // TODO remove pub(crate) visibility
@@ -186,6 +202,12 @@ pub struct CollisionLockedMut<'a, T>(
     LockedMut<'a, NewtonCollision<T>>,
     LockedMut<'a, NewtonWorld<T>>,
 );
+
+impl<T> Collision<T> {
+    fn downgrade(rc: &Collision<T>) -> WeakCollision<T> {
+        WeakCollision(Shared::downgrade(&rc.0), Shared::downgrade(&rc.1), rc.2)
+    }
+}
 
 impl<T: Types> Collision<T> {
     /// Creates a new collision.

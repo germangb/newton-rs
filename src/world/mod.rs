@@ -22,6 +22,12 @@ pub struct World<T>(Shared<Lock<NewtonWorld<T>>>, *const ffi::NewtonWorld);
 unsafe impl<T> Send for World<T> {}
 unsafe impl<T> Sync for World<T> {}
 
+#[derive(Debug, Clone)]
+pub struct WeakWorld<T>(Weak<Lock<NewtonWorld<T>>>, *const ffi::NewtonWorld);
+
+unsafe impl<T> Send for WeakWorld<T> {}
+unsafe impl<T> Sync for WeakWorld<T> {}
+
 #[derive(Debug)]
 pub struct NewtonWorld<T> {
     world: *mut ffi::NewtonWorld,
