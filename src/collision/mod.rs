@@ -3,9 +3,9 @@ pub mod params;
 use ffi;
 
 use self::params::Params;
-use super::lock::{Lock, LockError, Locked, LockedMut, Shared, Weak};
+use super::lock::{Lock, LockError, Locked, LockedMut};
 use super::world::{NewtonWorld, WorldLockedMut};
-use super::{Matrix, Quaternion, Result, Vector};
+use super::{Matrix, Quaternion, Result, Shared, Vector, Weak};
 
 use self::params::HeightFieldParams;
 
@@ -107,7 +107,7 @@ impl<B, C> CollisionData<B, C> {
     }
 }
 
-pub struct Builder<'a, B, C> {
+pub struct CollisionBuilder<'a, B, C> {
     world: &'a mut NewtonWorld<B, C>,
     /// Collision shape params
     params: Params,
@@ -121,9 +121,9 @@ pub struct Builder<'a, B, C> {
     contained: Option<C>,
 }
 
-impl<'a, B, C> Builder<'a, B, C> {
-    pub fn new(world: &mut NewtonWorld<B, C>) -> Builder<B, C> {
-        Builder {
+impl<'a, B, C> CollisionBuilder<'a, B, C> {
+    fn new(world: &mut NewtonWorld<B, C>) -> CollisionBuilder<B, C> {
+        CollisionBuilder {
             world,
             params: Params::Null,
             shape_id: 0,
@@ -206,6 +206,10 @@ impl<B, C> Collision<B, C> {
 
     pub unsafe fn from_raw_parts(raw: *mut ffi::NewtonCollision) -> Collision<B, C> {
         unimplemented!()
+    }
+
+    pub fn builder(world: &mut NewtonWorld<B, C>) -> CollisionBuilder<B, C> {
+        CollisionBuilder::new(world)
     }
 
     /// Creates a new collision.

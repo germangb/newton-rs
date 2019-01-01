@@ -3,9 +3,9 @@ use ffi;
 use super::body::{BodyData, BodyLocked, NewtonBodies, NewtonBodiesMut, NewtonBody};
 use super::collision::NewtonCollision;
 //use super::contact::Contacts;
-use super::lock::{Lock, LockError, Locked, LockedMut, Shared, Weak};
+use super::lock::{Lock, LockError, Locked, LockedMut};
 use super::material::{GroupId, NewtonMaterial};
-use super::{channel, Matrix, Quaternion, Result, Rx, Tx, Vector};
+use super::{channel, Matrix, Quaternion, Result, Rx, Shared, Tx, Vector, Weak};
 
 use std::{
     marker::PhantomData,
@@ -57,7 +57,7 @@ pub(crate) enum Command {
     DestroyBody(*mut ffi::NewtonBody),
 }
 
-pub struct Builder<B, C> {
+pub struct WorldBuilder<B, C> {
     solver: Solver,
     threads: usize,
     broad: Broadphase,
@@ -65,9 +65,9 @@ pub struct Builder<B, C> {
     _phantom: PhantomData<(B, C)>,
 }
 
-impl<B, C> Builder<B, C> {
+impl<B, C> WorldBuilder<B, C> {
     pub fn new() -> Self {
-        Builder {
+        WorldBuilder {
             solver: Solver::Exact,
             threads: 1,
             broad: Broadphase::Default,
@@ -172,8 +172,12 @@ impl<B, C> Default for World<B, C> {
 }
 
 impl<B, C> World<B, C> {
+    pub fn builder() -> WorldBuilder<B, C> {
+        WorldBuilder::new()
+    }
+
     /// Creates a new World
-    pub fn new(
+    fn new(
         broadphase: Broadphase,
         solver: Solver,
         threads: usize,

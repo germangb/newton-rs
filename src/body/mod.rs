@@ -2,10 +2,10 @@ use ffi;
 
 use super::collision::NewtonCollision;
 use super::joint::{Contacts, Joints};
-use super::lock::{Lock, LockError, Locked, LockedMut, Shared, Weak};
+use super::lock::{Lock, LockError, Locked, LockedMut};
 use super::material::GroupId;
 use super::world::{Command, NewtonWorld, WorldLockedMut};
-use super::{Matrix, Quaternion, Result, Tx, Vector};
+use super::{Matrix, Quaternion, Result, Shared, Tx, Vector, Weak};
 
 use std::{
     marker::PhantomData,
@@ -83,7 +83,7 @@ pub struct BodyData<B, C> {
     contained: Option<B>,
 }
 
-pub struct Builder<'a, 'b, B, C> {
+pub struct BodyBuilder<'a, 'b, B, C> {
     world: &'a mut NewtonWorld<B, C>,
     collision: &'b NewtonCollision<B, C>,
     /// Force and torque callback
@@ -93,7 +93,7 @@ pub struct Builder<'a, 'b, B, C> {
     /// A name given to the collision.
     debug: Option<&'static str>,
     /// Initial transformation
-    transform: Option<Matrix>,
+    transform: Matrix,
     /// Material group ID
     material_group: GroupId,
     /// Continuous collision enabled/disabled
@@ -104,16 +104,16 @@ pub struct Builder<'a, 'b, B, C> {
     contained: Option<B>,
 }
 
-impl<'a, 'b, B, C> Builder<'a, 'b, B, C> {
+impl<'a, 'b, B, C> BodyBuilder<'a, 'b, B, C> {
     pub fn new(world: &'a mut NewtonWorld<B, C>, collision: &'b NewtonCollision<B, C>) -> Self {
         let world_ptr = world.as_raw();
-        Builder {
+        BodyBuilder {
             world,
             collision,
             force_torque: None,
             type_: Type::Dynamic,
             debug: None,
-            transform: None,
+            transform: super::IDENTITY,
             material_group: unsafe { GroupId(ffi::NewtonMaterialGetDefaultGroupID(world_ptr)) },
             continuous: false,
             mass: 0.0,
@@ -154,7 +154,7 @@ impl<'a, 'b, B, C> Builder<'a, 'b, B, C> {
             self.world,
             self.collision,
             self.type_,
-            &self.transform.unwrap(),
+            &self.transform,
             self.debug,
             self.force_torque,
             self.material_group,
@@ -170,7 +170,7 @@ impl<'a, 'b, B, C> Builder<'a, 'b, B, C> {
     }
 
     pub fn transform(mut self, transform: Matrix) -> Self {
-        self.transform = Some(transform);
+        self.transform = transform;
         self
     }
 
@@ -359,6 +359,13 @@ impl<B, C> Body<B, C> {
         let world = self.0.write(name);
         let body = self.1.write(name);
         BodyLockedMut(world, body)
+    }
+
+    pub fn builder<'a, 'b>(
+        world: &'a mut NewtonWorld<B, C>,
+        collision: &'b NewtonCollision<B, C>,
+    ) -> BodyBuilder<'a, 'b, B, C> {
+        BodyBuilder::new(world, collision)
     }
 
     fn new(

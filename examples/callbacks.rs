@@ -14,7 +14,7 @@ unsafe impl Types for M {
 fn main() {
     let gravity = Vector3::new(0.0, -9.8, 0.0);
 
-    let world = world::Builder::<M>::new()
+    let world = world::WorldBuilder::<M>::new()
         // define the contact generation callback in the body builder
         .contact_gen_callback(|_mat, _b0, _c0, _b1, _c1, _cont: &[()]| true)
         // define the AABB callback in the builder

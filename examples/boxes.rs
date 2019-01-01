@@ -15,7 +15,7 @@ use newton::world::NewtonWorld;
 use std::time::Duration;
 
 fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
-    let sphere = collision::Builder::new(&mut world.write())
+    let sphere = collision::CollisionBuilder::new(&mut world.write())
         .capsule(1.0, 1.0, 2.0)
         .cuboid(1.0, 1.0, 1.0)
         .debug("sphere_col")
@@ -28,7 +28,7 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
         faces += 1;
     });
 
-    let agent = body::Builder::new(&mut world.write(), &sphere.read())
+    let agent = body::BodyBuilder::new(&mut world.write(), &sphere.read())
         .kinematic()
         .transform(pos(8.0, 2.0, 8.0))
         .build();
@@ -101,7 +101,7 @@ fn controller(world: World<Cgmath>, sandbox: &mut Sandbox) {
 }
 
 fn main() {
-    let world: World<Cgmath> = world::Builder::new().max_threads().build();
+    let world: World<Cgmath> = world::WorldBuilder::new().max_threads().build();
 
     let mat = world.write().create_materials();
     world
@@ -114,16 +114,16 @@ fn main() {
     let pool = {
         let mut world = world.write();
         [
-            collision::Builder::new(&mut world)
+            collision::CollisionBuilder::new(&mut world)
                 .cuboid(24.0, 1.0, 24.0)
                 .build(),
-            collision::Builder::new(&mut world)
+            collision::CollisionBuilder::new(&mut world)
                 .cuboid(0.95, 0.95, 0.95)
                 .build(),
         ]
     };
 
-    let floor = body::Builder::new(&mut world.write(), &pool[0].read())
+    let floor = body::BodyBuilder::new(&mut world.write(), &pool[0].read())
         .transform(Matrix4::identity())
         .build();
     drop(floor);
@@ -135,7 +135,7 @@ fn main() {
 
     let cubes: Vec<_> = transforms
         .map(|p| {
-            let cube: Body<Cgmath> = body::Builder::new(&mut world.write(), &pool[1].read())
+            let cube: Body<Cgmath> = body::BodyBuilder::new(&mut world.write(), &pool[1].read())
                 .force_torque_callback(|b, _, _| b.set_force(&vec3(0.0, -9.8, 0.0)))
                 .material(mat.1)
                 .mass(1.0)
@@ -156,13 +156,13 @@ fn main() {
 
     // heightfield
     let mut params = HeightFieldParams::<f32>::new(32, 32);
-    let collision = collision::Builder::new(&mut world.write())
+    let collision = collision::CollisionBuilder::new(&mut world.write())
         .heightfield_f32(params)
         .offset(pos(-16.0, 0.0, -16.0))
         //.cuboid(16.0, 1.0, 16.0)
         .build();
 
-    let terrain = body::Builder::new(&mut world.write(), &collision.read())
+    let terrain = body::BodyBuilder::new(&mut world.write(), &collision.read())
         .material(mat.0)
         .dynamic()
         .transform(pos(0.0, 0.0, 0.0))

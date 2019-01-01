@@ -1,5 +1,5 @@
-use newton::body;
-use newton::collision;
+use newton::body::Body;
+use newton::collision::Collision;
 use newton::world::{self, World};
 
 use newton::sandbox;
@@ -10,14 +10,14 @@ use std::time::Duration;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 fn main() {
-    let world: World<(), ()> = World::default();
+    let world: World<(), ()> = World::builder().build();
 
     let (pm, sm) = world.write().create_materials();
 
-    let cube = collision::Builder::new(&mut world.write())
+    let cube = Collision::builder(&mut world.write())
         .cuboid(2.0, 2.0, 2.0)
         .build();
-    let sat = body::Builder::new(&mut world.write(), &cube.read())
+    let sat = Body::builder(&mut world.write(), &cube.read())
         .transform(Matrix4::from_translation(Vector3::new(24.0, 0.0, 0.0)))
         .dynamic()
         .material(sm)
@@ -29,12 +29,8 @@ fn main() {
         })
         .build();
 
-    let sphere = collision::Builder::new(&mut world.write())
-        .sphere(16.0)
-        .build();
-
-    let planet = body::Builder::new(&mut world.write(), &sphere.read())
-        .transform(Matrix4::identity())
+    let sphere = Collision::builder(&mut world.write()).sphere(16.0).build();
+    let planet = Body::builder(&mut world.write(), &sphere.read())
         .material(pm)
         .build();
 
