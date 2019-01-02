@@ -4,7 +4,7 @@ mod callbacks;
 
 pub mod body;
 pub mod collision;
-//pub mod contact;
+pub mod contact;
 pub mod joint;
 pub mod lock;
 pub mod material;
@@ -17,9 +17,9 @@ use failure::Error;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 
-pub use body::Body;
-pub use collision::Collision;
-pub use world::World;
+pub use self::body::Body;
+pub use self::collision::Collision;
+pub use self::world::World;
 
 /// Custom Result type
 pub type Result<T> = std::result::Result<T, Error>;
