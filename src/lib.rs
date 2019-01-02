@@ -17,9 +17,12 @@ use failure::Error;
 use std::sync::mpsc;
 use std::sync::mpsc::{Receiver, Sender};
 
+pub use body::Body;
+pub use collision::Collision;
+pub use world::World;
+
 /// Custom Result type
 pub type Result<T> = std::result::Result<T, Error>;
-
 /// Shared strong reference
 pub type Shared<T> = std::sync::Arc<T>;
 /// Weak reference
@@ -47,31 +50,12 @@ const IDENTITY: Matrix = [
     [0.0, 0.0, 0.0, 1.0],
 ];
 #[cfg(feature = "cgmath_types")]
+#[rustfmt::skip]
 const IDENTITY: Matrix = cgmath::Matrix4 {
-    x: cgmath::Vector4 {
-        x: 1.0,
-        y: 0.0,
-        z: 0.0,
-        w: 0.0,
-    },
-    y: cgmath::Vector4 {
-        x: 0.0,
-        y: 1.0,
-        z: 0.0,
-        w: 0.0,
-    },
-    z: cgmath::Vector4 {
-        x: 0.0,
-        y: 0.0,
-        z: 1.0,
-        w: 0.0,
-    },
-    w: cgmath::Vector4 {
-        x: 0.0,
-        y: 0.0,
-        z: 0.0,
-        w: 1.0,
-    },
+    x: cgmath::Vector4 { x: 1.0, y: 0.0, z: 0.0, w: 0.0 },
+    y: cgmath::Vector4 { x: 0.0, y: 1.0, z: 0.0, w: 0.0 },
+    z: cgmath::Vector4 { x: 0.0, y: 0.0, z: 1.0, w: 0.0 },
+    w: cgmath::Vector4 { x: 0.0, y: 0.0, z: 0.0, w: 1.0 },
 };
 
 /// Quaternion type
