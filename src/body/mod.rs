@@ -21,6 +21,7 @@ use std::{
 pub struct Body<B, C> {
     world: Shared<Lock<NewtonWorld<B, C>>>,
     body: Lock<NewtonBody<B, C>>,
+    /// An optional name used in Error reporting
     debug: Option<&'static str>,
 }
 
@@ -46,12 +47,11 @@ unsafe impl<B, C> Sync for NewtonBody<B, C> {}
 
 //#[doc(hidden)]
 pub struct NewtonBodyData<B, C> {
-    /// A reference to the World context so it can be referenced in callbacks and so on
-    world: Weak<Lock<NewtonWorld<B, C>>>,
     /// Force and torque callback. If None, the global one will be used
     pub(crate) force_torque: Option<Box<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
     /// Contained value
     contained: Option<B>,
+    _phantom: PhantomData<C>,
 }
 
 impl<B, C> NewtonBodyData<B, C> {
@@ -335,10 +335,9 @@ impl<B, C> Body<B, C> {
             ffi::NewtonBodySetMassProperties(body_ptr, mass, collision);
 
             let userdata = Shared::new(NewtonBodyData {
-                //body: Shared::downgrade(&body_lock),
-                world: Shared::downgrade(&world_lock),
                 force_torque,
                 contained,
+                _phantom: PhantomData::<C>,
             });
 
             ffi::NewtonBodySetUserData(body_ptr, mem::transmute(userdata));
@@ -488,15 +487,13 @@ impl<B, C> NewtonBody<B, C> {
         unimplemented!()
     }
 
-    /*
     #[inline]
-    pub fn set_mass(&mut self, mass: f32) {
+    pub fn set_mass_params(&mut self, mass: f32, collision: &NewtonCollision<B, C>) {
         unsafe {
-            let collision = ffi::NewtonBodyGetCollision(self.body);
+            let collision = collision.as_raw();
             ffi::NewtonBodySetMassProperties(self.body, mass, collision);
         }
     }
-    */
 
     #[inline]
     pub fn set_linear_damping(&mut self, damping: f32) {

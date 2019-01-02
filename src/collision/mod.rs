@@ -9,6 +9,7 @@ use super::{Matrix, Quaternion, Result, Shared, Vector, Weak};
 
 use self::params::HeightFieldParams;
 
+use std::marker::PhantomData;
 use std::{
     mem,
     ops::{Deref, DerefMut},
@@ -23,6 +24,7 @@ pub type ShapeId = raw::c_int;
 pub struct Collision<B, C> {
     world: Shared<Lock<NewtonWorld<B, C>>>,
     collision: Lock<NewtonCollision<B, C>>,
+    /// An optional name used in Error reporting
     debug: Option<&'static str>,
 }
 
@@ -56,12 +58,13 @@ unsafe impl<B, C> Sync for NewtonCollision<B, C> {}
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct NewtonCollisionData<B, C> {
-    /// Reference to the `NewtonWorld` that allocated this `NewtonCollision`
-    world: Weak<Lock<NewtonWorld<B, C>>>,
+    ///// Reference to the `NewtonWorld` that allocated this `NewtonCollision`
+    //world: Weak<Lock<NewtonWorld<B, C>>>,
     // We take ownership of the collision params mainly to store the data from the HeightField collisions
     params: Params,
-    /// Contained data
+    // User value contained in the collision.It can be referenced from callbacks and so on
     contained: Option<C>,
+    _phantom: PhantomData<B>,
 }
 
 impl<B, C> NewtonCollisionData<B, C> {
@@ -248,9 +251,9 @@ impl<B, C> Collision<B, C> {
         };
 
         let userdata = Shared::new(NewtonCollisionData {
-            world: Shared::downgrade(&world_lock),
             params,
             contained: data,
+            _phantom: PhantomData::<B>,
         });
 
         unsafe {
