@@ -15,49 +15,34 @@ use std::{
     time::Duration,
 };
 
-/// A world is the heart of the physics simulation.
-#[derive(Debug, Clone)]
-pub struct World<B, C>(Shared<Lock<NewtonWorld<B, C>>>, *const ffi::NewtonWorld);
-
-unsafe impl<B, C> Send for World<B, C> {}
-unsafe impl<B, C> Sync for World<B, C> {}
-
-#[derive(Debug, Clone)]
-pub struct WeakWorld<B, C>(Weak<Lock<NewtonWorld<B, C>>>, *const ffi::NewtonWorld);
-
-unsafe impl<B, C> Send for WeakWorld<B, C> {}
-unsafe impl<B, C> Sync for WeakWorld<B, C> {}
+#[derive(Debug)]
+pub struct World<B, C> {
+    world: Shared<Lock<NewtonWorld<B, C>>>,
+    debug: Option<&'static str>,
+}
 
 #[derive(Debug)]
 pub struct NewtonWorld<B, C> {
     world: *mut ffi::NewtonWorld,
-
     /// Tx end of the command channel.
     pub(crate) tx: Tx<Command>,
     /// Rx end of the command channel, used by NewtonBody to signal the destruction of a body.
     rx: Rx<Command>,
-
     _phantom: PhantomData<(B, C)>,
 }
+
+// Compiler complains about the raw pointer
+unsafe impl<B, C> Send for NewtonWorld<B, C> {}
+unsafe impl<B, C> Sync for NewtonWorld<B, C> {}
 
 #[doc(hidden)]
 pub struct NewtonWorldData<B, C> {
     /// We keep a reference to the world so we can obtain a copy of the lock from a `NewtonWorld`
     /// when needed.
     pub(crate) world: Weak<Lock<NewtonWorld<B, C>>>,
-    /// Debug name
-    debug: Option<&'static str>,
     /// A Tx end of the command channel, to recover it quickly from the userdata.
     tx: Tx<Command>,
 }
-
-/*
-impl<B, C> Drop for NewtonWorldData<B, C> {
-    fn drop(&mut self) {
-        println!("DROP NewtonWorldData");
-    }
-}
-*/
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Command {
@@ -199,7 +184,6 @@ impl<B, C> World<B, C> {
         let userdata = Shared::new(NewtonWorldData {
             world: Shared::downgrade(&lock),
             tx,
-            debug,
         });
 
         if threads > 1 {
@@ -218,36 +202,27 @@ impl<B, C> World<B, C> {
         unsafe {
             ffi::NewtonWorldSetUserData(world_raw, mem::transmute(userdata));
         }
-        World(lock, world_raw)
+        World { world: lock, debug }
     }
 
     #[inline]
     pub fn try_read(&self) -> Result<WorldLocked<B, C>> {
-        Ok(WorldLocked(self.0.try_read()?))
+        Ok(WorldLocked(self.world.try_read()?))
     }
 
     #[inline]
     pub fn try_write(&self) -> Result<WorldLockedMut<B, C>> {
-        #[cfg(feature = "debug")]
-        let udata = unsafe { userdata::<B, C>(self.1).debug };
-        #[cfg(not(feature = "debug"))]
-        let udata = None;
-        Ok(WorldLockedMut(self.0.try_write(udata)?))
+        Ok(WorldLockedMut(self.world.try_write(self.debug)?))
     }
 
     #[inline]
     pub fn read(&self) -> WorldLocked<B, C> {
-        WorldLocked(self.0.read())
+        WorldLocked(self.world.read())
     }
 
     #[inline]
     pub fn write(&self) -> WorldLockedMut<B, C> {
-        #[cfg(feature = "debug")]
-        let udata = unsafe { userdata::<B, C>(self.1).debug };
-        #[cfg(not(feature = "debug"))]
-        let udata = None;
-
-        WorldLockedMut(self.0.write(udata))
+        WorldLockedMut(self.world.write(self.debug))
     }
 }
 
@@ -284,9 +259,6 @@ impl<'a, B: 'a, C: 'a> Iterator for ConvexCast<'a, B, C> {
             let mut boxed = unsafe { Box::from_raw(self.body) };
 
             boxed.body = info.m_hitBody as _;
-            unsafe {
-                boxed.collision.collision = ffi::NewtonBodyGetCollision(info.m_hitBody);
-            }
 
             let (point, normal) = unsafe {
                 let mut point: Vector = mem::zeroed();
@@ -461,7 +433,8 @@ impl<B, C> NewtonWorld<B, C> {
                 mem::transmute(udata);
 
             let body = NewtonBody::new_not_owned(body as _);
-            if callback(&body, &body.collision) {
+            let collision = NewtonCollision::new_not_owned(collision as _);
+            if callback(&body, &collision) {
                 1
             } else {
                 0

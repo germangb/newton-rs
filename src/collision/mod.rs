@@ -19,37 +19,11 @@ use std::{
 /// Numeric ID type to identity collision faces in callbacks
 pub type ShapeId = raw::c_int;
 
-#[derive(Debug, Clone)]
-pub struct Collision<B, C>(
-    Shared<Lock<NewtonCollision<B, C>>>,
-    Shared<Lock<NewtonWorld<B, C>>>,
-    *const ffi::NewtonCollision,
-);
-
-unsafe impl<B, C> Send for Collision<B, C> {}
-unsafe impl<B, C> Sync for Collision<B, C> {}
-
-#[derive(Debug, Clone)]
-pub struct WeakCollision<B, C>(
-    Weak<Lock<NewtonCollision<B, C>>>,
-    Weak<Lock<NewtonWorld<B, C>>>,
-    *const ffi::NewtonCollision,
-);
-
-unsafe impl<B, C> Send for WeakCollision<B, C> {}
-unsafe impl<B, C> Sync for WeakCollision<B, C> {}
-
-impl<B, C> WeakCollision<B, C> {
-    fn upgrade(weak: &WeakCollision<B, C>) -> Option<Collision<B, C>> {
-        let coll = Weak::upgrade(&weak.0);
-        if coll.is_some() {
-            let world = Weak::upgrade(&weak.1);
-            if world.is_some() {
-                return Some(Collision(coll.unwrap(), world.unwrap(), weak.2));
-            }
-        }
-        None
-    }
+#[derive(Debug)]
+pub struct Collision<B, C> {
+    world: Shared<Lock<NewtonWorld<B, C>>>,
+    collision: Lock<NewtonCollision<B, C>>,
+    debug: Option<&'static str>,
 }
 
 /// Reference to a `NewtonCollision`.
@@ -67,34 +41,26 @@ pub struct CollisionLockedMut<'a, B, C>(
 pub struct NewtonCollision<B, C> {
     // TODO remove pub(crate) visibility
     pub(crate) collision: *mut ffi::NewtonCollision,
-    /// We need all collisions to `drop` before the `NewtonWorld` is.
+    // We need to keep a reference to the NewtonWorld to make sure the collision is dropped before it
     world: Shared<Lock<NewtonWorld<B, C>>>,
     /// If `owned` is set to true, the `NewtonCollision` will get destroyed
     owned: bool,
 }
+
+// Compiler complains about the raw pointer
+unsafe impl<B, C> Send for NewtonCollision<B, C> {}
+unsafe impl<B, C> Sync for NewtonCollision<B, C> {}
 
 #[doc(hidden)]
 #[derive(Debug)]
 pub struct NewtonCollisionData<B, C> {
     /// Reference to the `NewtonWorld` that allocated this `NewtonCollision`
     world: Weak<Lock<NewtonWorld<B, C>>>,
-    /// Reference to the `NewtonCollision` itself.
-    collision: Weak<Lock<NewtonCollision<B, C>>>,
-    /// Debug name
-    debug: Option<&'static str>,
-    /// collision parameters
+    // We take ownership of the collision params mainly to store the data from the HeightField collisions
     params: Params,
     /// Contained data
     contained: Option<C>,
 }
-
-/*
-impl<B, C> Drop for NewtonCollisionData<B, C> {
-    fn drop(&mut self) {
-        println!("DROP NewtonCollisionData");
-    }
-}
-*/
 
 impl<B, C> NewtonCollisionData<B, C> {
     /// Get collision data from a given collision
@@ -102,11 +68,6 @@ impl<B, C> NewtonCollisionData<B, C> {
     /// Collision data is unique to the NewtonCollision object
     pub fn from(collision: &NewtonCollision<B, C>) -> Shared<Self> {
         unsafe { userdata(collision.as_raw()) }
-    }
-
-    /// The debug name given to the collision on creation
-    pub fn debug(&self) -> Option<&'static str> {
-        self.debug
     }
 }
 
@@ -197,16 +158,6 @@ impl<'a, B, C> CollisionBuilder<'a, B, C> {
 }
 
 impl<B, C> Collision<B, C> {
-    /// Clone ref-counted collision
-    pub fn clone(rc: &Collision<B, C>) -> Collision<B, C> {
-        Collision(Shared::clone(&rc.0), Shared::clone(&rc.1), rc.2)
-    }
-
-    /// Downgrade from a strong reference to a Weak one
-    pub fn downgrade(rc: &Collision<B, C>) -> WeakCollision<B, C> {
-        WeakCollision(Shared::downgrade(&rc.0), Shared::downgrade(&rc.1), rc.2)
-    }
-
     pub unsafe fn from_raw_parts(raw: *mut ffi::NewtonCollision) -> Collision<B, C> {
         unimplemented!()
     }
@@ -294,12 +245,8 @@ impl<B, C> Collision<B, C> {
             owned: true,
         };
 
-        let collision_lock = Shared::new(Lock::new(collision));
-
         let userdata = Shared::new(NewtonCollisionData {
-            collision: Shared::downgrade(&collision_lock),
             world: Shared::downgrade(&world_lock),
-            debug,
             params,
             contained: data,
         });
@@ -308,7 +255,11 @@ impl<B, C> Collision<B, C> {
             ffi::NewtonCollisionSetUserData(collision_raw, mem::transmute(userdata));
         }
 
-        Collision(collision_lock, world_lock, collision_raw)
+        Collision {
+            world: world_lock,
+            collision: Lock::new(collision),
+            debug,
+        }
     }
 
     pub fn try_read(&self) -> Result<CollisionLocked<B, C>> {
@@ -316,24 +267,13 @@ impl<B, C> Collision<B, C> {
     }
 
     pub fn try_write(&self) -> Result<CollisionLockedMut<B, C>> {
-        #[cfg(feature = "debug")]
-        {
-            let udata = unsafe { userdata::<B, C>(self.2) };
-            let collision_ref = self.0.try_write(udata.debug)?;
-            let world_ref = self.1.try_write(udata.debug)?;
-            Ok(CollisionLockedMut(collision_ref, world_ref))
-        }
-        #[cfg(not(feature = "debug"))]
-        {
-            let collision_ref = self.0.try_write(None)?;
-            let world_ref = self.1.try_write(None)?;
-            Ok(CollisionLockedMut(collision_ref, world_ref))
-        }
+        let world_ref = self.world.try_write(self.debug)?;
+        let collision_ref = self.collision.try_write(self.debug)?;
+        Ok(CollisionLockedMut(collision_ref, world_ref))
     }
 
     pub fn read(&self) -> CollisionLocked<B, C> {
-        let collision_ref = self.0.read();
-        CollisionLocked(collision_ref)
+        CollisionLocked(self.collision.read())
     }
 
     pub fn write(&self) -> CollisionLockedMut<B, C> {

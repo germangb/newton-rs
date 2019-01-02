@@ -5,7 +5,8 @@ use failure::Fail;
 use std::cell::Cell;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::ptr;
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 #[derive(Debug, Fail)]
 pub enum LockError {
@@ -66,7 +67,7 @@ pub struct Lock<T> {
     inner: std::sync::RwLock<T>,
 
     /// Debug name of the owner of the write lock
-    writer: Cell<Option<&'static str>>,
+    writer: Option<&'static str>,
     /// Number of readers with a Read lock
     readers: AtomicUsize,
 }
@@ -75,7 +76,7 @@ impl<T> Lock<T> {
     pub fn new(inner: T) -> Self {
         Lock {
             inner: std::sync::RwLock::new(inner),
-            writer: Cell::new(None),
+            writer: None,
             readers: AtomicUsize::new(0),
         }
     }
@@ -91,7 +92,7 @@ impl<T> Lock<T> {
         match self.inner.try_read() {
             Ok(lock) => Ok(Locked(lock)),
             Err(TryLockError::WouldBlock) => Err(LockError::WouldBlock {
-                writer: self.writer.get(),
+                writer: self.writer,
                 readers: self.readers.load(Ordering::Relaxed),
             }
             .into()),
@@ -103,7 +104,7 @@ impl<T> Lock<T> {
 
     pub fn write(&self, writer: Option<&'static str>) -> LockedMut<T> {
         let lock = self.inner.write().unwrap();
-        self.writer.set(writer);
+        //self.writer.set(writer);
         LockedMut(lock)
     }
 
@@ -112,11 +113,11 @@ impl<T> Lock<T> {
 
         match self.inner.try_write() {
             Ok(lock) => {
-                self.writer.set(writer);
+                //self.writer = writer;
                 Ok(LockedMut(lock))
             }
             Err(TryLockError::WouldBlock) => Err(LockError::WouldBlock {
-                writer: self.writer.get(),
+                writer: self.writer,
                 readers: self.readers.load(Ordering::Relaxed),
             }
             .into()),
