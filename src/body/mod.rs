@@ -83,11 +83,13 @@ pub struct NewtonBodyData<B, C> {
     contained: Option<B>,
 }
 
+/*
 impl<B, C> Drop for NewtonBodyData<B, C> {
     fn drop(&mut self) {
         println!("DROP NewtonBodyData");
     }
 }
+*/
 
 impl<B, C> NewtonBodyData<B, C> {
     /// Gets body data
@@ -209,7 +211,7 @@ impl<'a, 'b, B, C> BodyBuilder<'a, 'b, B, C> {
 }
 
 pub(crate) unsafe fn drop_body<B, C>(body: *const ffi::NewtonBody) {
-    eprintln!("DROP body");
+    //eprintln!("DROP body");
     let collision = ffi::NewtonBodyGetCollision(body);
 
     let _: Shared<NewtonBodyData<B, C>> = mem::transmute(ffi::NewtonBodyGetUserData(body));

@@ -88,11 +88,13 @@ pub struct NewtonCollisionData<B, C> {
     contained: Option<C>,
 }
 
+/*
 impl<B, C> Drop for NewtonCollisionData<B, C> {
     fn drop(&mut self) {
         println!("DROP NewtonCollisionData");
     }
 }
+*/
 
 impl<B, C> NewtonCollisionData<B, C> {
     /// Get collision data from a given collision
@@ -451,7 +453,7 @@ impl<'a, B, C> DerefMut for CollisionLockedMut<'a, B, C> {
 impl<B, C> Drop for NewtonCollision<B, C> {
     fn drop(&mut self) {
         if self.owned {
-            println!("DROP collision");
+            //println!("DROP collision");
             let collision = self.collision;
             //let _ = self.world.write();
             unsafe {

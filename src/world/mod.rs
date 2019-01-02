@@ -2,7 +2,6 @@ use ffi;
 
 use super::body::{BodyLocked, NewtonBodies, NewtonBodiesMut, NewtonBody, NewtonBodyData};
 use super::collision::NewtonCollision;
-//use super::contact::Contacts;
 use super::lock::{Lock, LockError, Locked, LockedMut};
 use super::material::{GroupId, NewtonMaterial};
 use super::{channel, Matrix, Quaternion, Result, Rx, Shared, Tx, Vector, Weak};
@@ -52,11 +51,13 @@ pub struct NewtonWorldData<B, C> {
     tx: Tx<Command>,
 }
 
+/*
 impl<B, C> Drop for NewtonWorldData<B, C> {
     fn drop(&mut self) {
         println!("DROP NewtonWorldData");
     }
 }
+*/
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Command {
@@ -723,7 +724,7 @@ impl<B, C> Drop for NewtonWorld<B, C> {
                 mem::transmute(ffi::NewtonWorldGetUserData(world));
         }
         self.flush_commands(true);
-        println!("DROP world");
+        //println!("DROP world");
         unsafe {
             self.destroy_materials(|_, _, _, _| false);
             ffi::NewtonDestroyAllBodies(world);

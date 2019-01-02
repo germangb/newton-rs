@@ -29,7 +29,7 @@ fn main() {
             b.set_force(&gravity);
 
             let data = NewtonBodyData::from(b);
-            //println!("data: {:?}", data.get());
+            println!("data: {:?}", data.get());
         })
         .build();
 
@@ -59,7 +59,6 @@ fn main() {
 
     sandbox::run(world);
 
-    std::thread::sleep(Duration::new(4, 0));
     tx.send(());
     t.join();
 }
