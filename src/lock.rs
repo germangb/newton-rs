@@ -24,10 +24,6 @@ pub enum LockError {
         readers: usize,
     },
 
-    /// The inner body/collision has been dropped and destroyed
-    #[fail(display = "The inner body has been explicitly destroyed elsewhere")]
-    Destroyed,
-
     /// A thread has panic! while holding a mutable lock
     #[fail(display = "Mutable lock is poisoned")]
     Poisoned,
