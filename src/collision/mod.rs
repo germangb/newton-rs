@@ -41,8 +41,10 @@ pub struct CollisionLockedMut<'a, B, C>(
 pub struct NewtonCollision<B, C> {
     // TODO remove pub(crate) visibility
     pub(crate) collision: *mut ffi::NewtonCollision,
-    // We need to keep a reference to the NewtonWorld to make sure the collision is dropped before it
-    world: Shared<Lock<NewtonWorld<B, C>>>,
+    /// We need to keep a reference to the NewtonWorld to make sure the collision is dropped before it
+    ///
+    /// This field is optional because it is only needed when the struct is owned
+    world: Option<Shared<Lock<NewtonWorld<B, C>>>>,
     /// If `owned` is set to true, the `NewtonCollision` will get destroyed
     owned: bool,
 }
@@ -240,7 +242,7 @@ impl<B, C> Collision<B, C> {
         };
 
         let collision = NewtonCollision {
-            world: world_lock.clone(),
+            world: Some(world_lock.clone()),
             collision: collision_raw,
             owned: true,
         };
@@ -282,21 +284,14 @@ impl<B, C> Collision<B, C> {
 }
 
 impl<B, C> NewtonCollision<B, C> {
-    pub(crate) unsafe fn null(world: Shared<Lock<NewtonWorld<B, C>>>) -> Self {
-        NewtonCollision {
-            owned: false,
-            collision: ptr::null_mut(),
-            world,
-        }
-    }
-
     /// Wraps a raw `ffi::NewtonCollision` pointer
-    pub(crate) unsafe fn new_not_owned(collision: *mut ffi::NewtonCollision) -> Self {
-        let udata = userdata(collision);
+    ///
+    /// TODO document safety
+    pub(crate) fn new_not_owned(collision: *mut ffi::NewtonCollision) -> Self {
         NewtonCollision {
             owned: false,
             collision,
-            world: Weak::upgrade(&udata.world).unwrap(),
+            world: None,
         }
     }
 

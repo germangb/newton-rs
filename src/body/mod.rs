@@ -29,14 +29,19 @@ pub struct NewtonBody<B, C> {
     // TODO remove pub(crate). It is used by the convex cast
     pub(crate) body: *mut ffi::NewtonBody,
     /// Bodies must be dropped before the world is.
-    world: Shared<Lock<NewtonWorld<B, C>>>,
+    ///
+    /// This field is optional because it is only needed when the struct is owned
+    world: Option<Shared<Lock<NewtonWorld<B, C>>>>,
     /// Owned NewtonBody s, when dropped, are destroyed and therefore removed from the simulation
     owned: bool,
 
+    // TODO we no longer need this, since Body is no longer ref counted!!
     // TODO Codesmell... This feels a bit out of placa bit out of place. There must be a better way to safely drop bodies :(
     /// Destroyed flag
     destroyed: bool,
     /// The Tx end of the command channel. Only for owned variants,
+    ///
+    /// Like world , this field is optional because it is only needed when the struct is owned
     tx: Option<Tx<Command>>,
 }
 
@@ -346,7 +351,7 @@ impl<B, C> Body<B, C> {
             let world_lock = Weak::upgrade(&world_udata.world).unwrap();
             let body_lock = Lock::new(NewtonBody {
                 body: body_ptr,
-                world: world_lock.clone(),
+                world: Some(world_lock.clone()),
                 tx: Some(world.tx.clone()),
                 owned: true,
                 destroyed: false,
@@ -401,12 +406,12 @@ pub enum FreezeState {
 }
 
 impl<B, C> NewtonBody<B, C> {
-    pub(crate) unsafe fn null(world: Shared<Lock<NewtonWorld<B, C>>>) -> Self {
+    pub(crate) fn null_not_owned() -> Self {
         NewtonBody {
             owned: false,
             destroyed: false,
             body: ptr::null_mut(),
-            world,
+            world: None,
             tx: None,
         }
     }
@@ -475,14 +480,14 @@ impl<B, C> NewtonBody<B, C> {
     }
 
     /// Wraps a raw NewtonBody pointer
-    pub(crate) unsafe fn new_not_owned(body: *mut ffi::NewtonBody) -> Self {
-        let udata = userdata(body);
-        let collision = ffi::NewtonBodyGetCollision(body);
+    ///
+    /// TODO document safety
+    pub(crate) fn new_not_owned(body: *mut ffi::NewtonBody) -> Self {
         NewtonBody {
             owned: false,
             destroyed: false,
             body,
-            world: Weak::upgrade(&udata.world).unwrap(),
+            world: None,
             tx: None,
         }
     }
@@ -628,12 +633,16 @@ impl<B, C> Drop for NewtonBody<B, C> {
         }
 
         unsafe {
-            if let Ok(b) = self.world.try_write(None) {
+            let world = self
+                .world
+                .as_ref()
+                .expect("world field from owned NewtonWorld expected to be Some");
+            if let Ok(b) = world.try_write(None) {
                 drop_body::<B, C>(self.body)
             } else {
                 self.tx
                     .as_ref()
-                    .unwrap()
+                    .expect("tx field from owned NewtonWorld expected to be Some")
                     .send(Command::DestroyBody(self.body))
                     .unwrap();
             }

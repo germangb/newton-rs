@@ -384,9 +384,6 @@ impl<B, C> NewtonWorld<B, C> {
     where
         Callback: Fn(&NewtonBody<B, C>, &NewtonCollision<B, C>) -> bool + 'static,
     {
-        let userdata = unsafe { userdata(self.world) };
-        let prefilter_world = (prefilter, userdata.clone());
-
         let mut return_info = Vec::with_capacity(max_contacts);
         let contacts = unsafe {
             ffi::NewtonWorldConvexCast(
@@ -397,7 +394,7 @@ impl<B, C> NewtonWorld<B, C> {
                 // hitParam
                 hit_param,
                 // userdata
-                mem::transmute(&prefilter_world),
+                mem::transmute(&prefilter),
                 Some(prefilter_callback::<B, C, Callback>),
                 // cast info
                 return_info.as_mut_ptr(),
@@ -407,8 +404,7 @@ impl<B, C> NewtonWorld<B, C> {
             )
         };
 
-        let world = Weak::upgrade(&userdata.world).unwrap();
-        let body = unsafe { Box::new(NewtonBody::null(world)) };
+        let body = unsafe { Box::new(NewtonBody::null_not_owned()) };
 
         unsafe {
             return_info.set_len(contacts as usize);
@@ -429,8 +425,7 @@ impl<B, C> NewtonWorld<B, C> {
         where
             Callback: Fn(&NewtonBody<B, C>, &NewtonCollision<B, C>) -> bool + 'static,
         {
-            let (ref callback, ref world): &(Callback, Shared<NewtonWorldData<B, C>>) =
-                mem::transmute(udata);
+            let callback: &Callback = mem::transmute(udata);
 
             let body = NewtonBody::new_not_owned(body as _);
             let collision = NewtonCollision::new_not_owned(collision as _);
