@@ -90,7 +90,7 @@ pub struct CollisionBuilder<'a, B, C> {
     contained: Option<C>,
 }
 
-impl<'a, B, C> CollisionBuilder<'a, B, C> {
+impl<'a, B, C: Clone> CollisionBuilder<'a, B, C> {
     fn new(world: &mut NewtonWorld<B, C>) -> CollisionBuilder<B, C> {
         CollisionBuilder {
             world,
@@ -102,73 +102,70 @@ impl<'a, B, C> CollisionBuilder<'a, B, C> {
         }
     }
 
-    /// Consumes the builder and returns a collision
-    pub fn build(self) -> Collision<B, C> {
-        Collision::new(
-            self.world,
-            self.params,
-            self.shape_id,
-            self.offset.as_ref(),
-            self.debug,
-            self.contained,
-        )
-    }
-
-    pub fn data(mut self, data: C) -> Self {
+    pub fn data(&mut self, data: C) -> &mut Self {
         self.contained = Some(data);
         self
     }
 
-    pub fn offset(mut self, offset: Matrix) -> Self {
+    pub fn offset(&mut self, offset: Matrix) -> &mut Self {
         self.offset = Some(offset);
         self
     }
 
     /// Set a descriptive name
-    pub fn debug(mut self, name: &'static str) -> Self {
+    pub fn debug(&mut self, name: &'static str) -> &mut Self {
         self.debug = Some(name);
         self
     }
 
-    pub fn shape_id(mut self, shape_id: ShapeId) -> Self {
+    pub fn shape_id(&mut self, shape_id: ShapeId) -> &mut Self {
         self.shape_id = shape_id;
         self
     }
 
-    pub fn params(mut self, params: Params) -> Self {
+    pub fn params(&mut self, params: Params) -> &mut Self {
         self.params = params;
         self
     }
 
-    pub fn capsule(mut self, radius0: f32, radius1: f32, height: f32) -> Self {
-        self.params(Params::Capsule(radius0, radius1, height))
+    pub fn sphere(&mut self, radius: f32) -> Collision<B, C> {
+        self.build(Params::Sphere(radius))
     }
 
-    pub fn sphere(mut self, radius: f32) -> Self {
-        self.params(Params::Sphere(radius))
+    pub fn cuboid(&mut self, dx: f32, dy: f32, dz: f32) -> Collision<B, C> {
+        self.build(Params::Box(dx, dy, dz))
     }
 
-    /// Set Box collision params. `Volume = dx*dy*dz`
-    pub fn cuboid(mut self, dx: f32, dy: f32, dz: f32) -> Self {
-        self.params(Params::Box(dx, dy, dz))
+    pub fn heightfield_f32(&mut self, params: HeightFieldParams<f32>) -> Collision<B, C> {
+        self.build(Params::HeightFieldF32(params))
     }
 
-    pub fn heightfield_f32(mut self, params: HeightFieldParams<f32>) -> Self {
-        self.params(Params::HeightFieldF32(params))
+    pub fn heightfield_u16(&mut self, params: HeightFieldParams<u16>) -> Collision<B, C> {
+        self.build(Params::HeightFieldU16(params))
     }
 
-    pub fn heightfield_u16(mut self, params: HeightFieldParams<u16>) -> Self {
-        self.params(Params::HeightFieldU16(params))
+    /// Consumes the builder and returns a collision
+    fn build(&mut self, params: Params) -> Collision<B, C> {
+        Collision::new(
+            self.world,
+            params,
+            self.shape_id,
+            self.offset.as_ref(),
+            self.debug,
+            self.contained.clone(),
+        )
+    }
+}
+
+impl<B, C: Clone> Collision<B, C> {
+    pub fn builder(world: &mut NewtonWorld<B, C>) -> CollisionBuilder<B, C> {
+        CollisionBuilder::new(world)
     }
 }
 
 impl<B, C> Collision<B, C> {
     pub unsafe fn from_raw_parts(raw: *mut ffi::NewtonCollision) -> Collision<B, C> {
         unimplemented!()
-    }
-
-    pub fn builder(world: &mut NewtonWorld<B, C>) -> CollisionBuilder<B, C> {
-        CollisionBuilder::new(world)
     }
 
     /// Creates a new collision.

@@ -47,7 +47,7 @@ unsafe impl<B, C> Sync for NewtonBody<B, C> {}
 //#[doc(hidden)]
 pub struct NewtonBodyData<B, C> {
     /// Force and torque callback. If None, the global one will be used
-    pub(crate) force_torque: Option<Box<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
+    pub(crate) force_torque: Option<Shared<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
     /// Contained value
     contained: Option<B>,
     _phantom: PhantomData<C>,
@@ -69,7 +69,7 @@ pub struct BodyBuilder<'a, 'b, B, C> {
     world: &'a mut NewtonWorld<B, C>,
     collision: &'b NewtonCollision<B, C>,
     /// Force and torque callback
-    force_torque: Option<Box<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
+    force_torque: Option<Shared<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
     /// Type of the body (Dynamic or Kinematic)
     type_: Type,
     /// A name given to the collision.
@@ -86,7 +86,7 @@ pub struct BodyBuilder<'a, 'b, B, C> {
     contained: Option<B>,
 }
 
-impl<'a, 'b, B, C> BodyBuilder<'a, 'b, B, C> {
+impl<'a, 'b, B: Clone, C> BodyBuilder<'a, 'b, B, C> {
     pub fn new(world: &'a mut NewtonWorld<B, C>, collision: &'b NewtonCollision<B, C>) -> Self {
         let world_ptr = world.as_raw();
         BodyBuilder {
@@ -103,70 +103,70 @@ impl<'a, 'b, B, C> BodyBuilder<'a, 'b, B, C> {
         }
     }
 
-    pub fn data(mut self, data: B) -> Self {
+    pub fn data(&mut self, data: B) -> &mut Self {
         self.contained = Some(data);
         self
     }
 
     /// Enable continuous collision mode
-    pub fn continuous(mut self) -> Self {
+    pub fn continuous(&mut self) -> &mut Self {
         self.continuous = true;
         self
     }
 
     /// Sets material GroupID
-    pub fn material(mut self, group: GroupId) -> Self {
+    pub fn material(&mut self, group: GroupId) -> &mut Self {
         self.material_group = group;
         self
     }
 
     /// Set the force and torque callback
     /// A None means the callback will not be called
-    pub fn force_torque_callback<Callback>(mut self, callback: Callback) -> Self
+    pub fn force_torque_callback<Callback>(&mut self, callback: Callback) -> &mut Self
     where
         Callback: Fn(&mut NewtonBody<B, C>, Duration, raw::c_int) + 'static,
     {
-        self.force_torque = Some(Box::new(callback));
+        self.force_torque = Some(Shared::new(callback));
         self
     }
 
     /// Consumes the builder and returns a body
-    pub fn build(self) -> Body<B, C> {
+    pub fn build(&mut self) -> Body<B, C> {
         Body::new(
             self.world,
             self.collision,
             self.type_,
             &self.transform,
             self.debug,
-            self.force_torque,
+            self.force_torque.clone(),
             self.material_group,
             self.continuous,
             self.mass,
-            self.contained,
+            self.contained.clone(),
         )
     }
 
-    pub fn mass(mut self, mass: f32) -> Self {
+    pub fn mass(&mut self, mass: f32) -> &mut Self {
         self.mass = mass;
         self
     }
 
-    pub fn transform(mut self, transform: Matrix) -> Self {
+    pub fn transform(&mut self, transform: Matrix) -> &mut Self {
         self.transform = transform;
         self
     }
 
-    pub fn debug(mut self, name: &'static str) -> Self {
+    pub fn debug(&mut self, name: &'static str) -> &mut Self {
         self.debug = Some(name);
         self
     }
 
-    pub fn dynamic(mut self) -> Self {
+    pub fn dynamic(&mut self) -> &mut Self {
         self.type_ = Type::Dynamic;
         self
     }
 
-    pub fn kinematic(mut self) -> Self {
+    pub fn kinematic(&mut self) -> &mut Self {
         self.type_ = Type::Kinematic;
         self
     }
@@ -258,6 +258,15 @@ pub enum Type {
     Kinematic = ffi::NEWTON_KINEMATIC_BODY as _,
 }
 
+impl<B: Clone, C> Body<B, C> {
+    pub fn builder<'a, 'b>(
+        world: &'a mut NewtonWorld<B, C>,
+        collision: &'b NewtonCollision<B, C>,
+    ) -> BodyBuilder<'a, 'b, B, C> {
+        BodyBuilder::new(world, collision)
+    }
+}
+
 impl<B, C> Body<B, C> {
     pub fn try_read(&self) -> Result<BodyLocked<B, C>> {
         let body = self.body.try_read()?;
@@ -280,20 +289,13 @@ impl<B, C> Body<B, C> {
         BodyLockedMut(self.world.write(debug), self.body.write(debug))
     }
 
-    pub fn builder<'a, 'b>(
-        world: &'a mut NewtonWorld<B, C>,
-        collision: &'b NewtonCollision<B, C>,
-    ) -> BodyBuilder<'a, 'b, B, C> {
-        BodyBuilder::new(world, collision)
-    }
-
     fn new(
         world: &mut NewtonWorld<B, C>,
         collision: &NewtonCollision<B, C>,
         type_: Type,
         matrix: &Matrix,
         debug: Option<&'static str>,
-        force_torque: Option<Box<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
+        force_torque: Option<Shared<dyn Fn(&mut NewtonBody<B, C>, Duration, raw::c_int)>>,
         material: GroupId,
         continuous: bool,
         mass: f32,
