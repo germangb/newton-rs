@@ -1,3 +1,6 @@
+#![cfg(feature = "cgmath_types")]
+#![cfg(feature = "sandbox")]
+
 use newton::body::{Body, NewtonBodyData};
 use newton::collision::Collision;
 use newton::world::{self, World};

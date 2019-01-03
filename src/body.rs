@@ -1,7 +1,6 @@
 use ffi;
 
 use super::collision::NewtonCollision;
-use super::joint::{Contacts, Joints};
 use super::lock::{Lock, LockError, Locked, LockedMut};
 use super::material::GroupId;
 use super::world::{Command, NewtonWorld, WorldLockedMut};
