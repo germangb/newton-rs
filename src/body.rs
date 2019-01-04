@@ -38,6 +38,8 @@ pub struct NewtonBody<B, C> {
     ///
     /// Like world , this field is optional because it is only needed when the struct is owned
     tx: Option<Tx<Command>>,
+    /// Non-owned collision
+    collision: NewtonCollision<B, C>,
 }
 
 // Compiler complains about the raw pointer
@@ -130,22 +132,6 @@ impl<'a, 'b, B: Clone, C> BodyBuilder<'a, 'b, B, C> {
         self
     }
 
-    /// Consumes the builder and returns a body
-    pub fn build(&mut self) -> Body<B, C> {
-        Body::new(
-            self.world,
-            self.collision,
-            self.type_,
-            &self.transform,
-            self.debug,
-            self.force_torque.clone(),
-            self.material_group,
-            self.continuous,
-            self.mass,
-            self.contained.clone(),
-        )
-    }
-
     pub fn mass(&mut self, mass: f32) -> &mut Self {
         self.mass = mass;
         self
@@ -161,14 +147,27 @@ impl<'a, 'b, B: Clone, C> BodyBuilder<'a, 'b, B, C> {
         self
     }
 
-    pub fn dynamic(&mut self) -> &mut Self {
-        self.type_ = Type::Dynamic;
-        self
+    pub fn dynamic(&mut self, transform: &Matrix) -> Body<B, C> {
+        self.build(Type::Dynamic, transform)
     }
 
-    pub fn kinematic(&mut self) -> &mut Self {
-        self.type_ = Type::Kinematic;
-        self
+    pub fn kinematic(&mut self, transform: &Matrix) -> Body<B, C> {
+        self.build(Type::Kinematic, transform)
+    }
+
+    pub fn build(&mut self, type_: Type, transform: &Matrix) -> Body<B, C> {
+        Body::new(
+            self.world,
+            self.collision,
+            type_,
+            transform,
+            self.debug,
+            self.force_torque.clone(),
+            self.material_group,
+            self.continuous,
+            self.mass,
+            self.contained.clone(),
+        )
     }
 }
 
@@ -219,6 +218,7 @@ macro_rules! body_iterator {
                     unsafe {
                         let mut boxed = unsafe { Box::from_raw(self.body) };
                         boxed.body = self.next;
+                        boxed.collision.collision = ffi::NewtonBodyGetCollision(self.next);
                         self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
                         Some(mem::transmute(Box::into_raw(boxed)))
                     }
@@ -319,6 +319,7 @@ impl<B, C> Body<B, C> {
                 world: Some(world_lock.clone()),
                 tx: Some(world.tx.clone()),
                 owned: true,
+                collision: NewtonCollision::new_not_owned(collision as _),
             });
 
             match &force_torque {
@@ -369,13 +370,31 @@ pub enum FreezeState {
 }
 
 impl<B, C> NewtonBody<B, C> {
+    /// Wraps a raw NewtonBody pointer
+    ///
+    /// TODO document safety
+    pub(crate) fn new_not_owned(body: *mut ffi::NewtonBody) -> Self {
+        NewtonBody {
+            owned: false,
+            body,
+            world: None,
+            tx: None,
+            collision: NewtonCollision::new_not_owned(unsafe { ffi::NewtonBodyGetCollision(body) }),
+        }
+    }
+
     pub(crate) fn null_not_owned() -> Self {
         NewtonBody {
             owned: false,
             body: ptr::null_mut(),
             world: None,
             tx: None,
+            collision: NewtonCollision::null_not_owned(),
         }
+    }
+
+    pub fn collision(&self) -> &NewtonCollision<B, C> {
+        &self.collision
     }
 
     pub fn set_material_id(&mut self, id: GroupId) {
@@ -439,18 +458,6 @@ impl<B, C> NewtonBody<B, C> {
     #[inline]
     pub fn set_collidable(&mut self, collidable: bool) {
         unsafe { ffi::NewtonBodySetCollidable(self.body, collidable as _) };
-    }
-
-    /// Wraps a raw NewtonBody pointer
-    ///
-    /// TODO document safety
-    pub(crate) fn new_not_owned(body: *mut ffi::NewtonBody) -> Self {
-        NewtonBody {
-            owned: false,
-            body,
-            world: None,
-            tx: None,
-        }
     }
 
     pub fn add_impulse(&mut self, vel: &Vector, point: &Vector, step: Duration) {

@@ -144,7 +144,6 @@ impl<'a, B, C: Clone> CollisionBuilder<'a, B, C> {
         self.build(Params::HeightFieldU16(params))
     }
 
-    /// Consumes the builder and returns a collision
     fn build(&mut self, params: Params) -> Collision<B, C> {
         Collision::new(
             self.world,
@@ -284,6 +283,15 @@ impl<B, C> Collision<B, C> {
 }
 
 impl<B, C> NewtonCollision<B, C> {
+    /// Create a non-owned null collision
+    pub(crate) fn null_not_owned() -> Self {
+        NewtonCollision {
+            owned: false,
+            collision: ptr::null_mut(),
+            world: None,
+        }
+    }
+
     /// Wraps a raw `ffi::NewtonCollision` pointer
     ///
     /// TODO document safety
