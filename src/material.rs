@@ -2,6 +2,7 @@ use ffi;
 
 use std::marker::PhantomData;
 use std::os::raw;
+use std::ptr::NonNull;
 
 /// Material group ID
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -30,10 +31,10 @@ impl NewtonMaterial {
 
 /// Trait to generate touples of `GroupId`s
 pub trait Materials: Sized {
-    unsafe fn from(world: *mut ffi::NewtonWorld) -> Self;
+    unsafe fn from(world: NonNull<ffi::NewtonWorld>) -> Self;
 }
 
-pub(crate) fn create_materials<T: Materials>(world: *mut ffi::NewtonWorld) -> T {
+pub(crate) fn create_materials<T: Materials>(world: NonNull<ffi::NewtonWorld>) -> T {
     unsafe { T::from(world) }
 }
 
@@ -57,7 +58,7 @@ macro_rules! materials {
     ( $($gen:ident),+ ) => {
         impl< $($gen : Materials,)+ > Materials for ( $($gen,)+ ) {
             #[inline]
-            unsafe fn from(world: *mut ffi::NewtonWorld) -> Self {
+            unsafe fn from(world: NonNull<ffi::NewtonWorld>) -> Self {
                 ($( <$gen as Materials>::from(world) ,)+)
             }
         }
@@ -66,8 +67,8 @@ macro_rules! materials {
 
 impl Materials for GroupId {
     #[inline]
-    unsafe fn from(world: *mut ffi::NewtonWorld) -> Self {
-        GroupId(ffi::NewtonMaterialCreateGroupID(world))
+    unsafe fn from(world: NonNull<ffi::NewtonWorld>) -> Self {
+        GroupId(ffi::NewtonMaterialCreateGroupID(world.as_ptr()))
     }
 }
 

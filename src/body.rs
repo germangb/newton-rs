@@ -1,3 +1,5 @@
+pub mod iter;
+
 use ffi;
 
 use super::collision::NewtonCollision;
@@ -155,7 +157,7 @@ impl<'a, 'b, B: Clone, C> BodyBuilder<'a, 'b, B, C> {
         self.build(Type::Kinematic, transform)
     }
 
-    pub fn build(&mut self, type_: Type, transform: &Matrix) -> Body<B, C> {
+    fn build(&mut self, type_: Type, transform: &Matrix) -> Body<B, C> {
         Body::new(
             self.world,
             self.collision,
@@ -190,53 +192,6 @@ pub(crate) unsafe fn userdata<B, C>(body: *const ffi::NewtonBody) -> Shared<Newt
     mem::forget(udata);
     udata_cloned
 }
-
-macro_rules! body_iterator {
-    (
-        $struct_name:ident < 'a, B, C > ,
-        $item:ty
-    ) => {
-        // TODO remove pub visibility
-        /// Iterator that yields NewtonBodys
-        #[derive(Debug)]
-        pub struct $struct_name<'a, B, C> {
-            pub(crate) world: *mut ffi::NewtonWorld,
-            /// A raw pointer to the next body to be returned by the iterator
-            pub(crate) next: *mut ffi::NewtonBody,
-            /// The NewtonBody reference that gets returned by the iterator. This data is stored on the
-            /// heap so it may have a slight effect in performance.
-            pub(crate) body: *mut NewtonBody<B, C>,
-            pub(crate) _phantom: PhantomData<&'a ()>,
-        }
-        impl<'a, B: 'a, C: 'a> Iterator for $struct_name<'a, B, C> {
-            type Item = $item;
-
-            fn next(&mut self) -> Option<Self::Item> {
-                if self.next.is_null() {
-                    None
-                } else {
-                    unsafe {
-                        let mut boxed = unsafe { Box::from_raw(self.body) };
-                        boxed.body = self.next;
-                        boxed.collision.collision = ffi::NewtonBodyGetCollision(self.next);
-                        self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
-                        Some(mem::transmute(Box::into_raw(boxed)))
-                    }
-                }
-            }
-        }
-        impl<'a, B, C> Drop for $struct_name<'a, B, C> {
-            fn drop(&mut self) {
-                unsafe {
-                    let _: Box<NewtonBody<B, C>> = Box::from_raw(self.body);
-                }
-            }
-        }
-    };
-}
-
-body_iterator! { NewtonBodies<'a, B, C>, &'a NewtonBody<B, C> }
-body_iterator! { NewtonBodiesMut<'a, B, C>, &'a mut NewtonBody<B, C> }
 
 /// Reference to a NewtonWorld
 #[derive(Debug)]

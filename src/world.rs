@@ -1,6 +1,7 @@
 use ffi;
 
-use super::body::{BodyLocked, NewtonBodies, NewtonBodiesMut, NewtonBody, NewtonBodyData};
+use super::body::iter::{NewtonBodies, NewtonBodiesMut};
+use super::body::{BodyLocked, NewtonBody, NewtonBodyData};
 use super::collision::NewtonCollision;
 use super::lock::{Lock, LockError, Locked, LockedMut};
 use super::material::{GroupId, NewtonMaterial};
@@ -12,6 +13,7 @@ use std::{
     ops::{Deref, DerefMut},
     os::raw,
     ptr,
+    ptr::NonNull,
     time::Duration,
 };
 
@@ -23,7 +25,7 @@ pub struct World<B, C> {
 
 #[derive(Debug)]
 pub struct NewtonWorld<B, C> {
-    world: *mut ffi::NewtonWorld,
+    world: NonNull<ffi::NewtonWorld>,
     /// Tx end of the command channel.
     pub(crate) tx: Tx<Command>,
     /// Rx end of the command channel, used by NewtonBody to signal the destruction of a body.
@@ -129,7 +131,7 @@ fn create_world<B, C>() -> NewtonWorld<B, C> {
     let world = unsafe { ffi::NewtonCreate() };
     let (tx, rx) = channel();
     NewtonWorld {
-        world,
+        world: NonNull::new(world).unwrap(),
         tx,
         rx,
         _phantom: PhantomData,
@@ -146,7 +148,7 @@ pub struct WorldLockedMut<'a, B, C>(LockedMut<'a, NewtonWorld<B, C>>);
 /// A type returned by the call to the asynchronous world update. When this type is dropped, the current
 /// thread is blocked until the simulation step has finished.
 #[derive(Debug)]
-pub struct WorldUpdateAsync<'a>(*mut ffi::NewtonWorld, PhantomData<&'a ()>);
+pub struct WorldUpdateAsync<'a>(NonNull<ffi::NewtonWorld>, PhantomData<&'a ()>);
 
 unsafe impl<'a> Send for WorldUpdateAsync<'a> {}
 unsafe impl<'a> Sync for WorldUpdateAsync<'a> {}
@@ -177,7 +179,7 @@ impl<B, C> World<B, C> {
     ) -> Self {
         let newton_world = create_world();
 
-        let world_raw = newton_world.world;
+        let world_raw = newton_world.world.as_ptr();
         let tx = newton_world.tx.clone();
         let lock = Shared::new(Lock::new(newton_world));
 
@@ -300,7 +302,7 @@ impl<B, C> NewtonWorld<B, C> {
     {
         unsafe {
             ffi::NewtonWorldRayCast(
-                self.world,
+                self.world.as_ptr(),
                 mem::transmute(p0),
                 mem::transmute(p1),
                 Some(filter::<B, C, F, P>),
@@ -387,7 +389,7 @@ impl<B, C> NewtonWorld<B, C> {
         let mut return_info = Vec::with_capacity(max_contacts);
         let contacts = unsafe {
             ffi::NewtonWorldConvexCast(
-                self.world,
+                self.world.as_ptr(),
                 mem::transmute(matrix),
                 mem::transmute(target),
                 shape.as_raw(),
@@ -444,7 +446,7 @@ impl<B, C> NewtonWorld<B, C> {
     {
         unsafe {
             ffi::NewtonWorldForEachBodyInAABBDo(
-                self.world,
+                self.world.as_ptr(),
                 mem::transmute(min),
                 mem::transmute(max),
                 Some(body_iterator::<B, C, I>),
@@ -483,32 +485,32 @@ impl<B, C> NewtonWorld<B, C> {
     #[inline]
     pub fn material_set_thickness(&mut self, (u, v): (GroupId, GroupId), thick: f32) {
         assert!(thick >= 0.0);
-        unsafe { ffi::NewtonMaterialSetSurfaceThickness(self.world, u.0, v.0, thick) };
+        unsafe { ffi::NewtonMaterialSetSurfaceThickness(self.world.as_ptr(), u.0, v.0, thick) };
     }
 
     #[inline]
     pub fn material_set_friction(&mut self, (u, v): (GroupId, GroupId), fs: f32, fk: f32) {
         assert!(fs >= 0.0 && fk >= 0.0);
-        unsafe { ffi::NewtonMaterialSetDefaultFriction(self.world, u.0, v.0, fs, fk) };
+        unsafe { ffi::NewtonMaterialSetDefaultFriction(self.world.as_ptr(), u.0, v.0, fs, fk) };
     }
 
     #[inline]
     pub fn material_set_elasticity(&mut self, (u, v): (GroupId, GroupId), rest: f32) {
         assert!(rest >= 0.0);
-        unsafe { ffi::NewtonMaterialSetDefaultElasticity(self.world, u.0, v.0, rest) };
+        unsafe { ffi::NewtonMaterialSetDefaultElasticity(self.world.as_ptr(), u.0, v.0, rest) };
     }
 
     #[inline]
     pub fn material_set_softness(&mut self, (u, v): (GroupId, GroupId), soft: f32) {
         assert!(soft >= 0.0);
-        unsafe { ffi::NewtonMaterialSetDefaultSoftness(self.world, u.0, v.0, soft) };
+        unsafe { ffi::NewtonMaterialSetDefaultSoftness(self.world.as_ptr(), u.0, v.0, soft) };
     }
 
     #[inline]
     pub fn material_set_collidable(&mut self, (u, v): (GroupId, GroupId), collid: bool) {
         unsafe {
             ffi::NewtonMaterialSetDefaultCollidable(
-                self.world,
+                self.world.as_ptr(),
                 u.0,
                 v.0,
                 if collid { 1 } else { 0 },
@@ -526,19 +528,19 @@ impl<B, C> NewtonWorld<B, C> {
     {
         unsafe {
             // free any previously set callback
-            let udata = ffi::NewtonMaterialGetUserData(self.world, u.0, v.0);
+            let udata = ffi::NewtonMaterialGetUserData(self.world.as_ptr(), u.0, v.0);
             if !udata.is_null() {
                 let boxed_callback: Box<Callback> = Box::from_raw(udata as _);
             }
 
             ffi::NewtonMaterialSetCallbackUserData(
-                self.world,
+                self.world.as_ptr(),
                 u.0,
                 v.0,
                 mem::transmute(Box::new(callback)),
             );
             ffi::NewtonMaterialSetCollisionCallback(
-                self.world,
+                self.world.as_ptr(),
                 u.0,
                 v.0,
                 Some(super::callbacks::aabb_overlap_callback::<B, C, Callback>),
@@ -549,50 +551,28 @@ impl<B, C> NewtonWorld<B, C> {
 
     /// Returns a body iterator
     pub fn bodies(&self) -> NewtonBodies<B, C> {
-        unsafe {
-            let world = self.world;
-            let first = ffi::NewtonWorldGetFirstBody(world);
-            let body = Box::new(NewtonBody::new_not_owned(first));
-
-            NewtonBodies {
-                world,
-                next: first,
-                body: Box::into_raw(body),
-                _phantom: PhantomData,
-            }
-        }
+        NewtonBodies::new(self)
     }
 
     /// Returns a mutable body iterator
     pub fn bodies_mut(&mut self) -> NewtonBodiesMut<B, C> {
-        unsafe {
-            let world = self.world;
-            let first = ffi::NewtonWorldGetFirstBody(world);
-            let body = Box::new(NewtonBody::new_not_owned(first));
-
-            NewtonBodiesMut {
-                world,
-                next: first,
-                body: Box::into_raw(body),
-                _phantom: PhantomData,
-            }
-        }
+        NewtonBodiesMut::new(self)
     }
 
     #[inline]
     pub fn body_count(&self) -> raw::c_int {
-        unsafe { ffi::NewtonWorldGetBodyCount(self.world) }
+        unsafe { ffi::NewtonWorldGetBodyCount(self.world.as_ptr()) }
     }
 
     pub fn constraint_count(&self) -> raw::c_int {
-        unsafe { ffi::NewtonWorldGetConstraintCount(self.world) }
+        unsafe { ffi::NewtonWorldGetConstraintCount(self.world.as_ptr()) }
     }
 
     /// Non-blocking variant of the `update` method.
     pub fn update_async(&mut self, step: Duration) -> WorldUpdateAsync {
         self.flush_commands(false);
         unsafe {
-            ffi::NewtonUpdateAsync(self.world, as_seconds(step));
+            ffi::NewtonUpdateAsync(self.world.as_ptr(), as_seconds(step));
         }
         WorldUpdateAsync(self.world, PhantomData)
     }
@@ -600,22 +580,22 @@ impl<B, C> NewtonWorld<B, C> {
     /// Destroys unreferenced bodies and steps the simulation synchronously
     pub fn update(&mut self, step: Duration) {
         self.flush_commands(false);
-        unsafe { ffi::NewtonUpdate(self.world, as_seconds(step)) }
+        unsafe { ffi::NewtonUpdate(self.world.as_ptr(), as_seconds(step)) }
     }
 
     #[inline]
     pub fn invalidate_cache(&mut self) {
-        unsafe { ffi::NewtonInvalidateCache(self.world) }
+        unsafe { ffi::NewtonInvalidateCache(self.world.as_ptr()) }
     }
 
     #[inline]
     pub fn as_raw(&self) -> *const ffi::NewtonWorld {
-        self.world
+        self.world.as_ptr()
     }
 
     #[inline]
     pub fn as_raw_mut(&mut self) -> *mut ffi::NewtonWorld {
-        self.world
+        self.world.as_ptr()
     }
 
     fn dispatch_command(&self, cmd: Command) {
@@ -646,16 +626,16 @@ impl<B, C> NewtonWorld<B, C> {
             Fn(&NewtonMaterial, &NewtonBody<B, C>, &NewtonBody<B, C>, raw::c_int) -> bool + 'static,
     {
         unsafe {
-            ffi::NewtonMaterialDestroyAllGroupID(self.world);
-            let mut material = ffi::NewtonWorldGetFirstMaterial(self.world);
+            ffi::NewtonMaterialDestroyAllGroupID(self.world.as_ptr());
+            let mut material = ffi::NewtonWorldGetFirstMaterial(self.world.as_ptr());
             while !material.is_null() {
                 let udata = ffi::NewtonMaterialGetMaterialPairUserData(material);
                 if !udata.is_null() {
                     let boxed_callback: Box<Callback> = Box::from_raw(udata as _);
                 }
-                material = ffi::NewtonWorldGetNextMaterial(self.world, material);
+                material = ffi::NewtonWorldGetNextMaterial(self.world.as_ptr(), material);
             }
-            ffi::NewtonMaterialDestroyAllGroupID(self.world);
+            ffi::NewtonMaterialDestroyAllGroupID(self.world.as_ptr());
         }
     }
 }
@@ -685,7 +665,7 @@ impl<'w, B, C> DerefMut for WorldLockedMut<'w, B, C> {
 
 impl<B, C> Drop for NewtonWorld<B, C> {
     fn drop(&mut self) {
-        let world = self.world;
+        let world = self.world.as_ptr();
         unsafe {
             ffi::NewtonWaitForUpdateToFinish(world);
             let _: Shared<NewtonWorldData<B, C>> =
@@ -703,7 +683,7 @@ impl<B, C> Drop for NewtonWorld<B, C> {
 
 impl<'a> Drop for WorldUpdateAsync<'a> {
     fn drop(&mut self) {
-        unsafe { ffi::NewtonWaitForUpdateToFinish(self.0) };
+        unsafe { ffi::NewtonWaitForUpdateToFinish(self.0.as_ptr()) };
     }
 }
 
