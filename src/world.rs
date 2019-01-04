@@ -70,19 +70,19 @@ impl<B, C> WorldBuilder<B, C> {
         }
     }
 
-    pub fn threads(mut self, th: usize) -> Self {
+    pub fn threads(&mut self, th: usize) -> &mut Self {
         self.threads = th;
         self
     }
 
     /// Sets the number of threads to the number of CPUs available in the system.
-    pub fn max_threads(mut self) -> Self {
+    pub fn max_threads(&mut self) -> &mut Self {
         self.threads = num_cpus::get();
         self
     }
 
     /// Set debug name, for use in Error reporting
-    pub fn debug(mut self, name: &'static str) -> Self {
+    pub fn debug(&mut self, name: &'static str) -> &mut Self {
         self.debug = Some(name);
         self
     }
@@ -92,22 +92,22 @@ impl<B, C> WorldBuilder<B, C> {
         self
     }
 
-    pub fn linear_solver(mut self, steps: usize) -> Self {
+    pub fn linear_solver(&mut self, steps: usize) -> &mut Self {
         self.solver = Solver::Linear(steps);
         self
     }
 
-    pub fn default_broadphase(mut self) -> Self {
+    pub fn default_broadphase(&mut self) -> &mut Self {
         self.broad = Broadphase::Default;
         self
     }
 
-    pub fn persistent_broadphase(mut self) -> Self {
+    pub fn persistent_broadphase(&mut self) -> &mut Self {
         self.broad = Broadphase::Persistent;
         self
     }
 
-    pub fn build(self) -> World<B, C> {
+    pub fn build(&mut self) -> World<B, C> {
         World::new(self.broad, self.solver, self.threads, self.debug)
     }
 }
