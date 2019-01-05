@@ -132,6 +132,18 @@ impl<'a, B, C: Clone> CollisionBuilder<'a, B, C> {
         self.build(Params::Sphere(radius))
     }
 
+    pub fn cone(&mut self, radius: f32, height: f32) -> Collision<B, C> {
+        self.build(Params::Cone(radius, height))
+    }
+
+    pub fn cylinder(&mut self, radius0: f32, radius1: f32, height: f32) -> Collision<B, C> {
+        self.build(Params::Cylinder(radius0, radius1, height))
+    }
+
+    pub fn capsule(&mut self, radius0: f32, radius1: f32, height: f32) -> Collision<B, C> {
+        self.build(Params::Capsule(radius0, radius1, height))
+    }
+
     pub fn cuboid(&mut self, dx: f32, dy: f32, dz: f32) -> Collision<B, C> {
         self.build(Params::Box(dx, dy, dz))
     }
@@ -172,7 +184,7 @@ impl<B, C> Collision<B, C> {
         world: &mut NewtonWorld<B, C>,
         params: Params,
         shape_id: ShapeId,
-        offset: Option<&Matrix>,
+        offset_mat: Option<&Matrix>,
         debug: Option<&'static str>,
         data: Option<C>,
     ) -> Self {
@@ -181,7 +193,7 @@ impl<B, C> Collision<B, C> {
         let world_lock = Weak::upgrade(&world_udata.world).unwrap();
 
         let collision_raw = unsafe {
-            let offset = mem::transmute(offset);
+            let offset = mem::transmute(offset_mat);
 
             const FIELD_F32_TYPE: i32 = 0;
             const FIELD_U16_TYPE: i32 = 1;
@@ -216,7 +228,9 @@ impl<B, C> Collision<B, C> {
                         s_z, // horizontalScale_z
                         shape_id,
                     );
-                    ffi::NewtonCollisionSetMatrix(field, offset);
+                    if offset_mat.is_some() {
+                        ffi::NewtonCollisionSetMatrix(field, offset);
+                    }
                     field
                 }
                 &Params::HeightFieldU16(ref h) => {
@@ -234,7 +248,9 @@ impl<B, C> Collision<B, C> {
                         s_z, // horizontalScale_z
                         shape_id,
                     );
-                    ffi::NewtonCollisionSetMatrix(field, offset);
+                    if offset_mat.is_some() {
+                        ffi::NewtonCollisionSetMatrix(field, offset);
+                    }
                     field
                 }
             }

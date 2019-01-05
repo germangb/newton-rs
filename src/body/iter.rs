@@ -52,7 +52,6 @@ macro_rules! body_iterator {
                     unsafe {
                         let mut boxed = unsafe { Box::from_raw(self.body) };
                         boxed.body = self.next as _;
-                        boxed.collision.collision = ffi::NewtonBodyGetCollision(self.next);
                         self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
                         Some(mem::transmute(Box::into_raw(boxed)))
                     }

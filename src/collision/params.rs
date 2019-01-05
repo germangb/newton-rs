@@ -63,40 +63,6 @@ pub struct HeightFieldParams<T> {
     scale: (f32, f32, f32),
 }
 
-/*
-//#[doc(hidden)]
-pub trait HeightFieldType: Sized + Copy + Clone {
-    const MAX_VALUE: Self;
-    const ZERO: Self;
-
-    fn as_f32(&self) -> f32;
-}
-*/
-
-/*
-impl HeightFieldType for u16 {
-    const MAX_VALUE: u16 = 0xFFFF;
-    const ZERO: u16 = 0x0;
-
-    #[inline]
-    fn as_f32(&self) -> f32 {
-        *self as f32
-    }
-}
-*/
-
-/*
-impl HeightFieldType for f32 {
-    const MAX_VALUE: f32 = 1.0;
-    const ZERO: f32 = 0.0;
-
-    #[inline]
-    fn as_f32(&self) -> f32 {
-        *self
-    }
-}
-*/
-
 impl<T> Field<T> {
     pub fn row(&self, row: usize) -> &[T] {
         assert!(row < self.1);

@@ -9,6 +9,7 @@ use super::world::{Command, NewtonWorld, WorldLockedMut};
 use super::{Matrix, Quaternion, Result, Shared, Tx, Vector, Weak};
 
 use std::{
+
     marker::PhantomData,
     mem,
     ops::{Deref, DerefMut},
@@ -40,8 +41,6 @@ pub struct NewtonBody<B, C> {
     ///
     /// Like world , this field is optional because it is only needed when the struct is owned
     tx: Option<Tx<Command>>,
-    /// Non-owned collision
-    collision: NewtonCollision<B, C>,
 }
 
 // Compiler complains about the raw pointer
@@ -274,7 +273,6 @@ impl<B, C> Body<B, C> {
                 world: Some(world_lock.clone()),
                 tx: Some(world.tx.clone()),
                 owned: true,
-                collision: NewtonCollision::new_not_owned(collision as _),
             });
 
             match &force_torque {
@@ -334,7 +332,6 @@ impl<B, C> NewtonBody<B, C> {
             body,
             world: None,
             tx: None,
-            collision: NewtonCollision::new_not_owned(unsafe { ffi::NewtonBodyGetCollision(body) }),
         }
     }
 
@@ -344,12 +341,7 @@ impl<B, C> NewtonBody<B, C> {
             body: ptr::null_mut(),
             world: None,
             tx: None,
-            collision: NewtonCollision::null_not_owned(),
         }
-    }
-
-    pub fn collision(&self) -> &NewtonCollision<B, C> {
-        &self.collision
     }
 
     pub fn set_material_id(&mut self, id: GroupId) {
@@ -534,7 +526,6 @@ impl<'a, B, C> Deref for BodyLocked<'a, B, C> {
 
 impl<'a, B, C> Deref for BodyLockedMut<'a, B, C> {
     type Target = NewtonBody<B, C>;
-
     #[inline]
     fn deref(&self) -> &Self::Target {
         self.1.deref()
