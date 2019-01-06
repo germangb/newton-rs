@@ -9,7 +9,6 @@ use super::world::{Command, NewtonWorld, WorldLockedMut};
 use super::{Matrix, Quaternion, Result, Shared, Tx, Vector, Weak};
 
 use std::{
-
     marker::PhantomData,
     mem,
     ops::{Deref, DerefMut},
@@ -77,8 +76,6 @@ pub struct BodyBuilder<'a, 'b, B, C> {
     type_: Type,
     /// A name given to the collision.
     debug: Option<&'static str>,
-    /// Initial transformation
-    transform: Matrix,
     /// Material group ID
     material_group: GroupId,
     /// Continuous collision enabled/disabled
@@ -98,7 +95,6 @@ impl<'a, 'b, B: Clone, C> BodyBuilder<'a, 'b, B, C> {
             force_torque: None,
             type_: Type::Dynamic,
             debug: None,
-            transform: super::IDENTITY,
             material_group: unsafe { GroupId(ffi::NewtonMaterialGetDefaultGroupID(world_ptr)) },
             continuous: false,
             mass: 0.0,
@@ -135,11 +131,6 @@ impl<'a, 'b, B: Clone, C> BodyBuilder<'a, 'b, B, C> {
 
     pub fn mass(&mut self, mass: f32) -> &mut Self {
         self.mass = mass;
-        self
-    }
-
-    pub fn transform(&mut self, transform: Matrix) -> &mut Self {
-        self.transform = transform;
         self
     }
 
@@ -276,12 +267,12 @@ impl<B, C> Body<B, C> {
             });
 
             match &force_torque {
-                &Some(_) => unsafe {
+                &Some(_) => {
                     ffi::NewtonBodySetForceAndTorqueCallback(
                         body_ptr,
                         Some(super::callbacks::force_and_torque_callback::<B, C>),
                     );
-                },
+                }
                 _ => {}
             }
 

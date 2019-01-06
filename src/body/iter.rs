@@ -50,7 +50,7 @@ macro_rules! body_iterator {
                     None
                 } else {
                     unsafe {
-                        let mut boxed = unsafe { Box::from_raw(self.body) };
+                        let mut boxed = Box::from_raw(self.body);
                         boxed.body = self.next as _;
                         self.next = ffi::NewtonWorldGetNextBody(self.world, boxed.body);
                         Some(mem::transmute(Box::into_raw(boxed)))

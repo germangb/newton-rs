@@ -71,17 +71,3 @@ pub unsafe extern "C" fn contacts_process_callback(
     //eprintln!("{:?}", material);
     //println!("hit");
 }
-
-pub unsafe extern "C" fn contact_generation_callback(
-    material: *const ffi::NewtonMaterial,
-    body0: *const ffi::NewtonBody,
-    collision0: *const ffi::NewtonCollision,
-    body1: *const ffi::NewtonBody,
-    collision1: *const ffi::NewtonCollision,
-    contact_buffer: *const ffi::NewtonUserContactPoint,
-    max_count: raw::c_int,
-    thread_index: raw::c_int,
-) -> raw::c_int {
-    println!("{}", max_count);
-    max_count
-}

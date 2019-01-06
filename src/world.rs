@@ -3,7 +3,7 @@ use ffi;
 use super::body::iter::{NewtonBodies, NewtonBodiesMut};
 use super::body::{BodyLocked, NewtonBody, NewtonBodyData};
 use super::collision::NewtonCollision;
-use super::lock::{Lock, LockError, Locked, LockedMut};
+use super::lock::{Lock, Locked, LockedMut};
 use super::material::{GroupId, NewtonMaterial};
 use super::{channel, Matrix, Quaternion, Result, Rx, Shared, Tx, Vector, Weak};
 
@@ -30,6 +30,8 @@ pub struct NewtonWorld<B, C> {
     pub(crate) tx: Tx<Command>,
     /// Rx end of the command channel, used by NewtonBody to signal the destruction of a body.
     rx: Rx<Command>,
+    /// Buffer to hold world casting (ray & convex) information
+    contacts: Lock<Vec<ffi::NewtonWorldConvexCastReturnInfo>>,
     _phantom: PhantomData<(B, C)>,
 }
 
@@ -134,6 +136,7 @@ fn create_world<B, C>() -> NewtonWorld<B, C> {
         world: NonNull::new(world).unwrap(),
         tx,
         rx,
+        contacts: Lock::new(Vec::with_capacity(16)),
         _phantom: PhantomData,
     }
 }
@@ -225,64 +228,6 @@ impl<B, C> World<B, C> {
     #[inline]
     pub fn write(&self) -> WorldLockedMut<B, C> {
         WorldLockedMut(self.world.write(self.debug))
-    }
-}
-
-#[derive(Debug)]
-pub struct ConvexCast<'a, B, C> {
-    count: usize,
-    contacts: Vec<ffi::NewtonWorldConvexCastReturnInfo>,
-    body: *mut NewtonBody<B, C>,
-    _phantom: PhantomData<&'a ()>,
-}
-
-impl<'a, B, C> Drop for ConvexCast<'a, B, C> {
-    fn drop(&mut self) {
-        unsafe {
-            let _ = Box::from_raw(self.body);
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct CastInfo {
-    pub point: Vector,
-    pub normal: Vector,
-    pub penetration: f32,
-}
-
-// TODO test, make sure collision matches the body
-// TODO FIXME refactor...
-impl<'a, B: 'a, C: 'a> Iterator for ConvexCast<'a, B, C> {
-    type Item = (&'a NewtonBody<B, C>, CastInfo);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let contact = self.contacts.get(self.count).map(|info| {
-            let mut boxed = unsafe { Box::from_raw(self.body) };
-
-            boxed.body = info.m_hitBody as _;
-
-            let (point, normal) = unsafe {
-                let mut point: Vector = mem::zeroed();
-                let mut normal: Vector = mem::zeroed();
-
-                ptr::copy(info.m_point.as_ptr(), &mut point as *mut _ as *mut f32, 3);
-                ptr::copy(info.m_normal.as_ptr(), &mut normal as *mut _ as *mut f32, 3);
-
-                (point, normal)
-            };
-
-            let info = CastInfo {
-                penetration: info.m_penetration,
-                point,
-                normal,
-            };
-
-            unsafe { (mem::transmute(Box::into_raw(boxed)), info) }
-        });
-
-        self.count += 1;
-        contact
     }
 }
 
@@ -380,13 +325,18 @@ impl<B, C> NewtonWorld<B, C> {
         target: &Vector,
         shape: &NewtonCollision<B, C>,
         hit_param: &mut f32,
-        max_contacts: usize,
+        mut max_contacts: usize,
         prefilter: Callback,
-    ) -> ConvexCast<B, C>
+    ) -> &[ffi::NewtonWorldConvexCastReturnInfo]
     where
         Callback: Fn(&NewtonBody<B, C>, &NewtonCollision<B, C>) -> bool + 'static,
     {
-        let mut return_info = Vec::with_capacity(max_contacts);
+        let mut info = self.contacts.write(None);
+
+        if max_contacts > info.capacity() {
+            max_contacts = info.capacity();
+        }
+
         let contacts = unsafe {
             ffi::NewtonWorldConvexCast(
                 self.world.as_ptr(),
@@ -399,13 +349,18 @@ impl<B, C> NewtonWorld<B, C> {
                 mem::transmute(&prefilter),
                 Some(prefilter_callback::<B, C, Callback>),
                 // cast info
-                return_info.as_mut_ptr(),
+                info.as_mut_ptr(),
                 max_contacts as raw::c_int,
                 // thread index
                 0,
             )
         };
 
+        unsafe {
+            return std::slice::from_raw_parts(info.as_ptr(), contacts as usize);
+        }
+
+        /*
         let body = unsafe { Box::new(NewtonBody::null_not_owned()) };
 
         unsafe {
@@ -418,6 +373,7 @@ impl<B, C> NewtonWorld<B, C> {
                 _phantom: PhantomData,
             };
         }
+        */
 
         unsafe extern "C" fn prefilter_callback<B, C, Callback>(
             body: *const ffi::NewtonBody,
@@ -530,7 +486,7 @@ impl<B, C> NewtonWorld<B, C> {
             // free any previously set callback
             let udata = ffi::NewtonMaterialGetUserData(self.world.as_ptr(), u.0, v.0);
             if !udata.is_null() {
-                let boxed_callback: Box<Callback> = Box::from_raw(udata as _);
+                let _boxed_callback: Box<Callback> = Box::from_raw(udata as _);
             }
 
             ffi::NewtonMaterialSetCallbackUserData(

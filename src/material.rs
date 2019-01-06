@@ -34,10 +34,6 @@ pub trait Materials: Sized {
     unsafe fn from(world: NonNull<ffi::NewtonWorld>) -> Self;
 }
 
-pub(crate) fn create_materials<T: Materials>(world: NonNull<ffi::NewtonWorld>) -> T {
-    unsafe { T::from(world) }
-}
-
 impl NewtonMaterial {
     /// Override the default value of the kinetic coefficient of friction for this contact.
     pub fn set_friction(&mut self, static_coef: f32, kinematic_coef: f32, index: raw::c_int) {

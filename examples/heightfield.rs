@@ -1,6 +1,6 @@
-use newton::World;
-use newton::Collision;
 use newton::collision::params::HeightFieldParams;
+use newton::Collision;
+use newton::World;
 
 fn main() {
     let world = World::<(), ()>::builder().build();
