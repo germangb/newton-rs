@@ -4,6 +4,7 @@ mod callbacks;
 
 pub mod body;
 pub mod collision;
+pub mod heightfield;
 pub mod lock;
 pub mod material;
 #[cfg(feature = "sandbox")]

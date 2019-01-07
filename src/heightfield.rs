@@ -4,27 +4,6 @@ use std::ops::{Index, IndexMut};
 use num_traits::NumCast;
 use num_traits::Zero;
 
-/// Collision parameters
-#[derive(Debug)]
-pub enum Params {
-    /// Box (dx, dy, dz)
-    Box(f32, f32, f32),
-    /// Sphere (radius)
-    Sphere(f32),
-    /// Cone (radius, height)
-    Cone(f32, f32),
-    /// Cylinder (radius0, radius1, height)
-    Cylinder(f32, f32, f32),
-    /// Capsule (radius0, radius1, height)
-    Capsule(f32, f32, f32),
-    /// Heightfield with a `f32` elevation field
-    HeightFieldF32(HeightFieldParams<f32>),
-    /// Heightfield with a `u16` elevation field
-    HeightFieldU16(HeightFieldParams<u16>),
-    /// Null collision shape
-    Null,
-}
-
 /// Ways HeightField grid cells can be constructed
 #[repr(i32)]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -45,7 +24,7 @@ pub struct Field<T>(Vec<T>, /*rows*/ usize, /*columns*/ usize);
 
 /// Definition of a HeightField collision
 #[derive(Debug, Clone)]
-pub struct HeightFieldParams<T> {
+pub struct HeightField<T> {
     /// Width of the heightfield
     rows: usize,
     /// Height of the heightfield
@@ -77,6 +56,14 @@ impl<T> Field<T> {
         let offset = self.columns() * row;
         let c = self.columns();
         &mut self.0[offset..offset + c]
+    }
+
+    pub fn as_slice(&self) -> &[T] {
+        self.0.as_slice()
+    }
+
+    pub fn as_slice_mut(&mut self) -> &mut [T] {
+        self.0.as_mut_slice()
     }
 
     pub fn as_ptr(&self) -> *const T {
@@ -127,7 +114,7 @@ impl<T> IndexMut<usize> for Field<T> {
     }
 }
 
-impl<T> HeightFieldParams<T> {
+impl<T> HeightField<T> {
     #[inline]
     pub fn set_grid(&mut self, grid: GridConstruction) {
         self.grid = grid
@@ -215,9 +202,9 @@ impl Num for u16 {
     }
 }
 
-impl<T: Num> HeightFieldParams<T> {
+impl<T: Num> HeightField<T> {
     pub fn new(rows: usize, columns: usize) -> Self {
-        HeightFieldParams {
+        HeightField {
             grid: GridConstruction::NormalDiagonals,
             rows,
             columns,

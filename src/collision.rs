@@ -1,13 +1,9 @@
-pub mod params;
-
 use ffi;
 
-use self::params::Params;
+use super::heightfield::HeightField;
 use super::lock::{Lock, LockError, Locked, LockedMut};
 use super::world::{NewtonWorld, WorldLockedMut};
 use super::{Matrix, Quaternion, Result, Shared, Vector, Weak};
-
-use self::params::HeightFieldParams;
 
 use std::marker::PhantomData;
 use std::{
@@ -26,6 +22,27 @@ pub struct Collision<B, C> {
     collision: Lock<NewtonCollision<B, C>>,
     /// An optional name used in Error reporting
     debug: Option<&'static str>,
+}
+
+/// Collision parameters
+#[derive(Debug)]
+pub enum Params {
+    /// Box (dx, dy, dz)
+    Box(f32, f32, f32),
+    /// Sphere (radius)
+    Sphere(f32),
+    /// Cone (radius, height)
+    Cone(f32, f32),
+    /// Cylinder (radius0, radius1, height)
+    Cylinder(f32, f32, f32),
+    /// Capsule (radius0, radius1, height)
+    Capsule(f32, f32, f32),
+    /// Heightfield with a `f32` elevation field
+    HeightFieldF32(HeightField<f32>),
+    /// Heightfield with a `u16` elevation field
+    HeightFieldU16(HeightField<u16>),
+    /// Null collision shape
+    Null,
 }
 
 /// Reference to a `NewtonCollision`.
@@ -148,11 +165,11 @@ impl<'a, B, C: Clone> CollisionBuilder<'a, B, C> {
         self.build(Params::Box(dx, dy, dz))
     }
 
-    pub fn heightfield_f32(&mut self, params: HeightFieldParams<f32>) -> Collision<B, C> {
+    pub fn heightfield_f32(&mut self, params: HeightField<f32>) -> Collision<B, C> {
         self.build(Params::HeightFieldF32(params))
     }
 
-    pub fn heightfield_u16(&mut self, params: HeightFieldParams<u16>) -> Collision<B, C> {
+    pub fn heightfield_u16(&mut self, params: HeightField<u16>) -> Collision<B, C> {
         self.build(Params::HeightFieldU16(params))
     }
 
