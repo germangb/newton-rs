@@ -1,5 +1,3 @@
-pub mod iter;
-
 use ffi;
 
 use super::collision::NewtonCollision;

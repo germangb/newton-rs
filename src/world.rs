@@ -1,8 +1,8 @@
 use ffi;
 
-use super::body::iter::{NewtonBodies, NewtonBodiesMut};
 use super::body::{BodyLocked, NewtonBody, NewtonBodyData};
 use super::collision::NewtonCollision;
+use super::iter::{NewtonBodies, NewtonBodiesMut};
 use super::lock::{Lock, Locked, LockedMut};
 use super::material::{GroupId, NewtonMaterial};
 use super::{channel, Matrix, Quaternion, Result, Rx, Shared, Tx, Vector, Weak};

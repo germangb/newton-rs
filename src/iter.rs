@@ -1,7 +1,7 @@
 use ffi;
 
-use super::NewtonBody;
-use super::NewtonWorld;
+use super::body::NewtonBody;
+use super::world::NewtonWorld;
 
 use std::marker::PhantomData;
 use std::mem;
