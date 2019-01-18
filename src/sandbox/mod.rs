@@ -51,8 +51,11 @@ use std::collections::HashMap;
 //use super::body::SleepState;
 //use super::collision::CollisionParams;
 
-pub struct Sandbox {
+use super::world::World;
+
+pub struct Sandbox<B, C> {
     world: *const ffi::NewtonWorld,
+    world_safe: World<B, C>,
 
     // camera movement
     mouse_down: bool,
@@ -64,7 +67,7 @@ pub struct Sandbox {
     width: usize,
     height: usize,
 
-    // render
+    // renderer
     background: Color,
     awake_color: Color,
     sleep_color: Color,
@@ -103,12 +106,12 @@ pub struct Input {
     pub lshift: bool,
 }
 
-pub fn run(world: *const ffi::NewtonWorld) {
+pub fn run<B, C>(world: World<B, C>) {
     Sandbox::default(world).run()
 }
 
-impl Sandbox {
-    pub fn default(world: *const ffi::NewtonWorld) -> Self {
+impl<B, C> Sandbox<B, C> {
+    pub fn default(world: World<B, C>) -> Self {
         let mut app = Sandbox::new(world);
         app.window_size(800, 600);
         app.render_solid(true);
@@ -118,9 +121,12 @@ impl Sandbox {
         app
     }
 
-    pub fn new(world: *const ffi::NewtonWorld) -> Self {
+    pub fn new(world: World<B, C>) -> Self {
+        let ptr = world.read().as_raw();
         Sandbox {
-            world,
+            world_safe: world,
+            world: ptr,
+
             mouse_down: false,
             radius: 24.0,
             alpha: Deg(20.0),
@@ -162,7 +168,7 @@ impl Sandbox {
         }
     }
 
-    pub fn set_handler<C: FnMut(Input) + 'static>(&mut self, handle: C) {
+    pub fn set_handler<Callback: FnMut(Input) + 'static>(&mut self, handle: Callback) {
         self.handler = Some(Box::new(handle))
     }
 
@@ -209,12 +215,18 @@ impl Sandbox {
         self
     }
 
-    fn render_aabb_(
-        &self,
-        renderer: &Renderer,
-        bodies: &[*mut ffi::NewtonBody],
-        stats: &mut RenderStats,
-    ) {
+    fn render_aabb_(&self, renderer: &Renderer, stats: &mut RenderStats) {
+        let _w = self.world_safe.read();
+
+        let mut bodies = Vec::new();
+        unsafe {
+            let mut b = ffi::NewtonWorldGetFirstBody(self.world);
+            while !b.is_null() {
+                bodies.push(b);
+                b = ffi::NewtonWorldGetNextBody(self.world, b);
+            }
+        }
+
         for body in bodies.iter() {
             let mut position = Vector3::new(0.0, 0.0, 0.0);
             let (mut min, mut max) = (position, position);
@@ -294,15 +306,25 @@ impl Sandbox {
     fn render_bodies(
         &self,
         renderer: &Renderer,
-        bodies: &[*mut ffi::NewtonBody],
         mode: Mode,
         awake_color: Color,
         sleeping_color: Color,
         stats: &mut RenderStats,
     ) {
+        let _w = self.world_safe.read();
+
+        let mut bodies = Vec::new();
+        unsafe {
+            let mut b = ffi::NewtonWorldGetFirstBody(self.world);
+            while !b.is_null() {
+                bodies.push(b);
+                b = ffi::NewtonWorldGetNextBody(self.world, b);
+            }
+        }
+
         let mut collision_info: ffi::NewtonCollisionInfoRecord = unsafe { mem::zeroed() };
 
-        for body in bodies {
+        for body in bodies.iter() {
             let mut transform = Matrix4::identity();
 
             unsafe {
@@ -377,7 +399,7 @@ impl Sandbox {
                     );
                 }
                 id @ _ => {
-                    eprintln!("unimplemented shape. ID = {}", id);
+                    //eprintln!("unimplemented shape. ID = {}", id);
                 }
             }
         }
@@ -458,26 +480,16 @@ impl Sandbox {
                 h(self.input)
             }
 
-            let mut bodies = Vec::new();
-            unsafe {
-                let mut b = ffi::NewtonWorldGetFirstBody(self.world);
-                while !b.is_null() {
-                    bodies.push(b);
-                    b = ffi::NewtonWorldGetNextBody(self.world, b);
-                }
-            }
-
             if self.simulate {
                 let step = (1_000_000_000.0f32 / 60.0) * self.time_scale;
-                let step_dur = Duration::new(0, step as u32);
+                let step = Duration::new(0, step as u32);
+                self.world_safe.write().update(step);
 
-                unsafe {
-                    ffi::NewtonUpdate(self.world, step / 1_000_000_000.0);
-                    //ffi::NewtonUpdateAsync(self.world, step / 1_000_000_000.0);
-                    //ffi::NewtonWaitForUpdateToFinish(self.world);
-                }
+                //unsafe {
+                //ffi::NewtonUpdate(self.world, step / 1_000_000_000.0);
+                //}
 
-                self.elapsed += step_dur;
+                self.elapsed += step;
             }
 
             renderer.set_projection(projection);
@@ -501,7 +513,6 @@ impl Sandbox {
                 renderer.set_lighting(self.lighting);
                 self.render_bodies(
                     &renderer,
-                    &bodies[..],
                     Mode::Fill,
                     self.awake_color,
                     self.sleep_color,
@@ -513,7 +524,6 @@ impl Sandbox {
                 renderer.set_line_width(if self.solid { 2.0 } else { 1.0 });
                 self.render_bodies(
                     &renderer,
-                    &bodies[..],
                     Mode::Wireframe,
                     rgba!(0.0),
                     rgba!(0.0),
@@ -523,7 +533,7 @@ impl Sandbox {
             if self.aabb {
                 renderer.set_lighting(false);
                 renderer.set_line_width(1.0);
-                self.render_aabb_(&renderer, &bodies, &mut stats)
+                self.render_aabb_(&renderer, &mut stats)
             }
 
             unsafe {

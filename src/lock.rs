@@ -4,7 +4,9 @@ use failure::Fail;
 
 use std::cell::Cell;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::ops::{Deref, DerefMut};
+use std::ptr;
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 #[derive(Debug, Fail)]
 pub enum LockError {
@@ -27,19 +29,41 @@ pub enum LockError {
     Poisoned,
 }
 
-pub type Shared<T> = std::sync::Arc<T>;
-pub type Weak<T> = std::sync::Weak<T>;
+#[derive(Debug)]
+pub struct Locked<'a, T>(std::sync::RwLockReadGuard<'a, T>);
 
-pub type Locked<'a, T> = std::sync::RwLockReadGuard<'a, T>;
-pub type LockedMut<'a, T> = std::sync::RwLockWriteGuard<'a, T>;
+#[derive(Debug)]
+pub struct LockedMut<'a, T>(std::sync::RwLockWriteGuard<'a, T>);
 
-/// Wraps a `RwLock` + some additional information for error reporting
+impl<'a, T> Deref for Locked<'a, T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<'a, T> Deref for LockedMut<'a, T> {
+    type Target = T;
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl<'a, T> DerefMut for LockedMut<'a, T> {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.0.deref_mut()
+    }
+}
+
 #[derive(Debug)]
 pub struct Lock<T> {
     inner: std::sync::RwLock<T>,
 
     /// Debug name of the owner of the write lock
-    writer: Cell<Option<&'static str>>,
+    writer: Option<&'static str>,
     /// Number of readers with a Read lock
     readers: AtomicUsize,
 }
@@ -48,22 +72,23 @@ impl<T> Lock<T> {
     pub fn new(inner: T) -> Self {
         Lock {
             inner: std::sync::RwLock::new(inner),
-            writer: Cell::new(None),
+            writer: None,
             readers: AtomicUsize::new(0),
         }
     }
 
     pub fn read(&self) -> Locked<T> {
-        self.try_read().unwrap()
+        let lock = self.inner.read().unwrap();
+        Locked(lock)
     }
 
     pub fn try_read(&self) -> Result<Locked<T>> {
         use std::sync::TryLockError;
 
         match self.inner.try_read() {
-            Ok(lock) => Ok(lock),
+            Ok(lock) => Ok(Locked(lock)),
             Err(TryLockError::WouldBlock) => Err(LockError::WouldBlock {
-                writer: self.writer.get(),
+                writer: self.writer,
                 readers: self.readers.load(Ordering::Relaxed),
             }
             .into()),
@@ -74,7 +99,9 @@ impl<T> Lock<T> {
     }
 
     pub fn write(&self, writer: Option<&'static str>) -> LockedMut<T> {
-        self.try_write(writer).unwrap()
+        let lock = self.inner.write().unwrap();
+        //self.writer.set(writer);
+        LockedMut(lock)
     }
 
     pub fn try_write(&self, writer: Option<&'static str>) -> Result<LockedMut<T>> {
@@ -82,11 +109,11 @@ impl<T> Lock<T> {
 
         match self.inner.try_write() {
             Ok(lock) => {
-                self.writer.set(writer);
-                Ok(lock)
+                //self.writer = writer;
+                Ok(LockedMut(lock))
             }
             Err(TryLockError::WouldBlock) => Err(LockError::WouldBlock {
-                writer: self.writer.get(),
+                writer: self.writer,
                 readers: self.readers.load(Ordering::Relaxed),
             }
             .into()),
