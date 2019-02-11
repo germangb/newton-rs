@@ -20,7 +20,7 @@ imgui = { version = "0.0.21", optional = true }
 imgui-opengl-renderer = { version = "0.3.1", optional = true }
 
 [features]
-default = []
+default = ["sandbox"]
 
 sandbox = ["cgmath", "sdl2", "lazy_static", "imgui-sdl2", "imgui", "imgui-opengl-renderer", "gl"]
 cgmath_types = ["cgmath"]
