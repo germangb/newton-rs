@@ -6,55 +6,6 @@ use super::ffi;
 use super::world::Newton;
 use super::{Matrix, Vector};
 
-#[derive(Debug)]
-pub struct Builder {
-    /// Collision offset.
-    ///
-    /// Applies a constant offset to the collision geometry.
-    offset: Option<Matrix>,
-
-    /// Collision scale.
-    ///
-    /// By setting this optional, `NewtonBodySetCollisionScale` is called.
-    scale: Option<Vector>,
-}
-
-impl Builder {
-    pub fn offset(&mut self, offset: Matrix) -> &mut Self {
-        self.offset = Some(offset);
-        self
-    }
-
-    pub fn scale(&mut self, scale: Vector) -> &mut Self {
-        self.scale = Some(scale);
-        self
-    }
-
-    /// Builds a box collision
-    pub fn build_box<'world>(
-        &self,
-        newton: &'world Newton,
-        dx: f32,
-        dy: f32,
-        dz: f32,
-    ) -> Collision<'world> {
-        unsafe {
-            let offset = mem::transmute(self.offset.as_ref());
-            let collision = ffi::NewtonCreateBox(newton.as_ptr(), dx, dy, dz, 0, offset);
-
-            if let Some(scale) = self.scale {
-                ffi::NewtonCollisionSetScale(collision, scale[0], scale[1], scale[2]);
-            }
-
-            Collision {
-                newton,
-                collision: NonNull::new_unchecked(collision),
-                owned: true,
-            }
-        }
-    }
-}
-
 /// NewtonCollision wrapper.
 ///
 /// Collisions in Rust are borrow types of the Newton context.
@@ -88,18 +39,37 @@ impl CollisionHandle {
 }
 
 impl<'world> Collision<'world> {
-    pub fn builder() -> Builder {
-        Builder {
-            offset: None,
-            scale: None,
+    /// Sets collision scale
+    pub fn set_scale(&self, scale: &Vector) {
+        unsafe {
+            ffi::NewtonCollisionSetScale(self.as_ptr(), scale[0], scale[1], scale[2]);
         }
     }
 
-    /// Pass ownership of the NewtonCollision to the borrowed Newton.
+    /// Creates a sphere collision
+    pub fn sphere(
+        newton: &'world Newton,
+        radius: f32,
+        offset: Option<&Matrix>,
+    ) -> Collision<'world> {
+        unsafe {
+            let offset = mem::transmute(offset);
+            let sphere = ffi::NewtonCreateSphere(newton.as_ptr(), radius, 0, offset);
+
+            Collision {
+                newton,
+                collision: NonNull::new_unchecked(sphere),
+                owned: true,
+            }
+        }
+    }
+
+    /// Transfer ownership to the Newton context and return a handle to access
+    /// the collision later.
     ///
-    /// The returned handle can be used to re-borrow the collision later.
+    /// Method intended to be used for long-lived bodies.
     pub fn into_handle(mut self) -> CollisionHandle {
-        self.newton.move_collision(self)
+        unimplemented!()
     }
 
     /// Returns underlying NewtonCollision pointer

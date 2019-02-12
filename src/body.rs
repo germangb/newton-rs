@@ -2,45 +2,9 @@ use std::mem;
 use std::ptr::NonNull;
 
 use super::collision::Collision;
-use super::world::Newton;
-
 use super::ffi;
+use super::world::Newton;
 use super::{Matrix, Vector};
-
-#[derive(Debug)]
-pub struct Builder {
-    /// Initial body transform
-    ///
-    /// By default, it is set to an identity matrix.
-    transform: Matrix,
-}
-
-impl Builder {
-    pub fn transform(&mut self, transform: Matrix) -> &mut Self {
-        self.transform = transform;
-        self
-    }
-
-    pub fn build_dynamic<'world>(
-        &self,
-        newton: &'world Newton,
-        collision: &Collision<'world>,
-    ) -> Body<'world> {
-        unsafe {
-            let transform = self.transform.as_ptr() as _;
-            let body = ffi::NewtonCreateDynamicBody(newton.as_ptr(), collision.as_ptr(), transform);
-
-            let udata = Box::new(BodyData::default());
-            ffi::NewtonBodySetUserData(body, mem::transmute(udata));
-
-            Body {
-                newton,
-                body: NonNull::new_unchecked(body),
-                owned: true,
-            }
-        }
-    }
-}
 
 #[derive(Default)]
 pub struct BodyData {
@@ -51,9 +15,10 @@ pub struct BodyData {
 /// NewtonBody Wrapper
 ///
 /// ## Notes
+/// Some information about the body is stored in the Heap and accessible through the
+/// usedata pointer.
 ///
-/// The ForceAndTorque callback closure is stored in the heap and referenced in the userdatum
-/// of the NewtonBody object.
+/// * ForceAndTorqueCallback
 pub struct Body<'world> {
     pub(crate) newton: &'world Newton,
     /// The wrapped NewtonBody pointer
@@ -66,38 +31,62 @@ pub struct Body<'world> {
 }
 
 impl<'world> Body<'world> {
-    pub fn builder() -> Builder {
-        Builder {
-            transform: super::identity(),
+    /// Transfer ownership to the Newton context and return a handle to access
+    /// the body later.
+    ///
+    /// Method intended to be used for long-lived bodies.
+    pub fn into_handle(mut self) -> BodyHandle {
+        self.owned = false;
+        let mut set = self.newton.bodies.write().unwrap();
+        let handle = BodyHandle(self.body);
+        set.insert(handle.clone());
+        handle
+    }
+
+    /// Creates a dynamic body
+    /// Calls `NewtonCreateDynamicBody` with the given collision and transform.
+    #[inline]
+    pub fn dynamic(newton: &'world Newton, collision: &Collision, transform: &Matrix) -> Self {
+        unsafe {
+            let transform = mem::transmute(transform);
+            let body = ffi::NewtonCreateDynamicBody(newton.as_ptr(), collision.as_ptr(), transform);
+            ffi::NewtonBodySetUserData(body, mem::transmute(Box::new(BodyData::default())));
+
+            Self {
+                newton,
+                body: NonNull::new_unchecked(body),
+                owned: true,
+            }
         }
     }
 
-    /// Transfer ownership of this body to the Newton context.
-    ///
-    /// The handle can later be used to retrieve the original `Body` by calling the `body,
-    /// `body_mut`, and `body_owned`, in the `Newton` type.
-    pub fn into_handle(mut self) -> BodyHandle {
-        self.newton.move_body(self)
+    /// Sets the mass using the given collision to compute the inertia
+    /// matrix components.
+    #[inline]
+    pub fn set_mass(&self, mass: f32, collision: &Collision) {
+        unsafe { ffi::NewtonBodySetMassProperties(self.as_ptr(), mass, collision.as_ptr()) }
     }
 
     pub fn set_force_and_torque_callback<F: FnMut(Body) + 'static>(&self, callback: F) {
         unsafe {
-            let mut udata: Box<BodyData> =
-                Box::from_raw(ffi::NewtonBodyGetUserData(self.as_ptr()) as _);
-
+            let mut udata = self.userdata();
             udata.force_and_torque = Some(Box::new(callback));
-
             mem::forget(udata);
         }
     }
 
-    /// Returns underlying NewtonBody pointer
+    /// Returns underlying NewtonBody pointer.
     pub const fn as_ptr(&self) -> *const ffi::NewtonBody {
         self.body.as_ptr()
     }
 
+    #[inline]
     pub fn set_force(&self, force: &Vector) {
         unsafe { ffi::NewtonBodySetForce(self.as_ptr(), force.as_ptr()) }
+    }
+
+    unsafe fn userdata(&self) -> Box<BodyData> {
+        Box::from_raw(ffi::NewtonBodyGetUserData(self.as_ptr()) as _)
     }
 }
 
@@ -123,8 +112,9 @@ impl<'world> Drop for Body<'world> {
     fn drop(&mut self) {
         if self.owned {
             unsafe {
-                let _: Box<BodyData> =
-                    Box::from_raw(ffi::NewtonBodyGetUserData(self.as_ptr()) as _);
+                // drop udata
+                let _ = self.userdata();
+
                 ffi::NewtonDestroyBody(self.as_ptr());
             }
         }
