@@ -1,16 +1,13 @@
-use std::marker::PhantomData;
 use std::mem;
-use std::ptr::NonNull;
 
 use super::collision::Collision;
 use super::ffi;
 use super::world::Newton;
 use super::{Matrix, Vector};
 
-// Type to store information about bodies on the Heap
-#[doc(hidden)]
+// Stores callback closures on the Heap
 #[derive(Default)]
-pub struct BodyData {
+struct BodyData {
     /// Force and torque callback
     force_and_torque: Option<Box<dyn Fn(Body)>>,
 }
@@ -24,25 +21,20 @@ pub struct BodyData {
 /// [body]: #
 /// [body_mut]: #
 /// [body_owned]: #
-#[derive(Debug, Hash, Eq, PartialEq, Clone)]
-pub struct Handle(pub(crate) NonNull<ffi::NewtonBody>);
-
-impl Handle {
-    pub const fn as_ptr(&self) -> *const ffi::NewtonBody {
-        self.0.as_ptr()
-    }
-}
+#[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
+pub struct Handle(pub(crate) *const ffi::NewtonBody);
 
 /// NewtonBody Wrapper
 ///
 /// The borrow type will prevent the underlying NewtonWorld pointer from
 /// outliving the NewtonWorld.
 pub struct Body<'world> {
-    pub(crate) _phantom: PhantomData<&'world ()>,
+    pub(crate) newton: &'world Newton,
     /// The wrapped NewtonBody pointer
     ///
     /// This is the pointer passed to all calls to `NewtonBody*` API functions.
-    pub(crate) body: NonNull<ffi::NewtonBody>,
+    pub(crate) body: *const ffi::NewtonBody,
+
     /// If owned is set to true, the underlying NewtonBody
     /// will be dropped along with this type.
     pub(crate) owned: bool,
@@ -53,17 +45,17 @@ impl<'world> Body<'world> {
     ///
     /// Being non-owned means the wrapped pointer won't be freed when the body is
     /// dropped. If you intend it to do so, call the `from_raw_owned` method instead.
-    pub unsafe fn from_raw(body: *mut ffi::NewtonBody) -> Self {
-        let mut body = Self::from_raw_owned(body);
+    pub unsafe fn from_raw(newton: &'world Newton, body: *mut ffi::NewtonBody) -> Self {
+        let mut body = Self::from_raw_owned(newton, body);
         body.owned = false;
         body
     }
 
-    pub unsafe fn from_raw_owned(body: *mut ffi::NewtonBody) -> Self {
+    pub unsafe fn from_raw_owned(newton: &'world Newton, body: *mut ffi::NewtonBody) -> Self {
         Self {
-            body: NonNull::new_unchecked(body),
+            newton,
+            body,
             owned: true,
-            _phantom: PhantomData,
         }
     }
 
@@ -71,12 +63,8 @@ impl<'world> Body<'world> {
     /// the body later.
     ///
     /// Method intended to be used for long-lived bodies.
-    pub fn into_handle(mut self, newton: &Newton) -> Handle {
-        self.owned = false;
-        let mut set = newton.bodies.write().unwrap();
-        let handle = Handle(self.body);
-        set.insert(handle.clone());
-        handle
+    pub fn into_handle(self) -> Handle {
+        self.newton.move_body(self)
     }
 
     /// Creates a dynamic body
@@ -89,8 +77,8 @@ impl<'world> Body<'world> {
             ffi::NewtonBodySetUserData(body, mem::transmute(Box::new(BodyData::default())));
 
             Self {
-                _phantom: PhantomData,
-                body: NonNull::new_unchecked(body),
+                newton,
+                body,
                 owned: true,
             }
         }
@@ -98,14 +86,38 @@ impl<'world> Body<'world> {
 
     /// Returns underlying NewtonBody pointer.
     pub const fn as_ptr(&self) -> *const ffi::NewtonBody {
-        self.body.as_ptr()
+        self.body
+    }
+}
+
+/// FFI wrappers
+impl<'world> Body<'world> {
+    pub fn aabb(&self) -> (Vector, Vector) {
+        let mut aabb: (Vector, Vector) = Default::default();
+        unsafe {
+            ffi::NewtonBodyGetAABB(self.as_ptr(), aabb.0.as_mut_ptr(), aabb.1.as_mut_ptr());
+        }
+        aabb
     }
 
     /// Sets the mass using the given collision to compute the inertia
     /// matrix components.
-    #[inline]
     pub fn set_mass(&self, mass: f32, collision: &Collision) {
         unsafe { ffi::NewtonBodySetMassProperties(self.as_ptr(), mass, collision.as_ptr()) }
+    }
+
+    /// Sets the mass matrix of a rigid body from its principal inertial components.
+    pub fn set_mass_matrix(&self, mass: f32, ine: &Vector) {
+        unsafe { ffi::NewtonBodySetMassMatrix(self.as_ptr(), mass, ine.x, ine.y, ine.z) }
+    }
+
+    /// Sets the mass matrix of the rigid body.
+    pub fn set_full_mass_matrix(&self, mass: f32, matrix: &Matrix) {
+        unsafe { ffi::NewtonBodySetFullMassMatrix(self.as_ptr(), mass, matrix.as_ptr() as _) }
+    }
+
+    pub fn set_force(&self, force: &Vector) {
+        unsafe { ffi::NewtonBodySetForce(self.as_ptr(), force.as_ptr()) }
     }
 
     pub fn set_force_and_torque_callback<F: Fn(Body) + 'static>(&self, callback: F) {
@@ -124,19 +136,16 @@ impl<'world> Body<'world> {
         ) {
             let udata = userdata(body);
             if let Some(callback) = &udata.force_and_torque {
+                let newton = Newton(ffi::NewtonBodyGetWorld(body));
                 callback(Body {
-                    _phantom: PhantomData,
-                    body: NonNull::new_unchecked(body as _),
+                    newton: &newton,
+                    body,
                     owned: false,
-                })
+                });
+                newton.leak();
             }
             mem::forget(udata);
         }
-    }
-
-    #[inline]
-    pub fn set_force(&self, force: &Vector) {
-        unsafe { ffi::NewtonBodySetForce(self.as_ptr(), force.as_ptr()) }
     }
 }
 
@@ -146,7 +155,6 @@ impl<'world> Drop for Body<'world> {
             unsafe {
                 // drop udata
                 let _ = userdata(self.as_ptr());
-
                 ffi::NewtonDestroyBody(self.as_ptr());
             }
         }

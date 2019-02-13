@@ -1,13 +1,11 @@
-use newton::{body, Body, Collision, Newton};
-
 use std::time::Duration;
 
-fn main() {
-    let mut world = Newton::new();
-    world.set_exact_solver();
-    world.set_threads_count(num_cpus::get());
+use newton::{body, Body, Collision, Matrix, Newton, Vector};
 
-    let body = create_body(&world);
+fn main() {
+    let mut world = Newton::create();
+
+    let _body = create_body(&world);
 
     //let _ = world.body_owned(&body);
 
@@ -15,15 +13,15 @@ fn main() {
 }
 
 fn create_body(world: &Newton) -> body::Handle {
-    let ident = newton::math::identity();
+    let ident = Matrix::identity();
     let collision = Collision::box2(&world, 1.0, 1.0, 1.0, None);
 
     //collision.for_each_poly(&ident, |face, _| println!("{:?}", face));
 
     let body = Body::dynamic(world, &collision, &ident);
 
-    let gravity = [0.0, -9.8, 0.0];
-    body.set_force_and_torque_callback(move |mut b| b.set_force(&gravity));
+    let gravity = Vector::new3(0.0, -9.8, 0.0);
+    body.set_force_and_torque_callback(move |b| b.set_force(&gravity));
     body.set_mass(1.0, &collision);
-    body.into_handle(world)
+    body.into_handle()
 }

@@ -7,5 +7,8 @@ pub use world::Newton;
 
 pub mod body;
 pub mod collision;
+/// Simple algebraic types
 pub mod math;
+#[cfg(feature = "testbed")]
+pub mod testbed;
 pub mod world;
