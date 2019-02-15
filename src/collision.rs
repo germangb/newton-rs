@@ -147,7 +147,7 @@ impl<'world> Collision<'world> {
     /// let collision = Collision::sphere(&world, 1.0, None);
     ///
     /// let ident = newton::math::identity();
-    /// collision.for_each_poly(&identity, |face, face_id| {
+    /// collision.polygons(&identity, |face, face_id| {
     ///     let normal = compute_normal(face);
     ///     render_face(face, &normal);
     /// })
@@ -155,7 +155,7 @@ impl<'world> Collision<'world> {
     /// # fn render_face(face: &[f32], &normal) {}
     /// # fn compute_normal(face: &[f32]) {}
     /// ```
-    pub fn for_each_poly<F: FnMut(&[f32], raw::c_int)>(&self, matrix: &Matrix, mut callback: F) {
+    pub fn polygons<F: FnMut(&[f32], raw::c_int)>(&self, matrix: &Matrix, mut callback: F) {
         unsafe {
             let udata = mem::transmute(&mut callback);
             let matrix = matrix.as_ptr() as _;

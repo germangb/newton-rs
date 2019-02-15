@@ -1,15 +1,15 @@
 use std::mem;
+use std::time::Duration;
 
 use super::collision::Collision;
 use super::ffi;
 use super::world::Newton;
 use super::{Matrix, Vector};
 
-// Stores callback closures on the Heap
 #[derive(Default)]
 struct BodyData {
     /// Force and torque callback
-    force_and_torque: Option<Box<dyn Fn(Body)>>,
+    force_and_torque: Option<Box<dyn Fn(Body, Duration)>>,
 }
 
 /// Opaque handle to a NewtonBody
@@ -120,7 +120,7 @@ impl<'world> Body<'world> {
         unsafe { ffi::NewtonBodySetForce(self.as_ptr(), force.as_ptr()) }
     }
 
-    pub fn set_force_and_torque_callback<F: Fn(Body) + 'static>(&self, callback: F) {
+    pub fn set_force_and_torque_callback<F: Fn(Body, Duration) + 'static>(&self, callback: F) {
         unsafe {
             let mut udata = userdata(self.as_ptr());
             udata.force_and_torque = Some(Box::new(callback));
@@ -131,17 +131,24 @@ impl<'world> Body<'world> {
 
         unsafe extern "C" fn force_and_torque(
             body: *const ffi::NewtonBody,
-            _timestep: f32,
+            timestep: f32,
             _thread_idx: std::os::raw::c_int,
         ) {
+            let seconds = timestep.floor() as u64;
+            let nanos = (timestep.fract() * 1_000_000_000.0) as u32;
+            let timestep = Duration::new(seconds, nanos);
+
             let udata = userdata(body);
             if let Some(callback) = &udata.force_and_torque {
                 let newton = Newton(ffi::NewtonBodyGetWorld(body));
-                callback(Body {
-                    newton: &newton,
-                    body,
-                    owned: false,
-                });
+                callback(
+                    Body {
+                        newton: &newton,
+                        body,
+                        owned: false,
+                    },
+                    timestep,
+                );
                 newton.leak();
             }
             mem::forget(udata);

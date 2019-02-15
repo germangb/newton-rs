@@ -86,7 +86,6 @@ impl Newton {
         unsafe { mem::forget(self) };
     }
 
-    /// Transfers body ownership and returns a handle to it.
     pub(crate) fn move_body(&self, mut body: Body) -> BodyHandle {
         body.owned = false;
         let data = unsafe { userdata(self.as_ptr()) };

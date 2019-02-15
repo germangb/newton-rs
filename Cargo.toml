@@ -16,7 +16,10 @@ imgui = { version = "0.0.22", optional = true }
 imgui-sdl2 = { version = "0.5.0", optional = true }
 imgui-opengl-renderer = { version = "0.4.0", optional = true }
 imgui-ext = { version = "0.1.6", optional = true }
+cgmath = { version = "*", optional = true }
+serde = { version = "1.0", optional = true, features = ["derive"] }
+serde_json = { version = "1.0", optional = true }
 
 [features]
 default = ["testbed"]
-testbed = ["gl", "sdl2", "imgui", "imgui-sdl2", "imgui-opengl-renderer", "imgui-ext"]
+testbed = ["gl", "sdl2", "imgui", "imgui-sdl2", "imgui-opengl-renderer", "imgui-ext", "cgmath", "serde", "serde_json"]
