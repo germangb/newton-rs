@@ -61,8 +61,10 @@ impl<'world> Collision<'world> {
 
     /// Creates a box collision.
     ///
-    /// Unless `into_handle` is called, this collision will be free when the type is dropped.
-    pub fn box2(
+    /// Method name is `cuboid` because `box` is reserved keyword...
+    /// When the returned object is dropped, unless `into_handle` is
+    /// called, the collision will be freed.
+    pub fn cuboid(
         newton: &'world Newton,
         dx: f32,
         dy: f32,
@@ -178,7 +180,7 @@ impl<'world> Collision<'world> {
     }
 
     pub fn set_matrix(&self, mat: &Matrix) {
-        unsafe { ffi::NewtonCollisionSetMatrix(self.as_ptr(), mat.as_ptr() as _) }
+        unsafe { ffi::NewtonCollisionSetMatrix(self.as_ptr(), mat.as_ptr()) }
     }
 
     pub fn matrix(&self) -> Matrix {

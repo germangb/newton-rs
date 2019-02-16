@@ -4,13 +4,16 @@ use std::io::{Read, Write};
 use std::ops::Deref;
 use std::os::raw::{c_int, c_void};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Instant, Duration};
 use std::{mem, slice, str};
 
-use super::body::SleepState;
-use super::ffi;
-use super::world::Newton;
+use crate::Body;
+use crate::body::SleepState;
+use crate::ffi;
+use crate::math::Vector;
+use crate::world::Newton;
 
+use sdl2::mouse::MouseButton;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::video::{GLContext, Window};
 use sdl2::{EventPump, Sdl, VideoSubsystem};
@@ -19,13 +22,14 @@ use sdl2::{EventPump, Sdl, VideoSubsystem};
 use gl::types::*;
 
 //use imgui;
+use imgui::{ImGuiCond, im_str};
 use imgui_ext::prelude::*;
 
 use imgui_opengl_renderer::Renderer as ImguiRenderer;
 use imgui_sdl2::ImguiSdl2;
 
 use cgmath::prelude::*;
-use cgmath::{Deg, Matrix4, Point3, Vector3};
+use cgmath::{Vector4, Matrix3, Deg, Matrix4, Point3, Vector3};
 
 use crate::testbed::Primitive::Triangles;
 use serde::{Deserialize, Serialize};
@@ -51,9 +55,37 @@ pub struct Stats {
     #[imgui(display)]
     bodies: usize,
     #[imgui(display)]
-    contacts: usize,
+    constraints: usize,
     #[imgui(display)]
     threads: usize,
+}
+
+impl Stats {
+    fn new() -> Self {
+        Self {
+            time_scale: 1.0,
+            ..Default::default()
+        }
+    }
+}
+
+#[derive(ImGuiExt)]
+pub struct SelectedBody {
+    ptr: *const ffi::NewtonBody,
+    #[imgui(display(display = "{:?}", 0))]
+    name: (Option<&'static str>, ),
+    #[imgui(drag(speed = 0.1))]
+    position: [f32; 3],
+}
+
+impl Default for SelectedBody {
+    fn default() -> Self {
+        Self {
+            ptr: 0 as _,
+            name: (None, ),
+            position: Default::default(),
+        }
+    }
 }
 
 #[derive(ImGuiExt)]
@@ -66,6 +98,8 @@ pub struct Testbed<T> {
     sdl_window: Window,
     sdl_gl: GLContext,
     sdl_events: EventPump,
+
+    selected: Option<SelectedBody>,
 
     // FIXME(imgui-ext) this type (Controls) shouldn't need to be public...
     #[imgui(nested)]
@@ -80,7 +114,7 @@ impl<T: Demo> Testbed<T> {
         let sdl_events = sdl.event_pump()?;
         let sdl_video = sdl.video()?;
         let sdl_window = sdl_video
-            .window("Newton testbed", 1024, 600)
+            .window("Newton testbed", 800, 600)
             .opengl()
             .position_centered()
             .resizable()
@@ -92,12 +126,13 @@ impl<T: Demo> Testbed<T> {
         sdl_window.gl_make_current(&sdl_gl)?;
 
         let renderer = Renderer::new(|s| sdl_video.gl_get_proc_address(s));
-        let controls = Default::default();
+        let controls = Stats::new();
 
         let newton = Newton::create();
         let demo = T::reset(&newton);
 
         Self {
+            selected: None,
             demo,
             newton,
             sdl,
@@ -121,8 +156,11 @@ impl<T: Demo> Testbed<T> {
             ImguiRenderer::new(&mut imgui, |s| self.sdl_video.gl_get_proc_address(s) as _);
 
         let mut time = 0.0f32;
+        let mut delta_time = Instant::now();
 
         'mainLoop: loop {
+            let left = self.sdl_events.mouse_state().left();
+            let right = self.sdl_events.mouse_state().right();
             for event in self.sdl_events.poll_iter() {
                 imgui_sdl.handle_event(&mut imgui, &event);
                 if !imgui_sdl.ignore_event(&event) {
@@ -134,6 +172,31 @@ impl<T: Demo> Testbed<T> {
                                 ..
                             },
                         ) => break 'mainLoop,
+                        (_, Event::MouseButtonUp { mouse_btn: MouseButton::Left, x, y, .. }) => {
+                            // clip space
+                            let (w, h) = self.sdl_window.size();
+                            let camera = &self.renderer.params.camera;
+                            let (start, end) = compute_ray(&camera, x, y, [0, 0, w, h]);
+
+                            let mut min = 2.0;
+                            let mut selected = None;
+                            self.newton.ray_cast(&start, &end, |body, _, _, _, hit| {
+                                if hit < min {
+                                    selected = Some(body.as_ptr());
+                                    min = hit;
+                                }
+                                hit
+                            }, None);
+                            self.selected = selected.map(|s| SelectedBody { ptr: s, ..Default::default() });
+                        }
+                        (true, Event::MouseMotion { xrel, yrel, .. }) => {
+                            if right {
+                                self.renderer.params.camera.pan(xrel as f32, yrel as f32)
+                            }
+                            if left {
+                                self.renderer.params.camera.orbit(xrel as f32, yrel as f32)
+                            }
+                        }
                         (true, Event::MouseWheel { y, .. }) => {
                             self.renderer.params.camera.scroll(y as f32)
                         }
@@ -143,12 +206,26 @@ impl<T: Demo> Testbed<T> {
             }
 
             self.controls.bodies = self.newton.bodies().count();
-            self.controls.contacts = 0;
+            self.controls.threads = self.newton.threads();
+            self.controls.constraints = self.newton.constraints();
 
+            let now = Instant::now();
+            let mut elapsed = now - delta_time;
             if self.controls.running {
-                let step = Duration::new(0, 1_000_000_000 / 60);
-                self.controls.elapsed.0 += step;
-                self.newton.update(step);
+                let seconds = self.controls.time_scale / 60.0;
+                let step = Duration::new(
+                    seconds.floor() as u64,
+                    (1_000_000_000.0 * seconds.fract()) as u32,
+                );
+
+                while elapsed > step {
+                    self.newton.update(step);
+                    self.controls.elapsed.0 += step;
+                    elapsed -= step;
+                    delta_time = Instant::now() - elapsed;
+                }
+            } else {
+                delta_time += elapsed;
             }
 
             let params = self.renderer.params().clone();
@@ -160,7 +237,13 @@ impl<T: Demo> Testbed<T> {
                     SleepState::Sleeping => params.sleeping,
                 };
 
-                let color = [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8];
+                let color = match self.selected {
+                    Some(SelectedBody { ptr, .. }) if ptr == body.as_ptr() => {
+                        let [r, g, b, _] = params.selected;
+                        [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]
+                    },
+                    _ => [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8],
+                };
                 let collision = body.collision();
                 let matrix = body.matrix();
 
@@ -193,24 +276,93 @@ impl<T: Demo> Testbed<T> {
                 });
             }
 
+            if params.aabb {
+                for body in self.newton.bodies().iter() {
+                    let Vector { x, y, z, w: _ } = body.matrix().c3;
+                    let (min, max) = body.aabb();
+                    let [r, g, b, _] = params.aabb_color;
+                    let color = [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8];
+                    frame.line(Vert { pos: [min.x, min.y, min.z], color }, Vert { pos: [max.x, min.y, min.z], color });
+                    frame.line(Vert { pos: [min.x, min.y, min.z], color }, Vert { pos: [min.x, max.y, min.z], color });
+                    frame.line(Vert { pos: [min.x, min.y, min.z], color }, Vert { pos: [min.x, min.y, max.z], color });
+                    frame.line(Vert { pos: [max.x, max.y, max.z], color }, Vert { pos: [min.x, max.y, max.z], color });
+                    frame.line(Vert { pos: [max.x, max.y, max.z], color }, Vert { pos: [max.x, min.y, max.z], color });
+                    frame.line(Vert { pos: [max.x, max.y, max.z], color }, Vert { pos: [max.x, max.y, min.z], color });
+                    frame.line(Vert { pos: [min.x, max.y, min.z], color }, Vert { pos: [max.x, max.y, min.z], color });
+                    frame.line(Vert { pos: [min.x, max.y, min.z], color }, Vert { pos: [min.x, max.y, max.z], color });
+                    frame.line(Vert { pos: [max.x, min.y, max.z], color }, Vert { pos: [min.x, min.y, max.z], color });
+                    frame.line(Vert { pos: [max.x, min.y, max.z], color }, Vert { pos: [max.x, min.y, min.z], color });
+                    frame.line(Vert { pos: [max.x, min.y, min.z], color }, Vert { pos: [max.x, max.y, min.z], color });
+                    frame.line(Vert { pos: [min.x, min.y, max.z], color }, Vert { pos: [min.x, max.y, max.z], color });
+                }
+            }
+
+            if params.axis {
+                frame.line(Vert{ pos: [0.0,0.0,0.0], color: [255,0,0] }, Vert{ pos: [1024.0,0.0,0.0], color: [255,0,0] });
+                frame.line(Vert{ pos: [0.0,0.0,0.0], color: [0,255,0] }, Vert{ pos: [0.0,1024.0,0.0], color: [0,255,0] });
+                frame.line(Vert{ pos: [0.0,0.0,0.0], color: [0,0,255] }, Vert{ pos: [0.0,0.0,1024.0], color: [0,0,255] });
+            }
+
             frame.render();
 
             let ui = imgui_sdl.frame(&self.sdl_window, &mut imgui, &self.sdl_events.mouse_state());
 
-            let events = ui.imgui_ext(&mut self);
-            if events.controls().invalidate() {
-                self.newton.invalidate();
-            }
-            if events.controls().reset() {
-                self.controls.elapsed = (Duration::default(),);
-                let newton = Newton::create();
-                let demo = T::reset(&newton);
+            let (w, h) = self.sdl_window.size();
+            let width = 256.0;
+            let margin = 8.0;
 
-                self.newton = newton;
-                self.demo = demo;
-            }
-            if events.renderer().params().reset() {
-                self.renderer.params = RenderParams::default();
+            ui.window(im_str!("Controls"))
+                .title_bar(false)
+                .movable(false)
+                .position((w as f32 - width - margin, margin), ImGuiCond::Always)
+                .size((width, h as f32 - margin * 2.0), ImGuiCond::Always)
+                .resizable(false)
+                .build(|| {
+                    let events = ui.imgui_ext(&mut self);
+                    if events.controls().invalidate() {
+                        self.newton.invalidate();
+                    }
+                    if events.controls().reset() {
+                        self.controls.elapsed = (Duration::default(),);
+                        let newton = Newton::create();
+                        let demo = T::reset(&newton);
+
+                        self.newton = newton;
+                        self.demo = demo;
+                    }
+                    if events.renderer().params().reset() {
+                        self.renderer.params = RenderParams::default();
+                    }
+                    if events.renderer().params().camera().reset() {
+                        let camera = &mut self.renderer.params.camera;
+                        let cont = camera.controller;
+                        *camera = Default::default();
+                        camera.controller = cont;
+                    }
+            });
+            if let Some(mut sel) = self.selected.take() {
+                let ptr = sel.ptr;
+                let body = unsafe { Body::from_raw(&self.newton, ptr as _) };
+                let mut matrix = body.matrix();
+                sel.position = [matrix.c3.x, matrix.c3.y, matrix.c3.z];
+                sel.name = (body.name(), );
+                ui.window(im_str!("Body"))
+                    .title_bar(false)
+                    .movable(false)
+                    .resizable(false)
+                    //.position((w as f32 - width*2.0 - margin*2.0, margin), ImGuiCond::Always)
+                    .position((margin, margin), ImGuiCond::Always)
+                    //.size((width, 200.0), ImGuiCond::Always)
+                    .always_auto_resize(true)
+                    .build(|| {
+                        let events = ui.imgui_ext(&mut sel);
+                        if events.position() {
+                            matrix.c3 = Vector::from(sel.position);
+                            body.set_matrix(&matrix);
+                        }
+                    });
+
+                self.selected = Some(sel);
             }
             imgui_renderer.render(ui);
 
@@ -223,36 +375,144 @@ impl<T: Demo> Testbed<T> {
 
 #[derive(ImGuiExt, Serialize, Deserialize, Clone)]
 pub struct Camera {
-    #[imgui(drag(speed = 0.1))]
-    position: [f32; 3],
-    #[imgui(checkbox(label = "Use controller"))]
+    #[imgui(checkbox(label = "Mouse control"))]
     controller: bool,
+    #[imgui(drag(speed = 0.1))]
+    eye: [f32; 3],
+    #[imgui(drag(speed = 0.1))]
+    center: [f32; 3],
     #[imgui(slider(min = 1.0, max = 179.0))]
     fov: f32,
     #[imgui(slider(min = 0.01, max = 2000.0))]
     near: f32,
-    #[imgui(slider(min = 0.01, max = 2000.0))]
+    #[imgui(
+        slider(min = 0.01, max = 2000.0),
+        button(label = "Reset camera", catch = "reset"),
+    )]
     far: f32,
 }
 
-impl Camera {
-    fn scroll(&mut self, n: f32) {
-        let [x, y, z] = self.position;
-        let len = (x * x + y * y + z * z).sqrt();
+impl Default for Camera {
+    fn default() -> Self {
+        Self {
+            eye: [6.0, 8.0, 16.0],
+            center: [0.0, 0.0, 0.0],
+            controller: true,
+            fov: 55.0,
+            near: 0.01,
+            far: 1000.0,
+        }
+    }
+}
 
-        self.position[0] -= n * x / len;
-        self.position[1] -= n * y / len;
-        self.position[2] -= n * z / len;
+#[rustfmt::skip]
+fn compute_view_proj(camera: &Camera, viewport: [u32; 4]) -> Matrix4<f32> {
+    let aspect = viewport[2] as f32 / viewport[3] as f32;
+    let proj = cgmath::perspective(Deg(camera.fov), aspect, camera.near, camera.far);
+    let view = Matrix4::look_at(Point3::from(camera.eye),
+                                Point3::from(camera.center),
+                                Vector3::new(0.0, 1.0, 0.0));
+    proj * view
+}
+
+#[rustfmt::skip]
+fn compute_ray(camera: &Camera, mx: i32, my: i32, viewport: [u32; 4]) -> (Vector, Vector) {
+    let [_, _, w, h] = viewport;
+    let view_proj = compute_view_proj(camera, viewport);
+    let view_proj_inv = view_proj.invert().unwrap();
+    let mut start = Vector4::new(mx as f32 / w as f32 * 2.0 - 1.0, my as f32 / h as f32 * 2.0 - 1.0, 0.0, 1.0);
+    let mut end = start;
+    start.y *= -1.0;
+    end.y *= -1.0;
+    end.z = 1.0;
+
+    //println!("{:?}", start);
+    let mut s = view_proj_inv * start;
+    let mut e = view_proj_inv * end;
+    s /= s.w;
+    e /= e.w;
+
+    (Vector::new3(s.x, s.y, s.z), Vector::new3(e.x, e.y, e.z))
+}
+
+impl Camera {
+    fn r(&self) -> [f32; 3] {
+        let [cx, cy, cz] = self.center;
+        let [ex, ey, ez] = self.eye;
+        [ex - cx, ey - cy, ez - cz]
+    }
+
+    fn dist(&self) -> f32 {
+        let [x, y, z] = self.r();
+        (x*x+y*y+z*z).sqrt()
+    }
+
+    fn basis(&self) -> Matrix3<f32> {
+        let mut radius = -Vector3::from(self.r()).normalize();
+        let up = Vector3::new(0.0, 1.0, 0.0);
+        let up = up - radius * cgmath::dot(up, radius);
+        let right = up.cross(radius);
+        // TODO redundant normalization
+        Matrix3::from_cols(right.normalize(), up.normalize(), radius.normalize())
+    }
+
+    fn orbit(&mut self, xrel: f32, yrel: f32) {
+        let mut radius = Vector3::from(self.r()).normalize();
+        let up = Vector3::new(0.0, 1.0, 0.0);
+        let up = up - radius * cgmath::dot(up, radius);
+        let right = up.cross(radius);
+
+        let k = 0.005;
+        let radius = (radius + up*yrel*k - right*xrel*k).normalize() * self.dist();
+
+        self.eye = self.center;
+        self.eye[0] += radius.x;
+        self.eye[1] += radius.y;
+        self.eye[2] += radius.z;
+    }
+
+    fn pan(&mut self, xrel: f32, yrel: f32) {
+        let up = Vector3::new(0.0, 1.0, 0.0);
+        let look = Vector3::from(self.center) - Vector3::from(self.eye);
+        let look = look.normalize();
+        let right = up.cross(look);
+
+        let [x, y, z] = self.r();
+        let dist = (x*x + y*y + z*z).sqrt();
+
+        let k = 0.001 * dist;
+        self.center[1] += up.y * yrel * k;
+        self.eye[1] += up.y * yrel * k;
+
+        self.center[0] += right.x * xrel * k;
+        self.center[1] += right.y * xrel * k;
+        self.center[2] += right.z * xrel * k;
+
+        self.eye[0] += right.x * xrel * k;
+        self.eye[1] += right.y * xrel * k;
+        self.eye[2] += right.z * xrel * k;
+    }
+
+    fn scroll(&mut self, n: f32) {
+        let [x, y, z] = self.r();
+        let dist = (x*x + y*y + z*z).sqrt();
+        self.eye[0] -= n * x / dist;
+        self.eye[1] -= n * y / dist;
+        self.eye[2] -= n * z / dist;
     }
 }
 
 #[derive(ImGuiExt, Serialize, Deserialize, Clone)]
 #[doc(hidden)]
 pub struct RenderParams {
-    #[imgui(button(label = "Reset##RenderParams", catch = "reset"), nested)]
+    #[imgui(
+        button(label = "Reset##RenderParams", catch = "reset"),
+        new_line,
+        nested
+    )]
     camera: Camera,
     // colors
-    #[imgui(color(edit))]
+    #[imgui(new_line, color(edit))]
     background: [f32; 4],
     #[imgui(color(edit))]
     wireframe: [f32; 4],
@@ -260,17 +520,27 @@ pub struct RenderParams {
     active: [f32; 4],
     #[imgui(color(edit))]
     sleeping: [f32; 4],
+    #[imgui(color(edit))]
+    selected: [f32; 4],
+    #[imgui(color(edit))]
+    aabb_color: [f32; 4],
 
-    #[imgui(checkbox(label = "Solid"))]
+    #[imgui(new_line, checkbox(label = "Solid"))]
     solid: bool,
 
     #[imgui(checkbox(label = "Wireframe"))]
     wire: bool,
     #[imgui(slider(min = 1.0, max = 4.0))]
     wire_size: f32,
+    #[imgui(checkbox)]
+    axis: bool,
+    #[imgui(checkbox)]
+    individual_axis: bool,
 
     #[imgui(checkbox(label = "AABB"))]
     aabb: bool,
+    #[imgui(checkbox(label = "Names"))]
+    names: bool,
     #[imgui(checkbox(label = "Lighting"))]
     lighting: bool,
     #[imgui(checkbox(label = "Shadows"))]
@@ -279,12 +549,12 @@ pub struct RenderParams {
 
 impl RenderParams {
     fn load() -> Result<Self, Box<dyn Error>> {
-        let mut file = File::open("renderer.json")?;
+        let mut file = File::open("testbed.json")?;
         Ok(serde_json::from_reader(file)?)
     }
 
     fn save(&self) -> Result<(), Box<dyn Error>> {
-        let mut file = File::create("renderer.json")?;
+        let mut file = File::create("testbed.json")?;
         Ok(serde_json::to_writer(file, self)?)
     }
 }
@@ -292,24 +562,24 @@ impl RenderParams {
 impl Default for RenderParams {
     fn default() -> Self {
         Self {
-            camera: Camera {
-                position: [2.0, 1.0, 6.0],
-                controller: false,
-                fov: 55.0,
-                near: 0.01,
-                far: 1000.0,
-            },
-            background: [0.2, 0.2, 0.2, 1.0],
+            camera: Default::default(),
+            background: [0.24, 0.24, 0.3, 1.0],
             wireframe: [0.0, 0.0, 0.0, 1.0],
             active: [1.0, 0.5, 1.0, 1.0],
-            sleeping: [1.0, 1.0, 1.0, 1.0],
+            sleeping: [0.7, 0.7, 0.7, 1.0],
+            selected: [1.0, 1.0, 0.5, 1.0],
+            aabb_color: [1.0, 1.0, 1.0, 1.0],
 
             solid: true,
             wire: true,
-            wire_size: 3.0,
-            aabb: false,
+            wire_size: 2.0,
+            axis: true,
+            individual_axis: false,
 
-            lighting: true,
+            aabb: true,
+            names: true,
+
+            lighting: false,
             shadows: false,
         }
     }
@@ -367,7 +637,7 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         if self.persist {
             match self.params.save() {
-                Err(e) => eprintln!("Error saving renderer.json: {}", e),
+                Err(e) => eprintln!("Error saving testbed.json: {}", e),
                 Ok(_) => {}
             }
         }
@@ -419,7 +689,7 @@ impl Renderer {
         let params = match RenderParams::load() {
             Ok(params) => params,
             Err(e) => {
-                eprintln!("Error reading renderer.json: {}", e);
+                eprintln!("Error reading testbed.json: {}", e);
                 Default::default()
             }
         };
@@ -518,20 +788,16 @@ void main() {
         let (w, h) = window.size();
 
         let params = self.params();
-        let Camera {
-            controller,
-            fov,
-            near,
-            far,
-            position,
-        } = params.camera;
+        let view_proj = compute_view_proj(&params.camera, [0, 0, w, h]);
 
+        /*
         #[rustfmt::skip]
         let proj = cgmath::perspective(Deg(fov), w as f32 / h as f32, near, far);
         #[rustfmt::skip]
-        let view = Matrix4::look_at(Point3::from(position),
-                                    Point3::new(0.0, 0.0, 0.0),
+        let view = Matrix4::look_at(Point3::from(eye),
+                                    Point3::from(center),
                                     Vector3::new(0.0, 1.0, 0.0));
+                                    */
 
         unsafe {
             let [r, g, b, a] = params.background;
@@ -541,7 +807,6 @@ void main() {
             gl!(Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
             gl!(UseProgram(self.program));
 
-            let view_proj = proj * view;
             gl!(UniformMatrix4fv(
                 self.u_view_proj,
                 1,

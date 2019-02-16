@@ -8,23 +8,23 @@ struct Example;
 
 impl Demo for Example {
     fn reset(newton: &Newton) -> Self {
-        let floor = Collision::box2(newton, 8.0, 0.5, 8.0, None);
-        let floor = Body::dynamic(newton, &floor, &Matrix::identity()).into_handle();
-        let cuboid = Collision::box2(newton, 1.0, 1.0, 1.0, None);
+        let floor = Collision::cuboid(newton, 8.0, 0.5, 8.0, None);
+        let floor = Body::dynamic(newton, &floor, &Matrix::identity(), None).into_handle();
+        let cuboid = Collision::cuboid(newton, 1.0, 1.0, 1.0, None);
         let sphere = Collision::sphere(newton, 0.5, None);
 
         let mut trans = Matrix::identity();
         trans.c3.y = 6.0;
-        let body0 = Body::dynamic(newton, &sphere, &trans);
+        let body0 = Body::dynamic(newton, &sphere, &trans, None);
         trans.c3.y = 8.0;
         trans.c3.x = 0.25;
         trans.c3.z = 0.1;
-        let body1 = Body::dynamic(newton, &cuboid, &trans);
+        let body1 = Body::dynamic(newton, &cuboid, &trans, None);
 
         trans.c3.y = 9.25;
         trans.c3.x = 0.0;
         trans.c3.z = 0.0;
-        let body2 = Body::dynamic(newton, &cuboid, &trans);
+        let body2 = Body::dynamic(newton, &cuboid, &trans, None);
 
         body0.set_force_and_torque_callback(|b, _| b.set_force(&Vector::new3(0.0, -9.8, 0.0)));
         body1.set_force_and_torque_callback(|b, _| b.set_force(&Vector::new3(0.0, -9.8, 0.0)));

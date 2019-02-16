@@ -7,15 +7,42 @@ use super::world::Newton;
 use super::{Matrix, Vector};
 
 #[repr(i32)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum SleepState {
     Active = 0,
     Sleeping = 1,
+}
+
+#[repr(u32)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
+pub enum BodyType {
+    Dynamic = ffi::NEWTON_DYNAMIC_BODY,
+    Kinematic = ffi::NEWTON_KINEMATIC_BODY,
 }
 
 #[derive(Default)]
 struct BodyData {
     /// Force and torque callback
     force_and_torque: Option<Box<dyn Fn(Body, Duration)>>,
+
+    /// Debug name
+    name: Option<&'static str>,
+}
+
+/// NewtonBody Wrapper
+///
+/// The borrow type will prevent the underlying NewtonWorld pointer from
+/// outliving the NewtonWorld.
+pub struct Body<'world> {
+    pub(crate) newton: &'world Newton,
+    /// The wrapped NewtonBody pointer
+    ///
+    /// This is the pointer passed to all calls to `NewtonBody*` API functions.
+    pub(crate) body: *const ffi::NewtonBody,
+
+    /// If owned is set to true, the underlying NewtonBody
+    /// will be dropped along with this type.
+    pub(crate) owned: bool,
 }
 
 /// Opaque handle to a NewtonBody
@@ -73,22 +100,6 @@ impl<'world> Bodies<'world> {
     }
 }
 
-/// NewtonBody Wrapper
-///
-/// The borrow type will prevent the underlying NewtonWorld pointer from
-/// outliving the NewtonWorld.
-pub struct Body<'world> {
-    pub(crate) newton: &'world Newton,
-    /// The wrapped NewtonBody pointer
-    ///
-    /// This is the pointer passed to all calls to `NewtonBody*` API functions.
-    pub(crate) body: *const ffi::NewtonBody,
-
-    /// If owned is set to true, the underlying NewtonBody
-    /// will be dropped along with this type.
-    pub(crate) owned: bool,
-}
-
 impl<'world> Body<'world> {
     /// Wraps a raw NewtonBody pointer and returns a **non-owned** Body.
     ///
@@ -116,14 +127,61 @@ impl<'world> Body<'world> {
         self.newton.move_body(self)
     }
 
+    pub fn as_handle(&self) -> &Handle {
+        unsafe { mem::transmute(self.body) }
+    }
+
+    pub fn name(&self) -> Option<&'static str> {
+        unsafe {
+            let udata = userdata(self.as_ptr());
+            let name = udata.name.clone();
+            mem::forget(udata);
+            name
+        }
+    }
+
     /// Creates a dynamic body
-    /// Calls `NewtonCreateDynamicBody` with the given collision and transform.
     #[inline]
-    pub fn dynamic(newton: &'world Newton, collision: &Collision, transform: &Matrix) -> Self {
+    pub fn dynamic(
+        newton: &'world Newton,
+        collision: &Collision,
+        transform: &Matrix,
+        name: Option<&'static str>,
+    ) -> Self {
         unsafe {
             let transform = mem::transmute(transform);
             let body = ffi::NewtonCreateDynamicBody(newton.as_ptr(), collision.as_ptr(), transform);
-            ffi::NewtonBodySetUserData(body, mem::transmute(Box::new(BodyData::default())));
+            let data = Box::new(BodyData {
+                name,
+                ..Default::default()
+            });
+            ffi::NewtonBodySetUserData(body, mem::transmute(data));
+
+            Self {
+                newton,
+                body,
+                owned: true,
+            }
+        }
+    }
+
+    /// Creates a kinematic body
+    #[inline]
+    pub fn kinematic(
+        newton: &'world Newton,
+        collision: &Collision,
+        transform: &Matrix,
+        name: Option<&'static str>,
+    ) -> Self {
+        unsafe {
+            let transform = mem::transmute(transform);
+            let body =
+                ffi::NewtonCreateKinematicBody(newton.as_ptr(), collision.as_ptr(), transform);
+            let data = Box::new(BodyData {
+                name,
+                ..Default::default()
+            });
+            ffi::NewtonBodySetUserData(body, mem::transmute(data));
 
             Self {
                 newton,
@@ -145,6 +203,10 @@ impl<'world> Body<'world> {
         unsafe { mem::transmute(ffi::NewtonBodyGetSleepState(self.as_ptr())) }
     }
 
+    pub fn body_type(&self) -> BodyType {
+        unsafe { mem::transmute(ffi::NewtonBodyGetType(self.as_ptr())) }
+    }
+
     pub fn aabb(&self) -> (Vector, Vector) {
         let mut aabb: (Vector, Vector) = Default::default();
         unsafe {
@@ -159,6 +221,10 @@ impl<'world> Body<'world> {
             ffi::NewtonBodyGetMatrix(self.as_ptr(), matrix.as_mut_ptr() as *const f32);
             matrix
         }
+    }
+
+    pub fn set_matrix(&self, mat: &Matrix) {
+        unsafe { ffi::NewtonBodySetMatrix(self.as_ptr(), mat.as_ptr()) }
     }
 
     /// Sets the mass using the given collision to compute the inertia

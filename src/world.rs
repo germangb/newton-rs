@@ -2,7 +2,9 @@ use std::collections::HashSet;
 use std::mem;
 use std::sync::RwLock;
 use std::time::Duration;
+use std::os::raw::{c_longlong, c_void};
 
+use super::math::Vector;
 use super::body::{Bodies, Body, Handle as BodyHandle};
 use super::collision::{Collision, Handle as CollisionHandle};
 use super::ffi;
@@ -69,10 +71,14 @@ impl Newton {
         unsafe { ffi::NewtonSetThreadsCount(self.as_ptr(), threads as _) };
     }
 
-    /// Borrows a body owned by the newton context.
-    ///
-    /// Unlike with `body_owned`, the returned body doesn't get destroyed
-    /// when the returned `Body` is dropped.
+    pub fn threads(&self) -> usize {
+        unsafe { ffi::NewtonGetThreadsCount(self.as_ptr()) as _ }
+    }
+
+    pub fn constraints(&self) -> usize {
+        unsafe { ffi::NewtonWorldGetConstraintCount(self.as_ptr()) as _ }
+    }
+
     pub(crate) fn body(&self, handle: &BodyHandle) -> Option<Body> {
         let data = unsafe { userdata(self.as_ptr()) };
         let body = data.bodies.read().unwrap().get(handle).map(|h| Body {
@@ -115,7 +121,7 @@ impl Newton {
     /// method.
     ///
     /// [method]: #
-    pub fn body_owned(&mut self, handle: &BodyHandle) -> Option<Body> {
+    pub fn take_body(&mut self, handle: &BodyHandle) -> Option<Body> {
         let data = unsafe { userdata(self.as_ptr()) };
         let handle = data.bodies.write().unwrap().take(handle);
         unsafe { mem::forget(data) };
@@ -190,6 +196,79 @@ impl Newton {
         let seconds = step.as_secs() * 1_000_000_000 + step.subsec_nanos() as u64;
         unsafe { ffi::NewtonUpdateAsync(self.as_ptr(), seconds as f32 / 1_000_000_000.0) }
         AsyncUpdate(self)
+    }
+}
+
+pub type RayCastPrefilter = Box<dyn FnMut(Body, Collision) -> bool + Send + Sync>;
+
+/// Ray & convex collision casting
+impl Newton {
+    /// Samples world with a ray, and runs the given filter closure for every
+    /// body that intersects.
+    ///
+    /// The filter closure can be used to implement various flavors of ray casting.
+    /// Refer to the [official wiki][wiki] for further info.
+    ///
+    /// [wiki]: http://newtondynamics.com/wiki/index.php5?title=NewtonWorldRayCast
+    ///
+    /// # Limitations
+    /// Runs on thread index `0`
+    ///
+    #[rustfmt::skip]
+    pub fn ray_cast<F>(&self, p0: &Vector, p1: &Vector, mut filter: F, mut prefilter: Option<RayCastPrefilter>)
+    where
+        F: FnMut(Body, Collision, &Vector, &Vector, f32) -> f32,
+    {
+        type Userdata<'a, T> = (&'a mut T, &'a Newton, Option<&'a mut RayCastPrefilter>);
+        let mut user_data = (&mut filter, &Newton, prefilter.as_mut());
+        unsafe {
+            ffi::NewtonWorldRayCast(self.as_ptr(),
+                                    p0.as_ptr(),
+                                    p1.as_ptr(),
+                                    Some(cfilter::<F>),
+                                    mem::transmute(&mut user_data),
+                                    Some(cprefilter::<F>),
+                                    0);
+        }
+
+        unsafe extern "C" fn cprefilter<F>(body: *const ffi::NewtonBody,
+                                        collision: *const ffi::NewtonCollision,
+                                        user_data: *const c_void) -> u32
+            where
+                F: FnMut(Body, Collision, &Vector, &Vector, f32) -> f32,
+        {
+            let mut filter: &mut Userdata<F> = mem::transmute(user_data);
+            let body = Body { newton: filter.1, body, owned: false };
+            let collision = Collision { newton: filter.1, collision, owned: false };
+
+            let res = filter.2.as_mut().map(|pre| pre(body, collision));
+            match res {
+                Some(true) | None => 1,
+                Some(false) => 0,
+            }
+        }
+
+        unsafe extern "C" fn cfilter<F>(body: *const ffi::NewtonBody,
+                                        collision: *const ffi::NewtonCollision,
+                                        hit_contact: *const f32,
+                                        hit_normal: *const f32,
+                                        collision_id: c_longlong,
+                                        user_data: *const c_void,
+                                        intersect_param: f32) -> f32
+            where
+                F: FnMut(Body, Collision, &Vector, &Vector, f32) -> f32,
+        {
+            let mut filter: &mut Userdata<F> = mem::transmute(user_data);
+
+            let body = Body { newton: filter.1, body, owned: false };
+            let collision = Collision { newton: filter.1, collision, owned: false };
+
+            // We can safely cast from *const f32 to &Vector because the later has the
+            // same representation.
+            let contact: &Vector = mem::transmute(hit_contact);
+            let normal: &Vector = mem::transmute(hit_normal);
+            filter.0(body, collision, contact, normal, intersect_param)
+        }
     }
 }
 

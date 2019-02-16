@@ -1,6 +1,6 @@
 pub use ffi;
 
-pub use body::Body;
+pub use body::{Body, Handle as BodyHandle};
 pub use collision::Collision;
 pub use math::{Matrix, Quaternion, Vector};
 pub use world::Newton;
