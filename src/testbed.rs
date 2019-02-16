@@ -1,13 +1,13 @@
-use std::io::{Read, Write};
-use std::fs::File;
-use std::os::raw::{c_void, c_int};
-use std::slice;
-use std::mem;
 use std::error::Error;
+use std::fs::File;
+use std::io::{Read, Write};
 use std::ops::Deref;
-use std::time::Duration;
+use std::os::raw::{c_int, c_void};
 use std::path::Path;
+use std::time::Duration;
+use std::{mem, slice, str};
 
+use super::body::SleepState;
 use super::ffi;
 use super::world::Newton;
 
@@ -27,7 +27,12 @@ use imgui_sdl2::ImguiSdl2;
 use cgmath::prelude::*;
 use cgmath::{Deg, Matrix4, Point3, Vector3};
 
-use serde::{Serialize, Deserialize};
+use crate::testbed::Primitive::Triangles;
+use serde::{Deserialize, Serialize};
+
+pub trait Demo {
+    fn reset(newton: &Newton) -> Self;
+}
 
 /// Simulation UI
 #[doc(hidden)]
@@ -36,19 +41,24 @@ pub struct Stats {
     #[imgui(
         checkbox,
         button(label = "Invalidate", catch = "invalidate"),
-        button(label = "Reset", catch = "reset"),
+        button(label = "Reset##Stats", catch = "reset")
     )]
     running: bool,
-    #[imgui(display(display = "{:?}", 0))]
+    #[imgui(display(display = "{:.1?}", 0))]
     elapsed: (Duration,),
+    #[imgui(slider(min = 0.01, max = 8.0), separator)]
+    time_scale: f32,
     #[imgui(display)]
     bodies: usize,
     #[imgui(display)]
     contacts: usize,
+    #[imgui(display)]
+    threads: usize,
 }
 
 #[derive(ImGuiExt)]
-pub struct Testbed {
+pub struct Testbed<T> {
+    demo: T,
     newton: Newton,
 
     sdl: Sdl,
@@ -64,13 +74,13 @@ pub struct Testbed {
     renderer: Renderer,
 }
 
-impl Testbed {
-    pub fn new(newton: Newton) -> Result<Self, Box<dyn Error>> {
+impl<T: Demo> Testbed<T> {
+    pub fn run() -> Result<(), Box<dyn Error>> {
         let sdl = sdl2::init()?;
         let sdl_events = sdl.event_pump()?;
         let sdl_video = sdl.video()?;
         let sdl_window = sdl_video
-            .window("Newton testbed", 800, 600)
+            .window("Newton testbed", 1024, 600)
             .opengl()
             .position_centered()
             .resizable()
@@ -84,21 +94,25 @@ impl Testbed {
         let renderer = Renderer::new(|s| sdl_video.gl_get_proc_address(s));
         let controls = Default::default();
 
-        Ok(Self {
-            newton,
+        let newton = Newton::create();
+        let demo = T::reset(&newton);
 
+        Self {
+            demo,
+            newton,
             sdl,
             sdl_events,
             sdl_video,
             sdl_window,
             sdl_gl,
-
             controls,
             renderer,
-        })
+        }
+        .main_loop()?;
+        Ok(())
     }
 
-    pub fn run(mut self) -> Result<(), Box<dyn Error>> {
+    fn main_loop(mut self) -> Result<(), Box<dyn Error>> {
         self.sdl_window.show();
 
         let mut imgui = imgui::ImGui::init();
@@ -112,51 +126,91 @@ impl Testbed {
             for event in self.sdl_events.poll_iter() {
                 imgui_sdl.handle_event(&mut imgui, &event);
                 if !imgui_sdl.ignore_event(&event) {
-                    match event {
-                        Event::Window {
-                            win_event: WindowEvent::Close,
-                            ..
-                        } => break 'mainLoop,
+                    match (self.renderer.params.camera.controller, event) {
+                        (
+                            _,
+                            Event::Window {
+                                win_event: WindowEvent::Close,
+                                ..
+                            },
+                        ) => break 'mainLoop,
+                        (true, Event::MouseWheel { y, .. }) => {
+                            self.renderer.params.camera.scroll(y as f32)
+                        }
                         _ => {}
                     }
                 }
             }
 
+            self.controls.bodies = self.newton.bodies().count();
+            self.controls.contacts = 0;
+
             if self.controls.running {
                 let step = Duration::new(0, 1_000_000_000 / 60);
+                self.controls.elapsed.0 += step;
                 self.newton.update(step);
             }
 
+            let params = self.renderer.params().clone();
             let mut frame = self.renderer.frame(&self.sdl_window);
 
-            unsafe {
-                let mut body = ffi::NewtonWorldGetFirstBody(self.newton.as_ptr());
-                while !body.is_null() {
-                    let mut matrix: [f32; 16] = Default::default();
-                    let collision = ffi::NewtonBodyGetCollision(body);
-                    ffi::NewtonBodyGetMatrix(body, matrix.as_mut_ptr());
-                    ffi::NewtonCollisionForEachPolygonDo(collision, matrix.as_ptr(), Some(polygons), mem::transmute(&mut frame));
-                    #[rustfmt::skip]
-                    unsafe extern "C" fn polygons (user_data: *const c_void, vertex_count: c_int, face_array: *const f32, face_id: c_int) {
-                        let frame: &mut Frame = mem::transmute(user_data);
-                        let mut pos = slice::from_raw_parts(face_array, vertex_count as usize * 3).chunks(3);
-                        let a = pos.next().map(|s| [s[0], s[1], s[2]]).unwrap();
-                        let b = pos.next().map(|s| [s[0], s[1], s[2]]).unwrap();
-                        let c = pos.next().map(|s| [s[0], s[1], s[2]]).unwrap();
-                        let d = pos.next().map(|s| [s[0], s[1], s[2]]);
-                        let color = [255, 255, 255];
-                        frame.triangle(Vert {pos: a, color }, Vert { pos: b, color }, Vert { pos: c, color });
-                        if let Some(d) = d { frame.triangle(Vert {pos: a, color }, Vert { pos: c, color }, Vert { pos: d, color }) }
+            for body in self.newton.bodies().iter() {
+                let [r, g, b, _] = match body.sleep_state() {
+                    SleepState::Active => params.active,
+                    SleepState::Sleeping => params.sleeping,
+                };
+
+                let color = [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8];
+                let collision = body.collision();
+                let matrix = body.matrix();
+
+                #[rustfmt::skip]
+                collision.polygons(&matrix, |face, _face_id| {
+                    let mut pos = face.chunks(3);
+                    let a = pos.next().map(|s| [s[0], s[1], s[2]]);
+                    let b = pos.next().map(|s| [s[0], s[1], s[2]]);
+                    let c = pos.next().map(|s| [s[0], s[1], s[2]]);
+                    let d = pos.next().map(|s| [s[0], s[1], s[2]]);
+                    let e = pos.next().map(|s| [s[0], s[1], s[2]]);
+
+                    match (a, b, c, d, e) {
+                        // Triangle face
+                        (Some(a), Some(b), Some(c), None, None) => {
+                            frame.triangle(Vert {pos: a, color }, Vert { pos: b, color }, Vert { pos: c, color });
+                        },
+
+                        // Quad face.
+                        // Assumes the four points are coplanar.
+                        (Some(a), Some(b), Some(c), Some(d), None) => {
+                            frame.triangle(Vert {pos: a, color }, Vert { pos: b, color }, Vert { pos: c, color });
+                            frame.triangle(Vert {pos: a, color }, Vert { pos: c, color }, Vert { pos: d, color });
+                        },
+
+                        // Unexpected number of vertices. Face is neither a triangle nor a quad.
+                        // If this panic is ever raised, check the docs or the original implementation.
+                        _ => panic!("Unexpected number of faces")
                     }
-                    body = ffi::NewtonWorldGetNextBody(self.newton.as_ptr(), body);
-                }
+                });
             }
 
             frame.render();
 
             let ui = imgui_sdl.frame(&self.sdl_window, &mut imgui, &self.sdl_events.mouse_state());
-            if ui.imgui_ext(&mut self).controls().invalidate() {
+
+            let events = ui.imgui_ext(&mut self);
+            if events.controls().invalidate() {
                 self.newton.invalidate();
+            }
+            if events.controls().reset() {
+                self.controls.elapsed = (Duration::default(),);
+                let newton = Newton::create();
+                let demo = T::reset(&newton);
+
+                self.newton = newton;
+                self.demo = demo;
+            }
+            if events.renderer().params().reset() {
+                self.renderer.params = RenderParams::default();
             }
             imgui_renderer.render(ui);
 
@@ -167,10 +221,12 @@ impl Testbed {
     }
 }
 
-#[derive(ImGuiExt, Serialize, Deserialize)]
+#[derive(ImGuiExt, Serialize, Deserialize, Clone)]
 pub struct Camera {
     #[imgui(drag(speed = 0.1))]
     position: [f32; 3],
+    #[imgui(checkbox(label = "Use controller"))]
+    controller: bool,
     #[imgui(slider(min = 1.0, max = 179.0))]
     fov: f32,
     #[imgui(slider(min = 0.01, max = 2000.0))]
@@ -180,14 +236,82 @@ pub struct Camera {
 }
 
 impl Camera {
-    fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, Box<dyn Error>> {
-        let mut file = File::open(path)?;
+    fn scroll(&mut self, n: f32) {
+        let [x, y, z] = self.position;
+        let len = (x * x + y * y + z * z).sqrt();
+
+        self.position[0] -= n * x / len;
+        self.position[1] -= n * y / len;
+        self.position[2] -= n * z / len;
+    }
+}
+
+#[derive(ImGuiExt, Serialize, Deserialize, Clone)]
+#[doc(hidden)]
+pub struct RenderParams {
+    #[imgui(button(label = "Reset##RenderParams", catch = "reset"), nested)]
+    camera: Camera,
+    // colors
+    #[imgui(color(edit))]
+    background: [f32; 4],
+    #[imgui(color(edit))]
+    wireframe: [f32; 4],
+    #[imgui(color(edit))]
+    active: [f32; 4],
+    #[imgui(color(edit))]
+    sleeping: [f32; 4],
+
+    #[imgui(checkbox(label = "Solid"))]
+    solid: bool,
+
+    #[imgui(checkbox(label = "Wireframe"))]
+    wire: bool,
+    #[imgui(slider(min = 1.0, max = 4.0))]
+    wire_size: f32,
+
+    #[imgui(checkbox(label = "AABB"))]
+    aabb: bool,
+    #[imgui(checkbox(label = "Lighting"))]
+    lighting: bool,
+    #[imgui(checkbox(label = "Shadows"))]
+    shadows: bool,
+}
+
+impl RenderParams {
+    fn load() -> Result<Self, Box<dyn Error>> {
+        let mut file = File::open("renderer.json")?;
         Ok(serde_json::from_reader(file)?)
     }
 
-    fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), Box<dyn Error>> {
-        let mut file = File::create(path)?;
+    fn save(&self) -> Result<(), Box<dyn Error>> {
+        let mut file = File::create("renderer.json")?;
         Ok(serde_json::to_writer(file, self)?)
+    }
+}
+
+impl Default for RenderParams {
+    fn default() -> Self {
+        Self {
+            camera: Camera {
+                position: [2.0, 1.0, 6.0],
+                controller: false,
+                fov: 55.0,
+                near: 0.01,
+                far: 1000.0,
+            },
+            background: [0.2, 0.2, 0.2, 1.0],
+            wireframe: [0.0, 0.0, 0.0, 1.0],
+            active: [1.0, 0.5, 1.0, 1.0],
+            sleeping: [1.0, 1.0, 1.0, 1.0],
+
+            solid: true,
+            wire: true,
+            wire_size: 3.0,
+            aabb: false,
+
+            lighting: true,
+            shadows: false,
+        }
     }
 }
 
@@ -218,27 +342,10 @@ pub struct Renderer {
     u_tint: GLint,
     u_offset: GLint,
 
-    #[imgui(color(edit))]
-    background: [f32; 4],
-    #[imgui(color(edit))]
-    wireframe: [f32; 4],
-    // sim states
-    #[imgui(color(edit))]
-    active: [f32; 4],
-    #[imgui(color(edit))]
-    inactive: [f32; 4],
-
-    #[imgui(checkbox(label = "Wireframe"))]
-    wire: bool,
-    #[imgui(checkbox(label = "Lighting"))]
-    lighting: bool,
-    #[imgui(checkbox(label = "Shadows"))]
-    shadows: bool,
-
     #[imgui(nested)]
-    camera: Camera,
-    #[imgui(checkbox(label = "Save camera state"))]
-    camera_save: bool,
+    params: RenderParams,
+    #[imgui(checkbox(label = "Persistent"))]
+    persist: bool,
 
     // last frame stats
     // TODO implement ImGuiExt on optionals
@@ -258,10 +365,10 @@ macro_rules! gl {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
-        if self.camera_save {
-            match self.camera.save_to_file("camera.json") {
-                Err(e) => eprintln!("Error saving camera.json: {}", e),
-                Ok(_) => {},
+        if self.persist {
+            match self.params.save() {
+                Err(e) => eprintln!("Error saving renderer.json: {}", e),
+                Ok(_) => {}
             }
         }
         unsafe {
@@ -307,21 +414,14 @@ impl Renderer {
             gl!(BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0));
         };
 
-        let (program, u_view_proj, u_tint, u_offset) = unsafe {
-            Self::init_program()
-        };
+        let (program, u_view_proj, u_tint, u_offset) = unsafe { Self::init_program() };
 
-        let camera = match Camera::from_file("camera.json") {
-            Ok(camera) => camera,
+        let params = match RenderParams::load() {
+            Ok(params) => params,
             Err(e) => {
-                eprintln!("Error reading camera.json: {}", e);
-                Camera {
-                    fov: 55.0,
-                    near: 0.01,
-                    far: 1000.0,
-                    position: [2.0, 1.0, 6.0],
-                }
-            },
+                eprintln!("Error reading renderer.json: {}", e);
+                Default::default()
+            }
         };
 
         Self {
@@ -334,25 +434,18 @@ impl Renderer {
             u_view_proj,
             u_tint,
             u_offset,
-            background: [0.2, 0.2, 0.2, 1.0],
-            wireframe: [0.0, 0.0, 0.0, 1.0],
-            active: [1.0, 0.5, 1.0, 1.0],
-            inactive: [1.0, 1.0, 1.0, 1.0],
-            wire: true,
-            lighting: true,
-            shadows: true,
-            camera,
-            camera_save: true,
-            stats: FrameStats {
-                drawcalls: 0,
-                verts: 0,
-                indices: 0,
-            },
+
+            params,
+            persist: true,
+
+            stats: Default::default(),
         }
     }
 
     unsafe fn init_program() -> (GLuint, GLint, GLint, GLint) {
-        let vert = Self::shader(gl::VERTEX_SHADER, r#"#version 330 core
+        let vert = Self::shader(
+            gl::VERTEX_SHADER,
+            r#"#version 330 core
 layout(location = 0) in vec3 a_position;
 layout(location = 1) in vec4 a_color; // 0-255 ranges
 out vec4 v_color;
@@ -361,16 +454,21 @@ void main() {
     gl_Position = u_view_proj * vec4(a_position, 1.0);
     v_color = a_color / 255.0;
 }
-        "#);
-        let frag = Self::shader(gl::FRAGMENT_SHADER, r#"#version 330 core
+        "#,
+        );
+        let frag = Self::shader(
+            gl::FRAGMENT_SHADER,
+            r#"#version 330 core
 in vec4 v_color;
 out vec4 frag_color;
 uniform vec4 u_tint;
 uniform vec4 u_offset;
 void main() {
-    frag_color = v_color * u_tint + u_offset;
+    vec4 final_color = v_color * u_tint + u_offset;
+    frag_color = final_color;
 }
-"#);
+"#,
+        );
 
         let program = gl!(CreateProgram());
 
@@ -392,7 +490,12 @@ void main() {
 
     unsafe fn shader(shader_ty: GLenum, source: &str) -> GLuint {
         let shader = gl!(CreateShader(shader_ty));
-        gl!(ShaderSource(shader, 1, [source.as_ptr() as _].as_ptr(), [source.len() as _].as_ptr()));
+        gl!(ShaderSource(
+            shader,
+            1,
+            [source.as_ptr() as _].as_ptr(),
+            [source.len() as _].as_ptr()
+        ));
         gl!(CompileShader(shader));
 
         let mut log = vec![0_u8; 1024];
@@ -400,27 +503,38 @@ void main() {
         gl!(GetShaderInfoLog(shader, 1024, &mut len, log.as_ptr() as _));
         if len > 0 {
             let len = len as usize;
-            let msg = ::std::str::from_utf8_unchecked(&log[..len]);
+            let msg = str::from_utf8_unchecked(&log[..len]);
             panic!("{}", msg);
         }
         shader
     }
 
+    fn params(&self) -> &RenderParams {
+        &self.params
+    }
+
     fn frame(&mut self, window: &Window) -> Frame {
         // compute projection matrix
         let (w, h) = window.size();
+
+        let params = self.params();
+        let Camera {
+            controller,
+            fov,
+            near,
+            far,
+            position,
+        } = params.camera;
+
         #[rustfmt::skip]
-        let proj = cgmath::perspective(Deg(self.camera.fov),
-                                       w as f32 / h as f32,
-                                       self.camera.near,
-                                       self.camera.far);
+        let proj = cgmath::perspective(Deg(fov), w as f32 / h as f32, near, far);
         #[rustfmt::skip]
-        let view = Matrix4::look_at(Point3::from(self.camera.position),
+        let view = Matrix4::look_at(Point3::from(position),
                                     Point3::new(0.0, 0.0, 0.0),
                                     Vector3::new(0.0, 1.0, 0.0));
 
         unsafe {
-            let [r, g, b, a] = self.background;
+            let [r, g, b, a] = params.background;
             gl!(Enable(gl::DEPTH_TEST));
             gl!(Viewport(0, 0, w as _, h as _));
             gl!(ClearColor(r, g, b, a));
@@ -428,7 +542,12 @@ void main() {
             gl!(UseProgram(self.program));
 
             let view_proj = proj * view;
-            gl!(UniformMatrix4fv(self.u_view_proj, 1, gl::FALSE, view_proj.as_ptr()));
+            gl!(UniformMatrix4fv(
+                self.u_view_proj,
+                1,
+                gl::FALSE,
+                view_proj.as_ptr()
+            ));
 
             gl!(BindVertexArray(self.vao));
             gl!(BindBuffer(gl::ARRAY_BUFFER, self.vbo));
@@ -437,6 +556,7 @@ void main() {
 
         Frame {
             renderer: self,
+            primitive: None,
             stats: FrameStats {
                 drawcalls: 0,
                 verts: 0,
@@ -446,8 +566,14 @@ void main() {
     }
 }
 
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+enum Primitive {
+    Triangles,
+    Lines,
+}
+
 #[doc(hidden)]
-#[derive(ImGuiExt, Clone)]
+#[derive(ImGuiExt, Clone, Default)]
 pub struct FrameStats {
     #[imgui]
     drawcalls: usize,
@@ -462,21 +588,79 @@ pub struct FrameStats {
 struct Frame<'a> {
     renderer: &'a mut Renderer,
     stats: FrameStats,
+    primitive: Option<Primitive>,
 }
 
 impl<'a> Frame<'a> {
     fn render(self) {}
 
+    fn line(&mut self, a: Vert, b: Vert) {
+        match (self.primitive, self.renderer.ebo_data.len()) {
+            // First render call
+            (None, 0) => self.primitive = Some(Primitive::Lines),
+
+            // Switch from rendering Triangles to rendering Lines.
+            // If we reach this state, there must be buffered geometry, otherwise
+            // the state is invalid and a panic is raised
+            (Some(Primitive::Triangles), n) if n > 0 => {
+                self.flush();
+                self.primitive = Some(Primitive::Lines);
+            }
+
+            // Keep filling the lines buffer
+            (Some(Primitive::Lines), n) if n > 0 => {}
+
+            // If this pattern is matched, there is a bug in
+            // the implementation that needs to be fixed.
+            _ => panic!(),
+        }
+
+        if self.renderer.ebo_data.len() + 2 >= 0xFFFF {
+            self.flush();
+        }
+
+        let idx = self.renderer.ebo_data.len() as u16;
+        self.renderer.ebo_data.extend_from_slice(&[idx, idx + 1]);
+        self.renderer.vbo_data.extend_from_slice(&[a, b]);
+    }
+
     fn triangle(&mut self, a: Vert, b: Vert, c: Vert) {
+        match (self.primitive, self.renderer.ebo_data.len()) {
+            // First render call
+            (None, 0) => self.primitive = Some(Primitive::Triangles),
+
+            // Switch from rendering Lines to rendering Triangles.
+            // If we reach this state, there must be buffered geometry, otherwise
+            // the state is invalid and a panic is raised
+            (Some(Primitive::Lines), n) if n > 0 => {
+                self.flush();
+                self.primitive = Some(Primitive::Triangles);
+            }
+
+            // Keep filling the triangles buffer
+            (Some(Primitive::Triangles), n) if n > 0 => {}
+
+            _ => panic!(),
+        }
+
         if self.renderer.ebo_data.len() + 3 >= 0xFFFF {
             self.flush();
         }
 
         let idx = self.renderer.ebo_data.len() as u16;
-        self.renderer.ebo_data.extend_from_slice(&[idx, idx+1, idx+2]);
+        self.renderer
+            .ebo_data
+            .extend_from_slice(&[idx, idx + 1, idx + 2]);
         self.renderer.vbo_data.extend_from_slice(&[a, b, c]);
     }
 
+    /// Flush buffered geometry
+    ///
+    /// Uploads buffered vertex and index buffers to the GPU.
+    /// Renders solid and wire-frame geometry.
+    ///
+    /// # Panics
+    /// This method panics if either the vertex or index buffer is empty
     fn flush(&mut self) {
         let verts = self.renderer.vbo_data.len();
         let index = self.renderer.ebo_data.len();
@@ -497,22 +681,46 @@ impl<'a> Frame<'a> {
                               (index * mem::size_of::<u16>()) as _,
                               self.renderer.ebo_data.as_ptr() as *const _));
 
-            if self.renderer.wire {
-                let [r, g, b, _] = self.renderer.wireframe;
-                gl!(LineWidth(3.0));
+            let params = self.renderer.params();
+            let primitive = match self.primitive {
+                Some(Primitive::Triangles) => gl::TRIANGLES,
+                Some(Primitive::Lines) => gl::LINES,
+
+                // if this pattern is matched, there is a bug
+                None => panic!("bug"),
+            };
+            if params.wire && primitive != gl::LINES {
+                let [r, g, b, _] = params.wireframe;
+                gl!(LineWidth(params.wire_size));
                 gl!(PolygonMode(gl::FRONT_AND_BACK, gl::LINE));
                 gl!(Uniform4f(self.renderer.u_tint, 0.0, 0.0, 0.0, 1.0));
                 gl!(Uniform4f(self.renderer.u_offset, r, g, b, 0.0));
-                gl!(DrawElements(gl::TRIANGLES, index as _, gl::UNSIGNED_SHORT, 0 as _));
+                gl!(DrawElements(
+                    primitive,
+                    index as _,
+                    gl::UNSIGNED_SHORT,
+                    0 as _
+                ));
                 gl!(LineWidth(1.0));
                 gl!(PolygonMode(gl::FRONT_AND_BACK, gl::FILL));
                 self.stats.drawcalls += 1;
+                self.stats.verts += verts;
+                self.stats.indices += index;
             }
 
-            gl!(Uniform4f(self.renderer.u_offset, 0.0, 0.0, 0.0, 0.0));
-            gl!(Uniform4f(self.renderer.u_tint, 1.0, 1.0, 1.0, 1.0));
-            gl!(DrawElements(gl::TRIANGLES, index as _, gl::UNSIGNED_SHORT, 0 as _));
-            self.stats.drawcalls += 1;
+            if params.solid {
+                gl!(Uniform4f(self.renderer.u_offset, 0.0, 0.0, 0.0, 0.0));
+                gl!(Uniform4f(self.renderer.u_tint, 1.0, 1.0, 1.0, 1.0));
+                gl!(DrawElements(
+                    primitive,
+                    index as _,
+                    gl::UNSIGNED_SHORT,
+                    0 as _
+                ));
+                self.stats.drawcalls += 1;
+                self.stats.verts += verts;
+                self.stats.indices += index;
+            }
         }
 
         self.renderer.ebo_data.clear();
@@ -526,12 +734,15 @@ impl<'a> Frame<'a> {
 
 impl<'a> Drop for Frame<'a> {
     fn drop(&mut self) {
-        if !self.is_empty() { self.flush() }
+        if !self.is_empty() {
+            self.flush()
+        }
         self.renderer.stats = self.stats.clone();
         unsafe {
             gl!(BindVertexArray(0));
             gl!(UseProgram(0));
+            gl!(BindBuffer(gl::ARRAY_BUFFER, 0));
+            gl!(BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0));
         }
     }
 }
-

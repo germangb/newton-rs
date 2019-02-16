@@ -3,7 +3,7 @@ use std::mem;
 use std::sync::RwLock;
 use std::time::Duration;
 
-use super::body::{Body, Handle as BodyHandle};
+use super::body::{Bodies, Body, Handle as BodyHandle};
 use super::collision::{Collision, Handle as CollisionHandle};
 use super::ffi;
 
@@ -51,6 +51,10 @@ impl Newton {
         }
     }
 
+    pub fn bodies(&self) -> Bodies {
+        Bodies(self)
+    }
+
     /// Sets the solver model.
     ///
     /// - `steps = 0` Exact solver (default one)
@@ -69,7 +73,7 @@ impl Newton {
     ///
     /// Unlike with `body_owned`, the returned body doesn't get destroyed
     /// when the returned `Body` is dropped.
-    pub fn body(&self, handle: &BodyHandle) -> Option<Body> {
+    pub(crate) fn body(&self, handle: &BodyHandle) -> Option<Body> {
         let data = unsafe { userdata(self.as_ptr()) };
         let body = data.bodies.read().unwrap().get(handle).map(|h| Body {
             newton: self,
@@ -202,6 +206,6 @@ impl Drop for Newton {
     }
 }
 
-unsafe fn userdata(ptr: *const ffi::NewtonWorld) -> Box<NewtonData> {
+pub(crate) unsafe fn userdata(ptr: *const ffi::NewtonWorld) -> Box<NewtonData> {
     Box::from_raw(ffi::NewtonWorldGetUserData(ptr) as _)
 }

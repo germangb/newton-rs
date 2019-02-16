@@ -6,6 +6,12 @@ use super::ffi;
 use super::world::Newton;
 use super::{Matrix, Vector};
 
+#[repr(i32)]
+pub enum SleepState {
+    Active = 0,
+    Sleeping = 1,
+}
+
 #[derive(Default)]
 struct BodyData {
     /// Force and torque callback
@@ -23,6 +29,49 @@ struct BodyData {
 /// [body_owned]: #
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct Handle(pub(crate) *const ffi::NewtonBody);
+
+#[derive(Debug)]
+pub struct Bodies<'world>(pub(crate) &'world Newton);
+
+pub struct Iter<'world> {
+    newton: &'world Newton,
+    next: *const ffi::NewtonBody,
+}
+
+impl<'world> Iterator for Iter<'world> {
+    type Item = Body<'world>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let current = self.next;
+        if current.is_null() {
+            None
+        } else {
+            self.next = unsafe { ffi::NewtonWorldGetNextBody(self.newton.as_ptr(), current) };
+            Some(Body {
+                newton: self.newton,
+                body: current,
+                owned: false,
+            })
+        }
+    }
+}
+
+impl<'world> Bodies<'world> {
+    pub fn count(&self) -> usize {
+        unsafe { ffi::NewtonWorldGetBodyCount(self.0.as_ptr()) as usize }
+    }
+
+    pub fn iter(&self) -> Iter {
+        Iter {
+            newton: self.0,
+            next: unsafe { ffi::NewtonWorldGetFirstBody(self.0.as_ptr()) },
+        }
+    }
+
+    pub fn get(&self, handle: &Handle) -> Option<Body> {
+        self.0.body(handle)
+    }
+}
 
 /// NewtonBody Wrapper
 ///
@@ -92,12 +141,24 @@ impl<'world> Body<'world> {
 
 /// FFI wrappers
 impl<'world> Body<'world> {
+    pub fn sleep_state(&self) -> SleepState {
+        unsafe { mem::transmute(ffi::NewtonBodyGetSleepState(self.as_ptr())) }
+    }
+
     pub fn aabb(&self) -> (Vector, Vector) {
         let mut aabb: (Vector, Vector) = Default::default();
         unsafe {
             ffi::NewtonBodyGetAABB(self.as_ptr(), aabb.0.as_mut_ptr(), aabb.1.as_mut_ptr());
         }
         aabb
+    }
+
+    pub fn matrix(&self) -> Matrix {
+        unsafe {
+            let mut matrix: Matrix = mem::zeroed();
+            ffi::NewtonBodyGetMatrix(self.as_ptr(), matrix.as_mut_ptr() as *const f32);
+            matrix
+        }
     }
 
     /// Sets the mass using the given collision to compute the inertia
@@ -118,6 +179,14 @@ impl<'world> Body<'world> {
 
     pub fn set_force(&self, force: &Vector) {
         unsafe { ffi::NewtonBodySetForce(self.as_ptr(), force.as_ptr()) }
+    }
+
+    pub fn collision(&self) -> Collision {
+        Collision {
+            newton: self.newton,
+            collision: unsafe { ffi::NewtonBodyGetCollision(self.as_ptr()) },
+            owned: false,
+        }
     }
 
     pub fn set_force_and_torque_callback<F: Fn(Body, Duration) + 'static>(&self, callback: F) {

@@ -1,33 +1,47 @@
 use std::error::Error;
 use std::time::Duration;
 
-use newton::testbed::Testbed;
+use newton::testbed::{Demo, Testbed};
 use newton::{body, Body, Collision, Matrix, Newton, Vector};
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let mut world = Newton::create();
-    let body = create_body(&world);
+struct Example;
 
-    let floor_c = Collision::box2(&world, 8.0, 0.1, 8.0, None);
-    Body::dynamic(&world, &floor_c, &Matrix::identity()).into_handle();
-    drop(floor_c);
+impl Demo for Example {
+    fn reset(newton: &Newton) -> Self {
+        let floor = Collision::box2(newton, 8.0, 0.5, 8.0, None);
+        let floor = Body::dynamic(newton, &floor, &Matrix::identity()).into_handle();
+        let cuboid = Collision::box2(newton, 1.0, 1.0, 1.0, None);
+        let sphere = Collision::sphere(newton, 0.5, None);
 
-    Testbed::new(world)?.run()?;
+        let mut trans = Matrix::identity();
+        trans.c3.y = 6.0;
+        let body0 = Body::dynamic(newton, &sphere, &trans);
+        trans.c3.y = 8.0;
+        trans.c3.x = 0.25;
+        trans.c3.z = 0.1;
+        let body1 = Body::dynamic(newton, &cuboid, &trans);
 
-    Ok(())
+        trans.c3.y = 9.25;
+        trans.c3.x = 0.0;
+        trans.c3.z = 0.0;
+        let body2 = Body::dynamic(newton, &cuboid, &trans);
+
+        body0.set_force_and_torque_callback(|b, _| b.set_force(&Vector::new3(0.0, -9.8, 0.0)));
+        body1.set_force_and_torque_callback(|b, _| b.set_force(&Vector::new3(0.0, -9.8, 0.0)));
+        body2.set_force_and_torque_callback(|b, _| b.set_force(&Vector::new3(0.0, -9.8, 0.0)));
+
+        body0.set_mass(1.0, &sphere);
+        body1.set_mass(1.0, &cuboid);
+        body2.set_mass(1.0, &cuboid);
+
+        body0.into_handle();
+        body1.into_handle();
+        body2.into_handle();
+
+        Self
+    }
 }
 
-fn create_body(world: &Newton) -> body::Handle {
-    let mut ident = Matrix::identity();
-    ident.c3.y = 6.0;
-    let collision = Collision::box2(&world, 1.0, 1.0, 1.0, None);
-
-    //collision.polygons(&ident, |face, _| println!("{:?}", face));
-
-    let body = Body::dynamic(world, &collision, &ident);
-
-    let gravity = Vector::new3(0.0, -9.8, 0.0);
-    body.set_force_and_torque_callback(move |b, _| b.set_force(&gravity));
-    body.set_mass(1.0, &collision);
-    body.into_handle()
+fn main() {
+    Testbed::<Example>::run().unwrap();
 }
