@@ -13,6 +13,7 @@ use crate::ffi;
 use crate::math::Vector;
 use crate::world::Newton;
 
+use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
 use sdl2::event::{Event, WindowEvent};
 use sdl2::video::{GLContext, Window};
@@ -22,7 +23,7 @@ use sdl2::{EventPump, Sdl, VideoSubsystem};
 use gl::types::*;
 
 //use imgui;
-use imgui::{ImGuiCond, im_str};
+use imgui::{ImGuiCond, im_str, ImGuiInputTextFlags, StyleVar};
 use imgui_ext::prelude::*;
 
 use imgui_opengl_renderer::Renderer as ImguiRenderer;
@@ -36,6 +37,24 @@ use serde::{Deserialize, Serialize};
 
 pub trait Demo {
     fn reset(newton: &Newton) -> Self;
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Sidebar {
+    Open,
+    //Overlay,
+    Disabled,
+}
+
+impl Sidebar {
+    pub fn next(&mut self) {
+        match self {
+            //Sidebar::Open => *self = Sidebar::Overlay,
+            //Sidebar::Overlay => *self = Sidebar::Disabled,
+            Sidebar::Open => *self = Sidebar::Disabled,
+            Sidebar::Disabled => *self = Sidebar::Open,
+        }
+    }
 }
 
 /// Simulation UI
@@ -76,6 +95,17 @@ pub struct SelectedBody {
     name: (Option<&'static str>, ),
     #[imgui(drag(speed = 0.1))]
     position: [f32; 3],
+    #[imgui(
+        input(flags = "disabled_text"),
+        separator,
+        button(label = "Destroy", catch = "destroy"),
+        button(label = "Awake", catch = "awake"),
+    )]
+    velocity: [f32; 3],
+}
+
+const fn disabled_text() -> ImGuiInputTextFlags {
+    ImGuiInputTextFlags::ReadOnly
 }
 
 impl Default for SelectedBody {
@@ -84,6 +114,7 @@ impl Default for SelectedBody {
             ptr: 0 as _,
             name: (None, ),
             position: Default::default(),
+            velocity: Default::default(),
         }
     }
 }
@@ -101,7 +132,9 @@ pub struct Testbed<T> {
 
     selected: Option<SelectedBody>,
 
-    // FIXME(imgui-ext) this type (Controls) shouldn't need to be public...
+    // Menu opened flag
+    sidebar: Sidebar,
+
     #[imgui(nested)]
     controls: Stats,
     #[imgui(separator, nested)]
@@ -114,7 +147,7 @@ impl<T: Demo> Testbed<T> {
         let sdl_events = sdl.event_pump()?;
         let sdl_video = sdl.video()?;
         let sdl_window = sdl_video
-            .window("Newton testbed", 800, 600)
+            .window("Newton testbed", 1024, 600)
             .opengl()
             .position_centered()
             .resizable()
@@ -133,6 +166,7 @@ impl<T: Demo> Testbed<T> {
 
         Self {
             selected: None,
+            sidebar: Sidebar::Open,
             demo,
             newton,
             sdl,
@@ -159,24 +193,30 @@ impl<T: Demo> Testbed<T> {
         let mut delta_time = Instant::now();
 
         'mainLoop: loop {
+            // viewport
+            let (w, h) = self.sdl_window.size();
+            let mut viewport = [0, 0, w, h];
+            if self.sidebar == Sidebar::Open { viewport[2] -= 256; }
+
+            // mouse button states
+            // get values here because we need to borrow event pump
+            // mutably in the following loop:
             let left = self.sdl_events.mouse_state().left();
             let right = self.sdl_events.mouse_state().right();
+
             for event in self.sdl_events.poll_iter() {
                 imgui_sdl.handle_event(&mut imgui, &event);
                 if !imgui_sdl.ignore_event(&event) {
                     match (self.renderer.params.camera.controller, event) {
-                        (
-                            _,
-                            Event::Window {
-                                win_event: WindowEvent::Close,
-                                ..
-                            },
-                        ) => break 'mainLoop,
+                        (_, Event::Window { win_event: WindowEvent::Close, .. }) => break 'mainLoop,
+                        (_, Event::KeyDown { keycode: Some(Keycode::T), .. }) => {
+                            self.sidebar.next();
+                        }
                         (_, Event::MouseButtonUp { mouse_btn: MouseButton::Left, x, y, .. }) => {
                             // clip space
                             let (w, h) = self.sdl_window.size();
                             let camera = &self.renderer.params.camera;
-                            let (start, end) = compute_ray(&camera, x, y, [0, 0, w, h]);
+                            let (start, end) = compute_ray(&camera, x, h as i32 - y, viewport);
 
                             let mut min = 2.0;
                             let mut selected = None;
@@ -229,7 +269,7 @@ impl<T: Demo> Testbed<T> {
             }
 
             let params = self.renderer.params().clone();
-            let mut frame = self.renderer.frame(&self.sdl_window);
+            let mut frame = self.renderer.frame(viewport);
 
             for body in self.newton.bodies().iter() {
                 let [r, g, b, _] = match body.sleep_state() {
@@ -282,6 +322,7 @@ impl<T: Demo> Testbed<T> {
                     let (min, max) = body.aabb();
                     let [r, g, b, _] = params.aabb_color;
                     let color = [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8];
+                    let edge = [0.0,0.0];
                     frame.line(Vert { pos: [min.x, min.y, min.z], color }, Vert { pos: [max.x, min.y, min.z], color });
                     frame.line(Vert { pos: [min.x, min.y, min.z], color }, Vert { pos: [min.x, max.y, min.z], color });
                     frame.line(Vert { pos: [min.x, min.y, min.z], color }, Vert { pos: [min.x, min.y, max.z], color });
@@ -298,6 +339,7 @@ impl<T: Demo> Testbed<T> {
             }
 
             if params.axis {
+                let edge = [0.0,0.0];
                 frame.line(Vert{ pos: [0.0,0.0,0.0], color: [255,0,0] }, Vert{ pos: [1024.0,0.0,0.0], color: [255,0,0] });
                 frame.line(Vert{ pos: [0.0,0.0,0.0], color: [0,255,0] }, Vert{ pos: [0.0,1024.0,0.0], color: [0,255,0] });
                 frame.line(Vert{ pos: [0.0,0.0,0.0], color: [0,0,255] }, Vert{ pos: [0.0,0.0,1024.0], color: [0,0,255] });
@@ -307,45 +349,94 @@ impl<T: Demo> Testbed<T> {
 
             let ui = imgui_sdl.frame(&self.sdl_window, &mut imgui, &self.sdl_events.mouse_state());
 
+            if params.names {
+                let style = &[
+                    StyleVar::WindowBorderSize(0.0),
+                ];
+
+                let view_proj = compute_view_proj(&params.camera, viewport);
+
+                for (i, body) in self.newton.bodies().iter().enumerate() {
+                    let name = if let Some(name) = body.name() {
+                        name
+                    } else {
+                        continue
+                    };
+                    let model = unsafe { mem::transmute::<_, Matrix4<f32>>(body.matrix()) };
+                    let mut screen = view_proj * model * Vector4::new(0.0, 0.0, 0.0, 1.0);
+                    screen /= screen.w;
+                    screen.x = (screen.x * 0.5 + 0.5) * viewport[2] as f32 + viewport[0] as f32;
+                    screen.y = (-screen.y * 0.5 + 0.5) * viewport[3] as f32 + viewport[1] as f32;
+                    ui.with_style_vars(style, || {
+                        let id = imgui::ImString::from(format!("##body{}", i));
+                        ui.window(&id)
+                            .position((screen.x, screen.y), ImGuiCond::Always)
+                            .always_auto_resize(true)
+                            .title_bar(false)
+                            .resizable(false)
+                            .movable(false)
+                            .build(|| ui.text(name));
+                    });
+                }
+            }
+
             let (w, h) = self.sdl_window.size();
             let width = 256.0;
             let margin = 8.0;
 
-            ui.window(im_str!("Controls"))
-                .title_bar(false)
-                .movable(false)
-                .position((w as f32 - width - margin, margin), ImGuiCond::Always)
-                .size((width, h as f32 - margin * 2.0), ImGuiCond::Always)
-                .resizable(false)
-                .build(|| {
-                    let events = ui.imgui_ext(&mut self);
-                    if events.controls().invalidate() {
-                        self.newton.invalidate();
-                    }
-                    if events.controls().reset() {
-                        self.controls.elapsed = (Duration::default(),);
-                        let newton = Newton::create();
-                        let demo = T::reset(&newton);
+            if self.sidebar != Sidebar::Disabled {
+                let style = &[
+                    StyleVar::WindowRounding(0.0),
+                    StyleVar::WindowBorderSize(0.0),
+                ];
 
-                        self.newton = newton;
-                        self.demo = demo;
-                    }
-                    if events.renderer().params().reset() {
-                        self.renderer.params = RenderParams::default();
-                    }
-                    if events.renderer().params().camera().reset() {
-                        let camera = &mut self.renderer.params.camera;
-                        let cont = camera.controller;
-                        *camera = Default::default();
-                        camera.controller = cont;
-                    }
-            });
+                ui.with_style_vars(style, || {
+                    ui.window(im_str!("Controls"))
+                        .title_bar(false)
+                        .movable(false)
+                        .position((w as f32 - width, 0.0), ImGuiCond::Always)
+                        .size((width, h as f32), ImGuiCond::Always)
+                        .resizable(false)
+                        .build(|| {
+                            ui.text(im_str!("Press [T] to open/show this sidebar."));
+                            ui.new_line();
+                            ui.separator();
+                            ui.new_line();
+                            let events = ui.imgui_ext(&mut self);
+                            if events.controls().invalidate() {
+                                self.newton.invalidate();
+                            }
+                            if events.controls().reset() {
+                                self.controls.elapsed = (Duration::default(), );
+                                let newton = Newton::create();
+                                let demo = T::reset(&newton);
+
+                                self.selected = None;
+                                self.newton = newton;
+                                self.demo = demo;
+                            }
+                            if events.renderer().params().reset() {
+                                self.renderer.params = RenderParams::default();
+                            }
+                            if events.renderer().params().camera().reset() {
+                                let camera = &mut self.renderer.params.camera;
+                                let cont = camera.controller;
+                                *camera = Default::default();
+                                camera.controller = cont;
+                            }
+                        });
+                });
+            }
             if let Some(mut sel) = self.selected.take() {
                 let ptr = sel.ptr;
                 let body = unsafe { Body::from_raw(&self.newton, ptr as _) };
                 let mut matrix = body.matrix();
+                let vel = body.velocity();
                 sel.position = [matrix.c3.x, matrix.c3.y, matrix.c3.z];
+                sel.velocity = [vel.x, vel.y, vel.z];
                 sel.name = (body.name(), );
+
+                let mut drop_body = false;
                 ui.window(im_str!("Body"))
                     .title_bar(false)
                     .movable(false)
@@ -360,12 +451,18 @@ impl<T: Demo> Testbed<T> {
                             matrix.c3 = Vector::from(sel.position);
                             body.set_matrix(&matrix);
                         }
+                        drop_body =  events.destroy();
                     });
 
-                self.selected = Some(sel);
+                if drop_body {
+                    let handle = body.into_handle();
+                    let _ = self.newton.take_body(&handle);
+                } else {
+                    self.selected = Some(sel);
+                }
             }
-            imgui_renderer.render(ui);
 
+            imgui_renderer.render(ui);
             self.sdl_window.gl_swap_window();
         }
 
@@ -416,14 +513,13 @@ fn compute_view_proj(camera: &Camera, viewport: [u32; 4]) -> Matrix4<f32> {
 }
 
 #[rustfmt::skip]
-fn compute_ray(camera: &Camera, mx: i32, my: i32, viewport: [u32; 4]) -> (Vector, Vector) {
-    let [_, _, w, h] = viewport;
-    let view_proj = compute_view_proj(camera, viewport);
+fn compute_ray(camera: &Camera, mut mx: i32, mut my: i32, [x, y, w, h]: [u32; 4]) -> (Vector, Vector) {
+    mx -= x as i32;
+    my -= y as i32;
+    let view_proj = compute_view_proj(camera, [x, y, w, h]);
     let view_proj_inv = view_proj.invert().unwrap();
     let mut start = Vector4::new(mx as f32 / w as f32 * 2.0 - 1.0, my as f32 / h as f32 * 2.0 - 1.0, 0.0, 1.0);
     let mut end = start;
-    start.y *= -1.0;
-    end.y *= -1.0;
     end.z = 1.0;
 
     //println!("{:?}", start);
@@ -505,6 +601,26 @@ impl Camera {
 #[derive(ImGuiExt, Serialize, Deserialize, Clone)]
 #[doc(hidden)]
 pub struct RenderParams {
+    #[imgui(new_line, checkbox(label = "Solid"))]
+    solid: bool,
+    #[imgui(checkbox(label = "Wireframe"))]
+    wire: bool,
+    #[imgui(slider(min = 1.0, max = 4.0))]
+    wire_size: f32,
+    #[imgui(checkbox)]
+    axis: bool,
+    #[imgui(checkbox)]
+    individual_axis: bool,
+
+    #[imgui(checkbox(label = "AABB"))]
+    aabb: bool,
+    #[imgui(checkbox(label = "Names"))]
+    names: bool,
+    #[imgui(checkbox(label = "Lighting"))]
+    lighting: bool,
+    #[imgui(checkbox(label = "Shadows"))]
+    shadows: bool,
+
     #[imgui(
         button(label = "Reset##RenderParams", catch = "reset"),
         new_line,
@@ -525,26 +641,6 @@ pub struct RenderParams {
     #[imgui(color(edit))]
     aabb_color: [f32; 4],
 
-    #[imgui(new_line, checkbox(label = "Solid"))]
-    solid: bool,
-
-    #[imgui(checkbox(label = "Wireframe"))]
-    wire: bool,
-    #[imgui(slider(min = 1.0, max = 4.0))]
-    wire_size: f32,
-    #[imgui(checkbox)]
-    axis: bool,
-    #[imgui(checkbox)]
-    individual_axis: bool,
-
-    #[imgui(checkbox(label = "AABB"))]
-    aabb: bool,
-    #[imgui(checkbox(label = "Names"))]
-    names: bool,
-    #[imgui(checkbox(label = "Lighting"))]
-    lighting: bool,
-    #[imgui(checkbox(label = "Shadows"))]
-    shadows: bool,
 }
 
 impl RenderParams {
@@ -783,26 +879,14 @@ void main() {
         &self.params
     }
 
-    fn frame(&mut self, window: &Window) -> Frame {
-        // compute projection matrix
-        let (w, h) = window.size();
-
+    fn frame(&mut self, [x, y, w, h]: [u32; 4]) -> Frame {
         let params = self.params();
-        let view_proj = compute_view_proj(&params.camera, [0, 0, w, h]);
-
-        /*
-        #[rustfmt::skip]
-        let proj = cgmath::perspective(Deg(fov), w as f32 / h as f32, near, far);
-        #[rustfmt::skip]
-        let view = Matrix4::look_at(Point3::from(eye),
-                                    Point3::from(center),
-                                    Vector3::new(0.0, 1.0, 0.0));
-                                    */
+        let view_proj = compute_view_proj(&params.camera, [x, y, w, h]);
 
         unsafe {
             let [r, g, b, a] = params.background;
             gl!(Enable(gl::DEPTH_TEST));
-            gl!(Viewport(0, 0, w as _, h as _));
+            gl!(Viewport(x as _, y as _, w as _, h as _));
             gl!(ClearColor(r, g, b, a));
             gl!(Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT));
             gl!(UseProgram(self.program));

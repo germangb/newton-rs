@@ -223,6 +223,22 @@ impl<'world> Body<'world> {
         }
     }
 
+    pub fn velocity(&self) -> Vector {
+        let mut vel = Vector::zero();
+        unsafe {
+            ffi::NewtonBodyGetVelocity(self.as_ptr(), vel.as_mut_ptr())
+        }
+        vel
+    }
+
+    pub fn position(&self) -> Vector {
+        let mut vel = Vector::zero();
+        unsafe {
+            ffi::NewtonBodyGetPosition(self.as_ptr(), vel.as_mut_ptr())
+        }
+        vel
+    }
+
     pub fn set_matrix(&self, mat: &Matrix) {
         unsafe { ffi::NewtonBodySetMatrix(self.as_ptr(), mat.as_ptr()) }
     }
