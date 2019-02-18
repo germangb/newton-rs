@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 use std::mem;
+use std::os::raw::{c_longlong, c_void};
 use std::sync::RwLock;
 use std::time::Duration;
-use std::os::raw::{c_longlong, c_void};
 
-use super::math::Vector;
 use super::body::{Bodies, Body, Handle as BodyHandle};
 use super::collision::{Collision, Handle as CollisionHandle};
 use super::ffi;
+use super::math::Vector;
 
 /// A guard for the asynchronous update
 ///
@@ -42,6 +42,9 @@ pub struct NewtonData {
 
 #[derive(Debug)]
 pub struct Newton(pub(crate) *const ffi::NewtonWorld);
+
+unsafe impl Send for Newton {}
+unsafe impl Sync for Newton {}
 
 impl Newton {
     pub fn create() -> Self {
@@ -199,7 +202,7 @@ impl Newton {
     }
 }
 
-pub type RayCastPrefilter = Box<dyn FnMut(Body, Collision) -> bool + Send + Sync>;
+pub type RayCastPrefilter<'a> = Box<dyn FnMut(Body, Collision) -> bool + Send + 'a>;
 
 /// Ray & convex collision casting
 impl Newton {
@@ -210,16 +213,19 @@ impl Newton {
     /// Refer to the [official wiki][wiki] for further info.
     ///
     /// [wiki]: http://newtondynamics.com/wiki/index.php5?title=NewtonWorldRayCast
-    ///
-    /// # Limitations
-    /// Runs on thread index `0`
-    ///
     #[rustfmt::skip]
-    pub fn ray_cast<F>(&self, p0: &Vector, p1: &Vector, mut filter: F, mut prefilter: Option<RayCastPrefilter>)
+    pub fn ray_cast<F>(&self,
+                       p0: &Vector,
+                       p1: &Vector,
+                       mut filter: F,
+
+                       // lifetime is elided
+                       mut prefilter: Option<RayCastPrefilter>,
+                       thread: usize)
     where
         F: FnMut(Body, Collision, &Vector, &Vector, f32) -> f32,
     {
-        type Userdata<'a, T> = (&'a mut T, &'a Newton, Option<&'a mut RayCastPrefilter>);
+        type Userdata<'a, T> = (&'a mut T, &'a Newton, Option<&'a mut RayCastPrefilter<'a>>);
         let mut user_data = (&mut filter, &Newton, prefilter.as_mut());
         unsafe {
             ffi::NewtonWorldRayCast(self.as_ptr(),
@@ -228,7 +234,7 @@ impl Newton {
                                     Some(cfilter::<F>),
                                     mem::transmute(&mut user_data),
                                     Some(cprefilter::<F>),
-                                    0);
+                                    thread as _);
         }
 
         unsafe extern "C" fn cprefilter<F>(body: *const ffi::NewtonBody,

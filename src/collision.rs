@@ -5,39 +5,27 @@ use super::ffi;
 use super::world::Newton;
 use super::{Matrix, Vector};
 
-/// A handle to a collision that is owned by the underlying NewtonWorld.
-///
-/// This type is meant for long-lived collisions. The underlying NewtonCollision
-/// is accessible through [`collision`][collision] and [`collision_mut`][collision_mut]
-///
-/// [collision]: #
-/// [collision_mut]: #
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct Handle(pub(crate) *const ffi::NewtonCollision);
 
-/// NewtonCollision wrapper.
-///
-/// ## Ownership
-///
-/// This type doesn't necessarily own the wrapped NewtonCollision pointer, which means
-/// that, depending on how this type is obtained, it will free it in `drop` or not.
-///
-/// When the type is returned by `box2`, `sphere`, `null`, or [`Newton::collision_owned`][owned]
-/// , the pointer is owned. But when it is returned by [`Newton::collision`][collision], it is Not.
-///
-/// [owned]: #
-/// [collision]: #
+unsafe impl Send for Handle {}
+unsafe impl Sync for Handle {}
+
 #[derive(Debug)]
 pub struct Collision<'world> {
     pub(crate) newton: &'world Newton,
     /// Underlying NewtonCollision pointer
     ///
-    /// This is the pointer passed to all calls to `NewtonCollision*` API functions.
+    /// This is the pointer passed to all calls to `NewtonCollision*`
+    /// API functions.
     pub(crate) collision: *const ffi::NewtonCollision,
     /// If owned is set to true, the underlying NewtonCollision
     /// will be dropped along with this type.
     pub(crate) owned: bool,
 }
+
+unsafe impl<'world> Send for Collision<'world> {}
+unsafe impl<'world> Sync for Collision<'world> {}
 
 impl<'world> Collision<'world> {
     fn from_ptr(newton: &'world Newton, collision: *mut ffi::NewtonCollision) -> Self {
@@ -45,6 +33,36 @@ impl<'world> Collision<'world> {
             newton,
             collision,
             owned: true,
+        }
+    }
+
+    pub fn cylinder(
+        newton: &'world Newton,
+        radius0: f32,
+        radius1: f32,
+        height: f32,
+        offset: Option<&Matrix>,
+    ) -> Self {
+        unsafe {
+            let offset = mem::transmute(offset);
+            let collision =
+                ffi::NewtonCreateCylinder(newton.as_ptr(), radius0, radius1, height, 0, offset);
+            Self::from_ptr(newton, collision)
+        }
+    }
+
+    pub fn capsule(
+        newton: &'world Newton,
+        radius0: f32,
+        radius1: f32,
+        height: f32,
+        offset: Option<&Matrix>,
+    ) -> Self {
+        unsafe {
+            let offset = mem::transmute(offset);
+            let collision =
+                ffi::NewtonCreateCapsule(newton.as_ptr(), radius0, radius1, height, 0, offset);
+            Self::from_ptr(newton, collision)
         }
     }
 
@@ -81,7 +99,7 @@ impl<'world> Collision<'world> {
     /// Creates a null collision, which is a collision with no geometry (a point).
     ///
     /// Unless `into_handle` is called, this collision will be free when the type is dropped.
-    pub fn null(newton: &'world Newton, dx: f32, dy: f32, dz: f32) -> Self {
+    pub fn null(newton: &'world Newton) -> Self {
         unsafe { Self::from_ptr(newton, ffi::NewtonCreateNull(newton.as_ptr())) }
     }
 

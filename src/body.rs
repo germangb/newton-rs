@@ -45,6 +45,9 @@ pub struct Body<'world> {
     pub(crate) owned: bool,
 }
 
+unsafe impl<'world> Send for Body<'world> {}
+unsafe impl<'world> Sync for Body<'world> {}
+
 /// Opaque handle to a NewtonBody
 ///
 /// The underlying NewtonBody is owned by a [`Newton`][Newton], and can be accessed
@@ -56,6 +59,9 @@ pub struct Body<'world> {
 /// [body_owned]: #
 #[derive(Debug, Hash, Eq, PartialEq, Clone, Copy)]
 pub struct Handle(pub(crate) *const ffi::NewtonBody);
+
+unsafe impl Send for Handle {}
+unsafe impl Sync for Handle {}
 
 #[derive(Debug)]
 pub struct Bodies<'world>(pub(crate) &'world Newton);
@@ -199,6 +205,21 @@ impl<'world> Body<'world> {
 
 /// FFI wrappers
 impl<'world> Body<'world> {
+    pub fn set_sleep_state(&self, state: SleepState) {
+        unsafe {
+            let state = mem::transmute(state);
+            ffi::NewtonBodySetSleepState(self.as_ptr(), state);
+        }
+    }
+
+    pub fn active(&self) {
+        self.set_sleep_state(SleepState::Active)
+    }
+
+    pub fn asleep(&self) {
+        self.set_sleep_state(SleepState::Sleeping)
+    }
+
     pub fn sleep_state(&self) -> SleepState {
         unsafe { mem::transmute(ffi::NewtonBodyGetSleepState(self.as_ptr())) }
     }
@@ -225,17 +246,13 @@ impl<'world> Body<'world> {
 
     pub fn velocity(&self) -> Vector {
         let mut vel = Vector::zero();
-        unsafe {
-            ffi::NewtonBodyGetVelocity(self.as_ptr(), vel.as_mut_ptr())
-        }
+        unsafe { ffi::NewtonBodyGetVelocity(self.as_ptr(), vel.as_mut_ptr()) }
         vel
     }
 
     pub fn position(&self) -> Vector {
         let mut vel = Vector::zero();
-        unsafe {
-            ffi::NewtonBodyGetPosition(self.as_ptr(), vel.as_mut_ptr())
-        }
+        unsafe { ffi::NewtonBodyGetPosition(self.as_ptr(), vel.as_mut_ptr()) }
         vel
     }
 
