@@ -4,10 +4,11 @@ use std::os::raw::{c_longlong, c_void};
 use std::sync::RwLock;
 use std::time::Duration;
 
-use super::body::{Bodies, Body, Handle as BodyHandle};
-use super::collision::{Collision, Handle as CollisionHandle};
+use super::body::{Body, BodyTrait, Bodies, IntoBody, BodyOld, HandleOld as BodyHandle};
+use super::collision::{IntoCollision, Collision, CollisionTrait, CollisionOld, HandleOld as CollisionHandle};
 use super::ffi;
 use super::math::Vector;
+use super::Handle;
 
 /// A guard for the asynchronous update
 ///
@@ -17,7 +18,8 @@ pub struct AsyncUpdate<'world>(&'world mut Newton);
 
 impl<'world> Drop for AsyncUpdate<'world> {
     fn drop(&mut self) {
-        unsafe { ffi::NewtonWaitForUpdateToFinish(self.0.as_ptr()) }
+        let world = self.0.as_raw();
+        unsafe { ffi::NewtonWaitForUpdateToFinish(world) }
     }
 }
 
@@ -25,19 +27,9 @@ impl<'world> Drop for AsyncUpdate<'world> {
 //      NewtonStorage trait that defaults to HashSet?
 #[derive(Debug, Default)]
 pub struct NewtonData {
-    /// Collisions owned by the Newton type.
-    ///
-    /// Collisions in this collection are long lived and created when
-    /// the application calls [`into_handle`][into_handle] on a borrowed Collision type.
-    ///
-    /// [into_handle]: #
-    pub(crate) collisions: RwLock<HashSet<CollisionHandle>>,
-
-    /// Bodies owned by the Newton type.
-    ///
-    /// Also created when the application calls the corresponding [`into_handle`] on a
-    /// BodyHandle
-    pub(crate) bodies: RwLock<HashSet<BodyHandle>>,
+    /// Bodies & collisions that are owned by the newton world.
+    /// Whenever an object is consumed by its `into_handle` method, it ends up here.
+    pub(crate) owned: RwLock<HashSet<Handle>>,
 }
 
 #[derive(Debug)]
@@ -56,6 +48,25 @@ impl Newton {
         }
     }
 
+    pub(crate) fn user_data(&self) -> &Box<NewtonData> {
+        unsafe { mem::transmute(&ffi::NewtonWorldGetUserData(self.0)) }
+    }
+
+    pub fn move_body<'a, B: IntoBody<'a>>(&'a self, mut body: B) -> Handle {
+        let mut body = body.into_body();
+        let handle = Handle(body.as_raw() as _);
+        match &mut body {
+            Body::Dynamic(ref mut body) => body.set_owner(self.0 as _),
+            Body::Kinematic(ref mut body) => body.set_owner(self.0 as _),
+        }
+        self.user_data().owned.write().unwrap().insert(handle.clone());
+        handle
+    }
+
+    pub fn move_collision<'a, C: IntoCollision<'a>>(&'a self, mut collision: C) -> Handle {
+        unimplemented!()
+    }
+
     pub fn bodies(&self) -> Bodies {
         Bodies(self)
     }
@@ -65,110 +76,25 @@ impl Newton {
     /// - `steps = 0` Exact solver (default one)
     /// - `step > 0` Linear solver with the given number of linear steps.
     pub fn set_solver(&mut self, steps: usize) {
-        unsafe { ffi::NewtonSetSolverModel(self.as_ptr(), steps as _) };
+        unsafe { ffi::NewtonSetSolverModel(self.as_raw(), steps as _) };
     }
 
     /// Sets the number of threads Newton will run the simulation on.
     /// By default, the simulation is single-threaded.
     pub fn set_threads(&mut self, threads: usize) {
-        unsafe { ffi::NewtonSetThreadsCount(self.as_ptr(), threads as _) };
+        unsafe { ffi::NewtonSetThreadsCount(self.as_raw(), threads as _) };
     }
 
     pub fn threads(&self) -> usize {
-        unsafe { ffi::NewtonGetThreadsCount(self.as_ptr()) as _ }
+        unsafe { ffi::NewtonGetThreadsCount(self.as_raw()) as _ }
     }
 
     pub fn constraints(&self) -> usize {
-        unsafe { ffi::NewtonWorldGetConstraintCount(self.as_ptr()) as _ }
+        unsafe { ffi::NewtonWorldGetConstraintCount(self.as_raw()) as _ }
     }
 
-    pub(crate) fn body(&self, handle: &BodyHandle) -> Option<Body> {
-        let data = unsafe { userdata(self.as_ptr()) };
-        let body = data.bodies.read().unwrap().get(handle).map(|h| Body {
-            newton: self,
-            body: h.0,
-            owned: false,
-        });
-
-        unsafe { mem::forget(data) };
-        body
-    }
-
-    /// Consumes body without dropping it
-    pub(crate) fn leak(self) {
-        unsafe { mem::forget(self) };
-    }
-
-    pub(crate) fn move_body(&self, mut body: Body) -> BodyHandle {
-        body.owned = false;
-        let data = unsafe { userdata(self.as_ptr()) };
-        let handle = BodyHandle(body.body);
-        data.bodies.write().unwrap().insert(handle.clone());
-        unsafe { mem::forget(data) };
-        handle
-    }
-
-    pub(crate) fn move_collision(&self, mut collision: Collision) -> CollisionHandle {
-        collision.owned = false;
-        let data = unsafe { userdata(self.as_ptr()) };
-        let handle = CollisionHandle(collision.collision);
-        data.collisions.write().unwrap().insert(handle.clone());
-        unsafe { mem::forget(data) };
-        handle
-    }
-
-    /// Takes ownership of a body stored in this Newton context.
-    ///
-    /// Use this method whenever you want to destroy a long-lived body
-    /// referenced by a handle obtained obtained using the [`into_handle`][method]
-    /// method.
-    ///
-    /// [method]: #
-    pub fn take_body(&mut self, handle: &BodyHandle) -> Option<Body> {
-        let data = unsafe { userdata(self.as_ptr()) };
-        let handle = data.bodies.write().unwrap().take(handle);
-        unsafe { mem::forget(data) };
-
-        if let Some(handle) = handle {
-            Some(Body {
-                newton: self,
-                body: handle.0,
-                owned: true,
-            })
-        } else {
-            None
-        }
-    }
-
-    pub const fn as_ptr(&self) -> *const ffi::NewtonWorld {
+    pub const fn as_raw(&self) -> *const ffi::NewtonWorld {
         self.0
-    }
-
-    /// Drops any bodies owned by this NewtonWorld
-    #[rustfmt::skip]
-    pub fn drop_collisions(&mut self) {
-        let data = unsafe { userdata(self.as_ptr()) };
-        let set = data.collisions.read().unwrap();
-        set.iter()
-            .map(|col| Collision { newton: self, collision: col.0, owned: true, })
-            .for_each(drop);
-        drop(set);
-        unsafe { mem::forget(data) };
-    }
-
-    /// Drops any bodies owned by this NewtonWorld
-    pub fn drop_bodies(&mut self) {
-        let data = unsafe { userdata(self.as_ptr()) };
-        let set = data.bodies.read().unwrap();
-        set.iter()
-            .map(|bod| Body {
-                newton: self,
-                body: bod.0,
-                owned: true,
-            })
-            .for_each(drop);
-        drop(set);
-        unsafe { mem::forget(data) };
     }
 }
 
@@ -179,13 +105,13 @@ impl Newton {
     /// Useful for when you synchronize a simulation over a network and need
     /// to run the simulation deterministically.
     pub fn invalidate(&mut self) {
-        unsafe { ffi::NewtonInvalidateCache(self.as_ptr()) }
+        unsafe { ffi::NewtonInvalidateCache(self.as_raw()) }
     }
 
     /// Steps the simulation by a fixed amount (synchronous).
     pub fn update(&mut self, step: Duration) {
         let seconds = step.as_secs() * 1_000_000_000 + step.subsec_nanos() as u64;
-        unsafe { ffi::NewtonUpdate(self.as_ptr(), seconds as f32 / 1_000_000_000.0) }
+        unsafe { ffi::NewtonUpdate(self.as_raw(), seconds as f32 / 1_000_000_000.0) }
     }
 
     /// Steps the simulation by a fixed amount (asynchronous) without blocking the
@@ -197,12 +123,12 @@ impl Newton {
     /// the preferred approach.
     pub fn update_async(&mut self, step: Duration) -> AsyncUpdate {
         let seconds = step.as_secs() * 1_000_000_000 + step.subsec_nanos() as u64;
-        unsafe { ffi::NewtonUpdateAsync(self.as_ptr(), seconds as f32 / 1_000_000_000.0) }
+        unsafe { ffi::NewtonUpdateAsync(self.as_raw(), seconds as f32 / 1_000_000_000.0) }
         AsyncUpdate(self)
     }
 }
 
-pub type RayCastPrefilter<'a> = Box<dyn FnMut(Body, Collision) -> bool + Send + 'a>;
+pub type RayCastPrefilter<'a> = Box<dyn FnMut(BodyOld, CollisionOld) -> bool + Send + 'a>;
 
 /// Ray & convex collision casting
 impl Newton {
@@ -223,12 +149,12 @@ impl Newton {
                        mut prefilter: Option<RayCastPrefilter>,
                        thread: usize)
     where
-        F: FnMut(Body, Collision, &Vector, &Vector, f32) -> f32,
+        F: FnMut(BodyOld, CollisionOld, &Vector, &Vector, f32) -> f32,
     {
         type Userdata<'a, T> = (&'a mut T, &'a Newton, Option<&'a mut RayCastPrefilter<'a>>);
         let mut user_data = (&mut filter, &Newton, prefilter.as_mut());
         unsafe {
-            ffi::NewtonWorldRayCast(self.as_ptr(),
+            ffi::NewtonWorldRayCast(self.as_raw(),
                                     p0.as_ptr(),
                                     p1.as_ptr(),
                                     Some(cfilter::<F>),
@@ -241,11 +167,11 @@ impl Newton {
                                         collision: *const ffi::NewtonCollision,
                                         user_data: *const c_void) -> u32
             where
-                F: FnMut(Body, Collision, &Vector, &Vector, f32) -> f32,
+                F: FnMut(BodyOld, CollisionOld, &Vector, &Vector, f32) -> f32,
         {
             let mut filter: &mut Userdata<F> = mem::transmute(user_data);
-            let body = Body { newton: filter.1, body, owned: false };
-            let collision = Collision { newton: filter.1, collision, owned: false };
+            let body = BodyOld { newton: filter.1, body, owned: false };
+            let collision = CollisionOld { newton: filter.1, collision, owned: false };
 
             let res = filter.2.as_mut().map(|pre| pre(body, collision));
             match res {
@@ -262,12 +188,12 @@ impl Newton {
                                         user_data: *const c_void,
                                         intersect_param: f32) -> f32
             where
-                F: FnMut(Body, Collision, &Vector, &Vector, f32) -> f32,
+                F: FnMut(BodyOld, CollisionOld, &Vector, &Vector, f32) -> f32,
         {
             let mut filter: &mut Userdata<F> = mem::transmute(user_data);
 
-            let body = Body { newton: filter.1, body, owned: false };
-            let collision = Collision { newton: filter.1, collision, owned: false };
+            let body = BodyOld { newton: filter.1, body, owned: false };
+            let collision = CollisionOld { newton: filter.1, collision, owned: false };
 
             // We can safely cast from *const f32 to &Vector because the later has the
             // same representation.
@@ -281,16 +207,13 @@ impl Newton {
 impl Drop for Newton {
     fn drop(&mut self) {
         unsafe {
-            self.drop_collisions();
-            self.drop_bodies();
-
-            let _ = userdata(self.as_ptr());
-            ffi::NewtonDestroyAllBodies(self.as_ptr());
-            ffi::NewtonDestroy(self.as_ptr());
+            let _: Box<NewtonData> = Box::from_raw(ffi::NewtonWorldGetUserData(self.as_raw()) as _);
+            //ffi::NewtonDestroyAllBodies(self.as_raw());
+            ffi::NewtonDestroy(self.as_raw());
         }
     }
 }
 
-pub(crate) unsafe fn userdata(ptr: *const ffi::NewtonWorld) -> Box<NewtonData> {
-    Box::from_raw(ffi::NewtonWorldGetUserData(ptr) as _)
+unsafe fn userdata<'world>(ptr: *const ffi::NewtonWorld) -> &'world Box<NewtonData> {
+    mem::transmute(&ffi::NewtonWorldGetUserData(ptr))
 }

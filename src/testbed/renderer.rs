@@ -1,15 +1,11 @@
+use std::{mem, str};
 use std::error::Error;
 use std::fs::File;
-use std::{mem, str};
 
-use cgmath::prelude::*;
 use cgmath::{Deg, Matrix3, Matrix4, Point3, Vector3, Vector4};
-
-//use gl;
+use cgmath::prelude::*;
 use gl::types::*;
-
 use imgui_ext::ImGuiExt;
-
 use serde::{Deserialize, Serialize};
 
 use crate::math::Vector;
@@ -246,7 +242,7 @@ pub const fn vert(pos: [f32; 3], color: [u8; 3]) -> Vert {
 /// - Collect raw geometry (vertex data & index data)
 /// - Set a view & projection transformation
 #[derive(ImGuiExt)]
-pub struct Renderer {
+pub struct TestbedRenderer {
     vbo: GLuint,
     ebo: GLuint,
     vao: GLuint,
@@ -281,7 +277,7 @@ macro_rules! gl {
     }}
 }
 
-impl Drop for Renderer {
+impl Drop for TestbedRenderer {
     fn drop(&mut self) {
         if self.persist {
             match self.params.save() {
@@ -298,7 +294,7 @@ impl Drop for Renderer {
     }
 }
 
-impl Renderer {
+impl TestbedRenderer {
     pub fn params(&self) -> &RenderParams {
         &self.params
     }
@@ -490,7 +486,7 @@ pub struct FrameStats {
 
 /// New rendering frame
 pub struct Frame<'a> {
-    renderer: &'a mut Renderer,
+    renderer: &'a mut TestbedRenderer,
     stats: FrameStats,
     primitive: Option<Primitive>,
 }

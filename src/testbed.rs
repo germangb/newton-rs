@@ -5,26 +5,21 @@ use std::time::{Duration, Instant};
 use cgmath::{Deg, Matrix3, Matrix4, Point3, Vector3, Vector4};
 use cgmath::prelude::*;
 
-//use gl;
-use gl::types::*;
-
-//use imgui;
 use imgui::{im_str, ImGuiCond, ImGuiInputTextFlags, StyleVar};
 use imgui_ext::prelude::*;
-use imgui_opengl_renderer::Renderer as ImguiRenderer;
+use imgui_opengl_renderer::Renderer as ImGuiRenderer;
 use imgui_sdl2::ImguiSdl2;
 
 use sdl2::{EventPump, Sdl, VideoSubsystem};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
-use sdl2::video::{GLContext, Window};
+use sdl2::video::{GLProfile, GLContext, Window};
 
-use renderer::{compute_ray, compute_view_proj, Renderer, RenderParams, Vert, vert};
+use renderer::{compute_ray, compute_view_proj, TestbedRenderer, RenderParams, Vert, vert};
 
-use crate::{Body, Collision};
+use crate::{BodyOld, CollisionOld};
 use crate::body::SleepState;
-use crate::ffi;
 use crate::math::Vector;
 use crate::world::Newton;
 
@@ -82,7 +77,7 @@ impl Stats {
 
 #[derive(ImGuiExt, Clone)]
 pub struct SelectedBody {
-    ptr: *const ffi::NewtonBody,
+    ptr: *const crate::ffi::NewtonBody,
     #[imgui(display(display = "{:?}", 0))]
     name: (Option<&'static str>, ),
     #[imgui(drag(speed = 0.1))]
@@ -128,7 +123,7 @@ pub struct Testbed<T> {
     #[imgui(nested)]
     controls: Stats,
     #[imgui(separator, nested)]
-    renderer: Renderer,
+    renderer: TestbedRenderer,
 }
 
 impl<T: Demo + Send + Sync> Testbed<T> {
@@ -145,10 +140,14 @@ impl<T: Demo + Send + Sync> Testbed<T> {
             .hidden()
             .build()?;
 
+        let attr = sdl_video.gl_attr();
+        attr.set_context_profile(GLProfile::Core);
+        attr.set_context_version(3, 3);
+
         let sdl_gl = sdl_window.gl_create_context()?;
         sdl_window.gl_make_current(&sdl_gl)?;
 
-        let renderer = Renderer::new(|s| sdl_video.gl_get_proc_address(s));
+        let renderer = TestbedRenderer::new(|s| sdl_video.gl_get_proc_address(s));
         let controls = Stats::new();
 
         let newton = Newton::create();
@@ -177,7 +176,7 @@ impl<T: Demo + Send + Sync> Testbed<T> {
         let mut imgui = imgui::ImGui::init();
         let mut imgui_sdl = ImguiSdl2::new(&mut imgui);
         let mut imgui_renderer =
-            ImguiRenderer::new(&mut imgui, |s| self.sdl_video.gl_get_proc_address(s) as _);
+            ImGuiRenderer::new(&mut imgui, |s| self.sdl_video.gl_get_proc_address(s) as _);
 
         let mut time = 0.0f32;
         let mut delta_time = Instant::now();
@@ -497,7 +496,7 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                 let mut focus_cam = false;
 
                 let ptr = sel.ptr;
-                let body = unsafe { Body::from_raw(&self.newton, ptr as _) };
+                let body = unsafe { BodyOld::from_raw(&self.newton, ptr as _) };
                 let mut matrix = body.matrix();
                 let vel = body.velocity();
                 sel.position = [matrix.c3.x, matrix.c3.y, matrix.c3.z];
@@ -539,8 +538,8 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                     cam.center = sel.position;
                 }
                 if drop_body {
-                    let handle = body.into_handle();
-                    let _ = self.newton.take_body(&handle);
+                    //let handle = body.into_handle();
+                    //let _ = self.newton.take_body(&handle);
                 } else {
                     self.selected = Some(sel);
                 }
