@@ -5,18 +5,21 @@ use std::ptr;
 use std::sync::RwLock;
 use std::time::Duration;
 
-use super::body::{Bodies, Body, NewtonBody};
+use super::body::{iters::Bodies, Body, NewtonBody};
 use super::collision::{Collision, NewtonCollision};
 use super::ffi;
 use super::Handle;
 
-/// A guard for the asynchronous update
-///
-/// Dropping this type blocks the thread until the world update has finished.
+/// Type returned by an asynchronous update.
 #[derive(Debug)]
-pub struct AsyncUpdate<'world>(&'world mut Newton);
+pub struct AsyncUpdate<'a>(&'a mut Newton);
 
-impl<'world> Drop for AsyncUpdate<'world> {
+impl<'a> AsyncUpdate<'a> {
+    /// Waits for the newton world update to finish, blocking the current thread.
+    pub fn finish(self) {}
+}
+
+impl<'a> Drop for AsyncUpdate<'a> {
     fn drop(&mut self) {
         let world = self.0.as_raw();
         unsafe { ffi::NewtonWaitForUpdateToFinish(world) }
@@ -26,13 +29,11 @@ impl<'world> Drop for AsyncUpdate<'world> {
 // Heap memory to support the wrapper
 #[derive(Default)]
 struct UserData {
-    /// Owned bodies
     bodies: RwLock<HashSet<Handle>>,
-
-    /// Owned collisions
     collisions: RwLock<HashSet<Handle>>,
 }
 
+/// Newton dynamics context
 #[derive(Debug)]
 pub struct Newton {
     raw: *const ffi::NewtonWorld,
@@ -64,7 +65,7 @@ impl Newton {
     }
 
     pub(crate) fn move_body2(&self, body: Body) -> Handle {
-        let handle = Handle::from_raw(body.as_raw());
+        let handle = Handle::Pointer(body.as_raw() as _);
         self.user_data()
             .bodies
             .write()
@@ -74,7 +75,7 @@ impl Newton {
     }
 
     pub(crate) fn move_collision2(&self, collision: Collision) -> Handle {
-        let handle = Handle::from_raw(collision.as_raw());
+        let handle = Handle::Pointer(collision.as_raw() as _);
         self.user_data()
             .collisions
             .write()
@@ -122,12 +123,22 @@ impl Newton {
             .unwrap()
             .get(&handle)
             .cloned();
-        unsafe { body.map(|h| Body::from_raw(h.0 as _, false)) }
+        unsafe {
+            body.map(|h| match h {
+                Handle::Pointer(ptr) => Body::from_raw(ptr as _, false),
+                _ => unimplemented!("index indexing"),
+            })
+        }
     }
 
     pub fn body_take(&self, handle: Handle) -> Option<Body> {
         let body = self.user_data().bodies.write().unwrap().take(&handle);
-        unsafe { body.map(|h| Body::from_raw(h.0 as _, true)) }
+        unsafe {
+            body.map(|h| match h {
+                Handle::Pointer(ptr) => Body::from_raw(ptr as _, true),
+                _ => unimplemented!("index indexing"),
+            })
+        }
     }
 
     pub fn collision(&self, handle: Handle) -> Option<Collision> {
@@ -138,15 +149,29 @@ impl Newton {
             .unwrap()
             .get(&handle)
             .cloned();
-        unsafe { collision.map(|h| Collision::from_raw(h.0 as _, false)) }
+        unsafe {
+            collision.map(|h| match h {
+                Handle::Pointer(ptr) => Collision::from_raw(ptr as _, false),
+                _ => unimplemented!("index indexing"),
+            })
+        }
     }
 
     pub fn collision_take(&self, handle: Handle) -> Option<Collision> {
         let collision = self.user_data().collisions.write().unwrap().take(&handle);
-        unsafe { collision.map(|h| Collision::from_raw(h.0 as _, true)) }
+        unsafe {
+            collision.map(|h| match h {
+                Handle::Pointer(ptr) => Collision::from_raw(ptr as _, true),
+                _ => unimplemented!("index indexing"),
+            })
+        }
     }
 
     pub const fn as_raw(&self) -> *const ffi::NewtonWorld {
+        self.raw
+    }
+
+    pub fn into_raw(self) -> *const ffi::NewtonWorld {
         self.raw
     }
 }
@@ -269,14 +294,20 @@ impl Drop for Newton {
                 .write()
                 .unwrap()
                 .iter()
-                .map(|h| Body::from_raw(h.0 as _, true))
+                .map(|h| match h {
+                    Handle::Pointer(ptr) => Body::from_raw(*ptr as _, true),
+                    _ => unimplemented!("index indexing"),
+                })
                 .for_each(drop);
             udata
                 .collisions
                 .write()
                 .unwrap()
                 .iter()
-                .map(|h| Collision::from_raw(h.0 as _, true))
+                .map(|h| match h {
+                    Handle::Pointer(ptr) => Collision::from_raw(*ptr as _, true),
+                    _ => unimplemented!("index indexing"),
+                })
                 .for_each(drop);
 
             ffi::NewtonDestroyAllBodies(self.as_raw());

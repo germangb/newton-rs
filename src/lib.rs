@@ -5,33 +5,42 @@ pub use ffi;
 // reexports
 pub use body::{Body, DynamicBody, KinematicBody, SleepState, Type as BodyType};
 pub use collision::{
-    BoxCollision, CapsuleCollision, Collision, CompoundCollision, ConeCollision, CylinderCollision,
-    NullCollision, SceneCollision, SphereCollision, TreeCollision, Type as CollisionType,
+    Capsule, Collision, Compound, Cone, Cuboid, Cylinder, Null, Scene, Sphere, Tree,
+    Type as CollisionType,
 };
-pub use world::Newton;
+pub use world::{AsyncUpdate, Newton};
 
+/// Dynamic & kinematic body wrappers.
 pub mod body;
+/// NewtonCollision wrappers
 pub mod collision;
+/// Reexports commonly used traits & types.
 pub mod prelude {
     pub use super::body::{IntoBody, NewtonBody};
     pub use super::collision::{IntoCollision, NewtonCollision};
     pub use super::IntoHandle;
 }
-#[cfg(feature = "testbed")]
+/// Framework to inspect Newton simulations.
+#[cfg(all(feature = "testbed", not(feature = "ci")))]
 pub mod testbed;
-pub mod world;
+
+// mock for CI
+#[cfg(all(feature = "testbed", feature = "ci"))]
+pub mod testbed {
+    pub trait Demo {
+        fn reset(newton: &mut super::world::Newton) -> Self;
+    }
+    pub fn run<T: Demo + Send + Sync>() {
+        panic!("Newton Testbed can't run on a CI environment");
+    }
+}
+
+mod world;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub struct Handle(*const ());
-
-impl Handle {
-    pub const fn as_raw(&self) -> *const c_void {
-        self.0 as _
-    }
-
-    pub(crate) const fn from_raw<T>(raw: *const T) -> Self {
-        Self(raw as _)
-    }
+pub enum Handle {
+    Pointer(*const ()),
+    Index(usize),
 }
 
 // Generic over T because it is implemented twice, with different trait bounds.

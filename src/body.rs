@@ -8,6 +8,9 @@ use super::world::Newton;
 use super::Handle;
 use super::IntoHandle;
 
+/// Body iterators
+pub mod iters;
+
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum SleepState {
@@ -192,7 +195,7 @@ where
     }
 
     fn as_handle(&self) -> Handle {
-        Handle(self.as_raw() as _)
+        Handle::Pointer(self.as_raw() as _)
     }
 }
 
@@ -336,29 +339,6 @@ pub trait NewtonBody {
                     _ => unreachable!(),
                 };
                 callback(&body, timestep, thread as usize);
-            }
-        }
-    }
-}
-
-/// Iterator over all the bodies in a NewtonWorld.
-#[derive(Debug)]
-pub struct Bodies<'a> {
-    pub(crate) newton: &'a Newton,
-    pub(crate) next: *const ffi::NewtonBody,
-}
-
-impl<'a> Iterator for Bodies<'a> {
-    type Item = Body<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let current = self.next;
-        if current.is_null() {
-            None
-        } else {
-            unsafe {
-                self.next = ffi::NewtonWorldGetNextBody(self.newton.as_raw(), current);
-                Some(Body::from_raw(current, false))
             }
         }
     }

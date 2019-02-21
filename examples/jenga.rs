@@ -1,8 +1,5 @@
-use std::error::Error;
-use std::time::Duration;
-
 use newton::prelude::*;
-use newton::{BoxCollision, DynamicBody, Newton};
+use newton::{Cuboid, DynamicBody, Newton};
 
 use newton::testbed::{self, Demo};
 
@@ -15,11 +12,11 @@ impl Demo for Jenga {
         let z = [0.0, 0.0, 1.0, 0.0];
         let w = [0.0, 0.0, 0.0, 1.0];
 
-        let floor = BoxCollision::create(newton, 8.0, 0.1, 8.0, None, Some("box0"));
-        DynamicBody::create(newton, &floor, [x, y, z, w], Some("floor")).into_handle(newton);
+        let floor = Cuboid::create(newton, 8.0, 0.1, 8.0, None);
+        DynamicBody::create(newton, &floor, [x, y, z, w], None).into_handle(newton);
 
-        let p0 = BoxCollision::create(newton, 3.0, 0.5, 1.0, None, Some("box0"));
-        let p1 = BoxCollision::create(newton, 1.0, 0.5, 3.0, None, Some("box0"));
+        let p0 = Cuboid::create(newton, 3.0, 0.5, 1.0, None);
+        let p1 = Cuboid::create(newton, 1.0, 0.5, 3.0, None);
 
         for i in 0..12 {
             let mut w = w;

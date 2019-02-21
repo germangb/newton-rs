@@ -500,6 +500,28 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                                     (screen.x - 128.0, screen.y - 128.0),
                                     (screen.x + 128.0, screen.y + 128.0),
                                     || {
+                                        if let (true, Some(name)) = (params.names, body.name()) {
+                                            let imgui::ImVec2 { x, y } = ui.calc_text_size(
+                                                im_str!("{}", name),
+                                                true,
+                                                1000.0,
+                                            );
+                                            draw.add_rect(
+                                                (screen.x, screen.y),
+                                                (screen.x + x + 4.0, screen.y + y + 4.0),
+                                                (0.0, 0.0, 0.0, 0.75),
+                                            )
+                                            .rounding(2.0)
+                                            .filled(true)
+                                            .build();
+
+                                            draw.add_text(
+                                                (screen.x + 2.0, screen.y + 2.0),
+                                                (1.0, 1.0, 1.0, 1.0),
+                                                name,
+                                            );
+                                        }
+
                                         if params.origins {
                                             draw.add_circle(
                                                 (screen.x, screen.y),
@@ -518,28 +540,6 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                                             .filled(true)
                                             .thickness(1.0)
                                             .build();
-                                        }
-
-                                        if let (true, Some(name)) = (params.names, body.name()) {
-                                            let imgui::ImVec2 { x, y } = ui.calc_text_size(
-                                                im_str!("{}", name),
-                                                true,
-                                                1000.0,
-                                            );
-                                            draw.add_rect(
-                                                (screen.x + 2.0, screen.y + 2.0),
-                                                (screen.x + x + 6.0, screen.y + y + 6.0),
-                                                (0.0, 0.0, 0.0, 0.75),
-                                            )
-                                            .rounding(2.0)
-                                            .filled(true)
-                                            .build();
-
-                                            draw.add_text(
-                                                (screen.x + 4.0, screen.y + 4.0),
-                                                (1.0, 1.0, 1.0, 1.0),
-                                                name,
-                                            );
                                         }
                                     },
                                 );

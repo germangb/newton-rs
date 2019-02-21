@@ -3,6 +3,9 @@
 
 # newton-rs
 
+[![Build Status](https://img.shields.io/travis/germangb/newton-rs/master.svg?style=flat-square)](https://travis-ci.org/germangb/newton-rs)
+[![Master docs](https://img.shields.io/badge/docs-master-blue.svg?style=flat-square)](https://germangb.github.io/newton-rs/)
+
 Newton-Dynamics safe wrapper for [**Rust**][rustlang].
 
 ## Build dependencies

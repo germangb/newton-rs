@@ -1,27 +1,27 @@
 use newton::prelude::*;
-use newton::{
-    BoxCollision, Collision, CompoundCollision, ConeCollision, CylinderCollision, DynamicBody,
-    Newton, SphereCollision,
-};
+use newton::{Collision, Compound, Cone, Cuboid, Cylinder, DynamicBody, Handle, Newton, Sphere};
 
 use newton::testbed;
 use newton::testbed::Demo;
 
-struct Compound;
-impl Demo for Compound {
+struct Example;
+impl Demo for Example {
     fn reset(newton: &mut Newton) -> Self {
-        let a = BoxCollision::create(newton, 1.0, 1.0, 1.0, None);
-        let b = SphereCollision::create(newton, 0.5, Some(transform(0.0, 1.0, 0.0)));
-        let c = CylinderCollision::create(newton, 0.5, 0.5, 1.0, Some(transform(1.0, 0.0, 0.0)));
-        let d = ConeCollision::create(newton, 0.5, 1.0, Some(transform2(0.0, -1.0, 0.0)));
+        let a = Cuboid::create(newton, 1.0, 1.0, 1.0, None);
+        let b = Sphere::create(newton, 0.5, Some(transform(0.0, 1.0, 0.0)));
+        let c = Cylinder::create(newton, 0.5, 0.5, 1.0, Some(transform(1.0, 0.0, 0.0)));
+        let d = Cone::create(newton, 0.5, 1.0, Some(transform2(0.0, -1.0, 0.0)));
 
-        let mut compound = CompoundCollision::create(newton);
+        let mut compound = Compound::create(newton);
         {
             let builder = compound.begin();
             let h = builder.add(&a);
             builder.add(&b);
             builder.add(&c);
             builder.add(&d);
+
+            builder.remove(Handle::Index(0));
+            builder.remove(Handle::Index(0));
             //builder.remove(h);
         }
 
@@ -39,10 +39,10 @@ impl Demo for Compound {
         body.into_handle(newton);
 
         // ground
-        let ground = BoxCollision::create(newton, 8.0, 0.5, 8.0, None);
+        let ground = Cuboid::create(newton, 8.0, 0.5, 8.0, None);
         DynamicBody::create(newton, &ground, transform(0.0, 0.0, 0.0), None).into_handle(newton);
 
-        Compound
+        Self
     }
 }
 
@@ -65,5 +65,5 @@ const fn transform(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
 }
 
 fn main() {
-    testbed::run::<Compound>()
+    testbed::run::<Example>()
 }

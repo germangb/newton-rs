@@ -12,6 +12,8 @@ use self::builders::{CompoundBuilder, SceneBuilder, TreeBuilder};
 
 /// Types to build compounds, scenes, and tree collisions.
 pub mod builders;
+/// Collision & collision handles iterators
+pub mod iters;
 
 macro_rules! collision {
     ($(
@@ -118,44 +120,74 @@ macro_rules! collision {
 
 collision! {
     #[derive(Debug, Eq, PartialEq)]
-    (Box, ffi::SERIALIZE_ID_BOX, box2) => pub struct BoxCollision<'a>(...);
+    (Box, ffi::SERIALIZE_ID_BOX, box2) => pub struct Cuboid<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (Sphere, ffi::SERIALIZE_ID_SPHERE, sphere) => pub struct SphereCollision<'a>(...);
+    (Sphere, ffi::SERIALIZE_ID_SPHERE, sphere) => pub struct Sphere<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (Cylinder, ffi::SERIALIZE_ID_CYLINDER, cylinder) => pub struct CylinderCollision<'a>(...);
+    (Cylinder, ffi::SERIALIZE_ID_CYLINDER, cylinder) => pub struct Cylinder<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (Capsule, ffi::SERIALIZE_ID_CAPSULE, capsule) => pub struct CapsuleCollision<'a>(...);
+    (Capsule, ffi::SERIALIZE_ID_CAPSULE, capsule) => pub struct Capsule<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (Cone, ffi::SERIALIZE_ID_CONE, cone) => pub struct ConeCollision<'a>(...);
+    (Cone, ffi::SERIALIZE_ID_CONE, cone) => pub struct Cone<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (Compound, ffi::SERIALIZE_ID_COMPOUND, compound) => pub struct CompoundCollision<'a>(...);
+    (Compound, ffi::SERIALIZE_ID_COMPOUND, compound) => pub struct Compound<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (Tree, ffi::SERIALIZE_ID_TREE, tree) => pub struct TreeCollision<'a>(...);
+    (Tree, ffi::SERIALIZE_ID_TREE, tree) => pub struct Tree<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (Scene, ffi::SERIALIZE_ID_SCENE, scene) => pub struct SceneCollision<'a>(...);
+    (Scene, ffi::SERIALIZE_ID_SCENE, scene) => pub struct Scene<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (ConvexHull, ffi::SERIALIZE_ID_CONVEXHULL, convex_hull) => pub struct ConvexHullCollision<'a>(...);
+    (ConvexHull, ffi::SERIALIZE_ID_CONVEXHULL, convex_hull) => pub struct ConvexHull<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (HeightField, ffi::SERIALIZE_ID_HEIGHTFIELD, height_field) => pub struct HeightFieldCollision<'a>(...);
+    (HeightField, ffi::SERIALIZE_ID_HEIGHTFIELD, height_field) => pub struct HeightField<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
-    (Null, ffi::SERIALIZE_ID_NULL, null) => pub struct NullCollision<'a>(...);
+    (Null, ffi::SERIALIZE_ID_NULL, null) => pub struct Null<'a>(...);
 }
 
-impl<'a> CompoundCollision<'a> {
+pub struct Collisions;
+pub struct Handles;
+
+impl<'a> Compound<'a> {
     pub fn create(newton: &'a Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateCompoundCollision(newton.as_raw(), 0);
             Self::from_raw(collision, true)
+        }
+    }
+
+    /*
+    pub fn handles(&self) -> Handles {
+        unimplemented!()
+    }
+    */
+
+    pub fn get(&self, handle: Handle) -> Option<Collision> {
+        match handle {
+            Handle::Pointer(ptr) => unsafe {
+                let raw = ffi::NewtonCompoundCollisionGetCollisionFromNode(self.raw, ptr as _);
+                if raw.is_null() {
+                    None
+                } else {
+                    Some(Collision::from_raw(raw, false))
+                }
+            },
+            Handle::Index(idx) => unsafe {
+                let ptr = ffi::NewtonCompoundCollisionGetNodeByIndex(self.raw, idx as _);
+                if ptr.is_null() {
+                    None
+                } else {
+                    self.get(Handle::Pointer(ptr as _))
+                }
+            },
         }
     }
 
@@ -167,11 +199,32 @@ impl<'a> CompoundCollision<'a> {
     }
 }
 
-impl<'world> SceneCollision<'world> {
+impl<'world> Scene<'world> {
     pub fn create(newton: &'world Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateSceneCollision(newton.as_raw(), 0);
             Self::from_raw(collision, true)
+        }
+    }
+
+    pub fn get(&self, handle: Handle) -> Option<Collision> {
+        match handle {
+            Handle::Pointer(ptr) => unsafe {
+                let raw = ffi::NewtonSceneCollisionGetCollisionFromNode(self.raw, ptr as _);
+                if raw.is_null() {
+                    None
+                } else {
+                    Some(Collision::from_raw(raw, false))
+                }
+            },
+            Handle::Index(idx) => unsafe {
+                let ptr = ffi::NewtonSceneCollisionGetNodeByIndex(self.raw, idx as _);
+                if ptr.is_null() {
+                    None
+                } else {
+                    self.get(Handle::Pointer(ptr as _))
+                }
+            },
         }
     }
 
@@ -183,7 +236,7 @@ impl<'world> SceneCollision<'world> {
     }
 }
 
-impl<'world> TreeCollision<'world> {
+impl<'world> Tree<'world> {
     pub fn create(newton: &'world Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateTreeCollision(newton.as_raw(), 0);
@@ -197,7 +250,7 @@ impl<'world> TreeCollision<'world> {
     }
 }
 
-impl<'world> NullCollision<'world> {
+impl<'world> Null<'world> {
     pub fn create(newton: &'world Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateNull(newton.as_raw());
@@ -206,7 +259,7 @@ impl<'world> NullCollision<'world> {
     }
 }
 
-impl<'world> BoxCollision<'world> {
+impl<'world> Cuboid<'world> {
     pub fn create(
         newton: &'world Newton,
         x: f32,
@@ -222,7 +275,7 @@ impl<'world> BoxCollision<'world> {
     }
 }
 
-impl<'world> ConeCollision<'world> {
+impl<'world> Cone<'world> {
     pub fn create(
         newton: &'world Newton,
         radius: f32,
@@ -237,7 +290,7 @@ impl<'world> ConeCollision<'world> {
     }
 }
 
-impl<'world> SphereCollision<'world> {
+impl<'world> Sphere<'world> {
     pub fn create(newton: &'world Newton, radius: f32, offset: Option<[[f32; 4]; 4]>) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
@@ -247,7 +300,7 @@ impl<'world> SphereCollision<'world> {
     }
 }
 
-impl<'world> CylinderCollision<'world> {
+impl<'world> Cylinder<'world> {
     pub fn create(
         newton: &'world Newton,
         radius0: f32,
@@ -264,7 +317,7 @@ impl<'world> CylinderCollision<'world> {
     }
 }
 
-impl<'world> CapsuleCollision<'world> {
+impl<'world> Capsule<'world> {
     pub fn create(
         newton: &'world Newton,
         radius0: f32,
@@ -285,6 +338,7 @@ pub trait IntoCollision<'world> {
     fn into_collision(self) -> Collision<'world>;
 }
 
+// FIXME Not owned bodies should be handled differently
 impl<'a, T> IntoHandle<Collision<'a>> for T
 where
     T: NewtonCollision + IntoCollision<'a>,
@@ -296,7 +350,7 @@ where
     }
 
     fn as_handle(&self) -> Handle {
-        Handle(self.as_raw() as _)
+        Handle::Pointer(self.as_raw() as _)
     }
 }
 
