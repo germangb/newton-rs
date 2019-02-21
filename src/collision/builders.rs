@@ -1,3 +1,5 @@
+use std::cell::Cell;
+
 use crate::ffi;
 use crate::Handle;
 
@@ -12,6 +14,7 @@ pub struct SceneBuilder<'a, 'b> {
 }
 
 pub struct TreeBuilder<'a, 'b> {
+    pub(super) optimize: bool,
     pub(super) tree: &'b Tree<'a>,
 }
 
@@ -81,6 +84,28 @@ impl<'a, 'b> SceneBuilder<'a, 'b> {
     }
 }
 
+impl<'a, 'b> TreeBuilder<'a, 'b> {
+    // TODO is an IntoIterator<Item=[f32; 3]> better?
+    // Adds a single triangle to the collision tree
+    pub fn add<I: IntoIterator<Item = [f32; 3]>>(&self, verts: I, attr: i32) {
+        unsafe {
+            let face: Vec<[f32; 3]> = verts.into_iter().collect();
+            ffi::NewtonTreeCollisionAddFace(
+                self.tree.raw,
+                face.len() as _,
+                face.as_ptr() as _,
+                12,
+                attr,
+            );
+        }
+    }
+
+    /// Optimizes the mesh and finishes the build process.
+    pub fn optimize(mut self) {
+        self.optimize = true;
+    }
+}
+
 impl<'a, 'b> Drop for CompoundBuilder<'a, 'b> {
     fn drop(&mut self) {
         unsafe {
@@ -93,6 +118,15 @@ impl<'a, 'b> Drop for SceneBuilder<'a, 'b> {
     fn drop(&mut self) {
         unsafe {
             ffi::NewtonSceneCollisionEndAddRemove(self.scene.raw);
+        }
+    }
+}
+
+impl<'a, 'b> Drop for TreeBuilder<'a, 'b> {
+    fn drop(&mut self) {
+        unsafe {
+            let optimize = if self.optimize { 1 } else { 0 };
+            ffi::NewtonTreeCollisionEndBuild(self.tree.raw, optimize);
         }
     }
 }

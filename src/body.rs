@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use super::collision::{Collision, NewtonCollision};
 use super::ffi;
-use super::world::Newton;
+use super::newton::Newton;
 use super::Handle;
 use super::IntoHandle;
 
@@ -206,6 +206,20 @@ pub trait NewtonBody {
         let mut mat: [[f32; 4]; 4] = Default::default();
         unsafe { ffi::NewtonBodyGetMatrix(self.as_raw(), mat[0].as_mut_ptr()) }
         mat
+    }
+
+    fn set_continuous(&self, cont: bool) {
+        unsafe {
+            let state = if cont { 1 } else { 0 };
+            ffi::NewtonBodySetContinuousCollisionMode(self.as_raw(), state);
+        }
+    }
+
+    fn is_continuous(&self) -> bool {
+        unsafe {
+            let state = ffi::NewtonBodyGetContinuousCollisionMode(self.as_raw());
+            state == 1
+        }
     }
 
     fn set_matrix(&self, matrix: [[f32; 4]; 4]) {

@@ -2,15 +2,15 @@ use newton::prelude::*;
 use newton::{Collision, Compound, Cone, Cuboid, Cylinder, DynamicBody, Handle, Newton, Sphere};
 
 use newton::testbed;
-use newton::testbed::Demo;
+use newton::testbed::Testbed;
 
 struct Example;
-impl Demo for Example {
+impl Testbed for Example {
     fn reset(newton: &mut Newton) -> Self {
         let a = Cuboid::create(newton, 1.0, 1.0, 1.0, None);
         let b = Sphere::create(newton, 0.5, Some(transform(0.0, 1.0, 0.0)));
         let c = Cylinder::create(newton, 0.5, 0.5, 1.0, Some(transform(1.0, 0.0, 0.0)));
-        let d = Cone::create(newton, 0.5, 1.0, Some(transform2(0.0, -1.0, 0.0)));
+        let d = Cone::create(newton, 0.5, 1.0, Some(transform(0.0, -1.0, 0.0)));
 
         let mut compound = Compound::create(newton);
         {
@@ -46,15 +46,6 @@ impl Demo for Example {
     }
 }
 
-const fn transform2(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [x, y, z, 1.0],
-    ]
-}
-
 const fn transform(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
     [
         [1.0, 0.0, 0.0, 0.0],
@@ -65,5 +56,8 @@ const fn transform(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
 }
 
 fn main() {
-    testbed::run::<Example>()
+    #[cfg(not(feature = "testbed"))]
+    compile_error!("You must enable the \"testbed\" feature to run this example.");
+
+    testbed::run::<Example>(Some(file!()))
 }

@@ -8,7 +8,7 @@ pub use collision::{
     Capsule, Collision, Compound, Cone, Cuboid, Cylinder, Null, Scene, Sphere, Tree,
     Type as CollisionType,
 };
-pub use world::{AsyncUpdate, Newton};
+pub use newton::{AsyncUpdate, Newton};
 
 /// Dynamic & kinematic body wrappers.
 pub mod body;
@@ -20,22 +20,10 @@ pub mod prelude {
     pub use super::collision::{IntoCollision, NewtonCollision};
     pub use super::IntoHandle;
 }
+mod newton;
 /// Framework to inspect Newton simulations.
-#[cfg(all(feature = "testbed", not(feature = "ci")))]
+#[cfg(feature = "testbed")]
 pub mod testbed;
-
-// mock for CI
-#[cfg(all(feature = "testbed", feature = "ci"))]
-pub mod testbed {
-    pub trait Demo {
-        fn reset(newton: &mut super::world::Newton) -> Self;
-    }
-    pub fn run<T: Demo + Send + Sync>() {
-        panic!("Newton Testbed can't run on a CI environment");
-    }
-}
-
-mod world;
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
 pub enum Handle {

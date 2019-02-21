@@ -4,11 +4,13 @@ use std::os::raw;
 
 use super::body::Body;
 use super::ffi;
-use super::world::Newton;
+use super::newton::Newton;
 use super::Handle;
 use super::IntoHandle;
 
 use self::builders::{CompoundBuilder, SceneBuilder, TreeBuilder};
+
+use self::iters::{Collisions, Handles};
 
 /// Types to build compounds, scenes, and tree collisions.
 pub mod builders;
@@ -153,9 +155,6 @@ collision! {
     (Null, ffi::SERIALIZE_ID_NULL, null) => pub struct Null<'a>(...);
 }
 
-pub struct Collisions;
-pub struct Handles;
-
 impl<'a> Compound<'a> {
     pub fn create(newton: &'a Newton) -> Self {
         unsafe {
@@ -164,11 +163,13 @@ impl<'a> Compound<'a> {
         }
     }
 
-    /*
     pub fn handles(&self) -> Handles {
         unimplemented!()
     }
-    */
+
+    pub fn collisions(&self) -> Collisions {
+        unimplemented!()
+    }
 
     pub fn get(&self, handle: Handle) -> Option<Collision> {
         match handle {
@@ -205,6 +206,14 @@ impl<'world> Scene<'world> {
             let collision = ffi::NewtonCreateSceneCollision(newton.as_raw(), 0);
             Self::from_raw(collision, true)
         }
+    }
+
+    pub fn handles(&self) -> Handles {
+        unimplemented!()
+    }
+
+    pub fn collisions(&self) -> Collisions {
+        unimplemented!()
     }
 
     pub fn get(&self, handle: Handle) -> Option<Collision> {
@@ -246,7 +255,10 @@ impl<'world> Tree<'world> {
 
     pub fn begin(&mut self) -> TreeBuilder {
         unsafe { ffi::NewtonTreeCollisionBeginBuild(self.raw) }
-        TreeBuilder { tree: self }
+        TreeBuilder {
+            tree: self,
+            optimize: false,
+        }
     }
 }
 

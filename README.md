@@ -36,7 +36,7 @@ The newton testbed is a framework to run and inspect physics simulation.
 Right now it is available under a feature flag, but eventually it will be moved into its own crate.
 
 ```bash
-cargo run --example testbed
+cargo run --features testbed --example jenga
 ```
 
 ![][testbed]

@@ -1,5 +1,5 @@
 use crate::ffi;
-use crate::world::Newton;
+use crate::newton::Newton;
 
 use super::Body;
 
