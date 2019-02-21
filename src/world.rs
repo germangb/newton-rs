@@ -64,7 +64,7 @@ impl Newton {
     }
 
     pub(crate) fn move_body2(&self, body: Body) -> Handle {
-        let handle = Handle(body.as_raw() as _);
+        let handle = Handle::from_raw(body.as_raw());
         self.user_data()
             .bodies
             .write()
@@ -74,7 +74,7 @@ impl Newton {
     }
 
     pub(crate) fn move_collision2(&self, collision: Collision) -> Handle {
-        let handle = Handle(collision.as_raw() as _);
+        let handle = Handle::from_raw(collision.as_raw());
         self.user_data()
             .collisions
             .write()

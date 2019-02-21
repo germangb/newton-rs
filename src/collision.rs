@@ -8,6 +8,11 @@ use super::world::Newton;
 use super::Handle;
 use super::IntoHandle;
 
+use self::builders::{CompoundBuilder, SceneBuilder, TreeBuilder};
+
+/// Types to build compounds, scenes, and tree collisions.
+pub mod builders;
+
 macro_rules! collision {
     ($(
         $( #[ $($meta:meta)+ ] )*
@@ -21,7 +26,7 @@ macro_rules! collision {
 
     #[repr(i32)]
     #[derive(Clone, Copy, Hash, Debug, Eq, PartialEq, PartialOrd, Ord)]
-    pub enum CollisionType {
+    pub enum Type {
         $($enum_var = ffi::$id as i32),*
     }
 
@@ -76,15 +81,21 @@ macro_rules! collision {
             pub unsafe fn from_raw(raw: *const ffi::NewtonCollision, owned: bool) -> Self {
                 $collision { raw, owned, _phantom: PhantomData }
             }
+
+            /// Creates an oned collision
+            pub fn create_instance(col: &Self) -> Self {
+                unsafe {
+                    let instance = ffi::NewtonCollisionCreateInstance(col.raw);
+                    Self::from_raw(instance, true)
+                }
+            }
         }
 
         impl<'a> Drop for $collision<'a> {
             fn drop(&mut self) {
                 // if collision owns itself, then free the memory
-                unsafe {
-                    if self.owned {
-                        let udata = ffi::NewtonCollisionGetUserData(self.raw);
-                        let _: Option<Box<UserData>> = mem::transmute(udata);
+                if self.owned {
+                    unsafe {
                         ffi::NewtonDestroyCollision(self.raw);
                     }
                 }
@@ -103,18 +114,6 @@ macro_rules! collision {
             }
         }
     )*}
-}
-
-pub(crate) struct UserData {
-    /// A pointer to the structure that owns the Newton object.
-    ///
-    /// # Safety
-    /// It must be ensured that this value always points to valid Newton memory,
-    /// otherwise it will never be freed and could cause a memory leak!
-    pub(crate) owner: *const (),
-
-    /// An optional, human readable name given to the collision.
-    name: Option<&'static str>,
 }
 
 collision! {
@@ -152,70 +151,56 @@ collision! {
     (Null, ffi::SERIALIZE_ID_NULL, null) => pub struct NullCollision<'a>(...);
 }
 
-impl<'world> CompoundCollision<'world> {
-    pub fn create(newton: &'world Newton, nodes: &[Collision], name: Option<&'static str>) -> Self {
+impl<'a> CompoundCollision<'a> {
+    pub fn create(newton: &'a Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateCompoundCollision(newton.as_raw(), 0);
-
-            ffi::NewtonCompoundCollisionBeginAddRemove(collision);
-            for node in nodes {
-                ffi::NewtonCompoundCollisionAddSubCollision(collision, node.as_raw());
-            }
-            ffi::NewtonCompoundCollisionEndAddRemove(collision);
-
-            let udata = Box::new(UserData {
-                owner: collision as _,
-                name,
-            });
-            ffi::NewtonCollisionSetUserData(collision, mem::transmute(Some(udata)));
             Self::from_raw(collision, true)
         }
+    }
+
+    pub fn begin(&mut self) -> CompoundBuilder {
+        unsafe {
+            ffi::NewtonCompoundCollisionBeginAddRemove(self.raw);
+        }
+        CompoundBuilder { compound: self }
     }
 }
 
 impl<'world> SceneCollision<'world> {
-    pub fn create(newton: &'world Newton, nodes: &[Collision], name: Option<&'static str>) -> Self {
+    pub fn create(newton: &'world Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateSceneCollision(newton.as_raw(), 0);
-
-            ffi::NewtonSceneCollisionBeginAddRemove(collision);
-            for node in nodes {
-                ffi::NewtonSceneCollisionAddSubCollision(collision, node.as_raw());
-            }
-            ffi::NewtonSceneCollisionEndAddRemove(collision);
-
-            let udata = Box::new(UserData {
-                owner: collision as _,
-                name,
-            });
-            ffi::NewtonCollisionSetUserData(collision, mem::transmute(Some(udata)));
             Self::from_raw(collision, true)
         }
     }
+
+    pub fn begin(&mut self) -> SceneBuilder {
+        unsafe {
+            ffi::NewtonSceneCollisionBeginAddRemove(self.raw);
+        }
+        SceneBuilder { scene: self }
+    }
 }
 
-/*
 impl<'world> TreeCollision<'world> {
-    pub fn create(newton: &'world Newton, name: Option<&'static str>) -> Self {
+    pub fn create(newton: &'world Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateTreeCollision(newton.as_raw(), 0);
-            let udata = Box::new(UserData { owner: collision as _, name });
-            ffi::NewtonCollisionSetUserData(collision, mem::transmute(Some(udata)));
             Self::from_raw(collision, true)
         }
     }
+
+    pub fn begin(&mut self) -> TreeBuilder {
+        unsafe { ffi::NewtonTreeCollisionBeginBuild(self.raw) }
+        TreeBuilder { tree: self }
+    }
 }
-*/
 
 impl<'world> NullCollision<'world> {
-    pub fn create(newton: &'world Newton, name: Option<&'static str>) -> Self {
+    pub fn create(newton: &'world Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateNull(newton.as_raw());
-            let udata = Box::new(UserData {
-                owner: collision as _,
-                name,
-            });
-            ffi::NewtonCollisionSetUserData(collision, mem::transmute(Some(udata)));
             Self::from_raw(collision, true)
         }
     }
@@ -228,16 +213,10 @@ impl<'world> BoxCollision<'world> {
         y: f32,
         z: f32,
         offset: Option<[[f32; 4]; 4]>,
-        name: Option<&'static str>,
     ) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision = ffi::NewtonCreateBox(newton.as_raw(), x, y, z, 0, offset);
-            let udata = Box::new(UserData {
-                owner: collision as _,
-                name,
-            });
-            ffi::NewtonCollisionSetUserData(collision, mem::transmute(Some(udata)));
             Self::from_raw(collision, true)
         }
     }
@@ -249,36 +228,20 @@ impl<'world> ConeCollision<'world> {
         radius: f32,
         height: f32,
         offset: Option<[[f32; 4]; 4]>,
-        name: Option<&'static str>,
     ) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision = ffi::NewtonCreateCone(newton.as_raw(), radius, height, 0, offset);
-            let udata = Box::new(UserData {
-                owner: collision as _,
-                name,
-            });
-            ffi::NewtonCollisionSetUserData(collision, mem::transmute(Some(udata)));
             Self::from_raw(collision, true)
         }
     }
 }
 
 impl<'world> SphereCollision<'world> {
-    pub fn create(
-        newton: &'world Newton,
-        radius: f32,
-        offset: Option<[[f32; 4]; 4]>,
-        name: Option<&'static str>,
-    ) -> Self {
+    pub fn create(newton: &'world Newton, radius: f32, offset: Option<[[f32; 4]; 4]>) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision = ffi::NewtonCreateSphere(newton.as_raw(), radius, 0, offset);
-            let udata = Box::new(UserData {
-                owner: collision as _,
-                name,
-            });
-            ffi::NewtonCollisionSetUserData(collision, mem::transmute(Some(udata)));
             Self::from_raw(collision, true)
         }
     }
@@ -291,17 +254,11 @@ impl<'world> CylinderCollision<'world> {
         radius1: f32,
         height: f32,
         offset: Option<[[f32; 4]; 4]>,
-        name: Option<&'static str>,
     ) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision =
                 ffi::NewtonCreateCylinder(newton.as_raw(), radius0, radius1, height, 0, offset);
-            let udata = Box::new(UserData {
-                owner: collision as _,
-                name,
-            });
-            ffi::NewtonCollisionSetUserData(collision, mem::transmute(Some(udata)));
             Self::from_raw(collision, true)
         }
     }
@@ -314,17 +271,11 @@ impl<'world> CapsuleCollision<'world> {
         radius1: f32,
         height: f32,
         offset: Option<[[f32; 4]; 4]>,
-        name: Option<&'static str>,
     ) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision =
                 ffi::NewtonCreateCapsule(newton.as_raw(), radius0, radius1, height, 0, offset);
-            let udata = Box::new(UserData {
-                owner: collision as _,
-                name,
-            });
-            ffi::NewtonCollisionSetUserData(collision, mem::transmute(Some(udata)));
             Self::from_raw(collision, true)
         }
     }
@@ -352,6 +303,13 @@ where
 pub trait NewtonCollision {
     fn as_raw(&self) -> *const ffi::NewtonCollision;
 
+    fn is_static(&self) -> bool {
+        unsafe {
+            let is = ffi::NewtonCollisionIsStaticShape(self.as_raw());
+            is == 1
+        }
+    }
+
     fn into_raw(self) -> *const ffi::NewtonCollision
     where
         Self: Sized,
@@ -359,7 +317,7 @@ pub trait NewtonCollision {
         self.as_raw()
     }
 
-    fn collision_type(&self) -> CollisionType {
+    fn collision_type(&self) -> Type {
         unsafe { mem::transmute(ffi::NewtonCollisionGetType(self.as_raw())) }
     }
 
@@ -379,14 +337,6 @@ pub trait NewtonCollision {
 
     fn user_id(&self) -> u32 {
         unsafe { ffi::NewtonCollisionGetUserID(self.as_raw()) }
-    }
-
-    fn name(&self) -> Option<&'static str> {
-        unsafe {
-            let udata = ffi::NewtonCollisionGetUserData(self.as_raw());
-            let udata: &Option<Box<UserData>> = mem::transmute(&udata);
-            udata.as_ref().and_then(|d| d.name)
-        }
     }
 
     fn for_each_polygon<F>(&self, matrix: [[f32; 4]; 4], mut callback: F)

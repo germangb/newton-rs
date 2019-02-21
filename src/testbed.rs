@@ -19,7 +19,7 @@ use sdl2::{EventPump, Sdl, VideoSubsystem};
 use renderer::{compute_ray, compute_view_proj, vert, RenderParams, TestbedRenderer, Vert};
 
 use crate::body::SleepState;
-use crate::collision::CollisionType;
+use crate::collision::Type;
 use crate::prelude::*;
 use crate::{Body, Newton};
 
@@ -92,7 +92,7 @@ pub struct SelectedBody {
     #[imgui(display(display = "{:?}", 0))]
     name: (Option<&'static str>,),
     #[imgui(display(display = "{:?}", 0))]
-    collision: (CollisionType,),
+    collision: (Type,),
     #[imgui(new_line, drag(speed = 0.1))]
     position: [f32; 3],
     #[imgui(input(flags = "disabled_text"))]
@@ -115,7 +115,7 @@ impl Default for SelectedBody {
         Self {
             ptr: (ptr::null(),),
             name: (None,),
-            collision: (CollisionType::Null,),
+            collision: (Type::Null,),
             position: Default::default(),
             velocity: Default::default(),
             mass: Default::default(),

@@ -17,7 +17,7 @@ pub enum SleepState {
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum BodyType {
+pub enum Type {
     Dynamic = ffi::NEWTON_DYNAMIC_BODY,
     Kinematic = ffi::NEWTON_KINEMATIC_BODY,
 }
@@ -48,7 +48,6 @@ macro_rules! bodies {
         $(#[$($meta:meta)+])*
         ($enum:ident, $ffi:ident) => pub struct $body:ident<'a>(...);
     )*) => {
-        /// An *either* type for Dynamic and Kinematic bodies.
         #[derive(Debug, Eq, PartialEq)]
         pub enum Body<'a> {
             $( $enum($body<'a>) ),*
@@ -140,14 +139,6 @@ macro_rules! bodies {
                         _phantom: PhantomData,
                     }
                 }
-
-/*
-                pub fn into_handle(mut self, newton: &Newton) -> Handle
-                {
-                    self.owned = false;
-                    newton.move_body(self)
-                }
-*/
 
                 pub fn create<C>(newton: &'a Newton,
                                  collision: &C,
@@ -246,7 +237,7 @@ pub trait NewtonBody {
         (min, max)
     }
 
-    fn body_type(&self) -> BodyType {
+    fn body_type(&self) -> Type {
         unsafe {
             let btype = ffi::NewtonBodyGetType(self.as_raw());
             mem::transmute(btype)
@@ -350,6 +341,7 @@ pub trait NewtonBody {
     }
 }
 
+/// Iterator over all the bodies in a NewtonWorld.
 #[derive(Debug)]
 pub struct Bodies<'a> {
     pub(crate) newton: &'a Newton,
