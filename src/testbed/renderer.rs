@@ -1,14 +1,12 @@
-use std::{mem, str};
 use std::error::Error;
 use std::fs::File;
+use std::{mem, str};
 
-use cgmath::{Deg, Matrix3, Matrix4, Point3, Vector3, Vector4};
 use cgmath::prelude::*;
+use cgmath::{Deg, Matrix3, Matrix4, Point3, Vector3, Vector4};
 use gl::types::*;
 use imgui_ext::ImGuiExt;
 use serde::{Deserialize, Serialize};
-
-use crate::math::Vector;
 
 #[derive(ImGuiExt, Serialize, Deserialize, Clone)]
 pub struct Camera {
@@ -53,7 +51,7 @@ pub fn compute_view_proj(camera: &Camera, viewport: [u32; 4]) -> Matrix4<f32> {
 }
 
 #[rustfmt::skip]
-pub fn compute_ray(camera: &Camera, mut mx: i32, mut my: i32, [x, y, w, h]: [u32; 4]) -> (Vector, Vector) {
+pub fn compute_ray(camera: &Camera, mut mx: i32, mut my: i32, [x, y, w, h]: [u32; 4]) -> ([f32; 3], [f32; 3]) {
     mx -= x as i32;
     my -= y as i32;
     let view_proj = compute_view_proj(camera, [x, y, w, h]);
@@ -68,7 +66,7 @@ pub fn compute_ray(camera: &Camera, mut mx: i32, mut my: i32, [x, y, w, h]: [u32
     s /= s.w;
     e /= e.w;
 
-    (Vector::new3(s.x, s.y, s.z), Vector::new3(e.x, e.y, e.z))
+    ([s.x, s.y, s.z], [e.x, e.y, e.z])
 }
 
 impl Camera {

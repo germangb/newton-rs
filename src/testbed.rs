@@ -1,38 +1,48 @@
-use std::{mem, str};
 use std::error::Error;
 use std::time::{Duration, Instant};
+use std::{mem, ptr, str};
 
-use cgmath::{Deg, Matrix3, Matrix4, Point3, Vector3, Vector4};
 use cgmath::prelude::*;
+use cgmath::{Deg, Matrix3, Matrix4, Point3, Vector3, Vector4};
 
 use imgui::{im_str, ImGuiCond, ImGuiInputTextFlags, StyleVar};
 use imgui_ext::prelude::*;
 use imgui_opengl_renderer::Renderer as ImGuiRenderer;
 use imgui_sdl2::ImguiSdl2;
 
-use sdl2::{EventPump, Sdl, VideoSubsystem};
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::mouse::MouseButton;
-use sdl2::video::{GLProfile, GLContext, Window};
+use sdl2::video::{GLContext, GLProfile, Window};
+use sdl2::{EventPump, Sdl, VideoSubsystem};
 
-use renderer::{compute_ray, compute_view_proj, TestbedRenderer, RenderParams, Vert, vert};
+use renderer::{compute_ray, compute_view_proj, vert, RenderParams, TestbedRenderer, Vert};
 
-use crate::{BodyOld, CollisionOld};
 use crate::body::SleepState;
-use crate::math::Vector;
-use crate::world::Newton;
+use crate::collision::CollisionType;
+use crate::prelude::*;
+use crate::{Body, Newton};
 
 mod renderer;
 
 pub trait Demo {
-    fn reset(newton: &Newton) -> Self;
+    fn reset(newton: &mut Newton) -> Self;
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Sidebar {
     Open,
     Disabled,
+}
+
+pub fn run<T: Demo + Send + Sync>() {
+    match Testbed::<T>::run() {
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("ERROR: {}\n{:?}", e, e);
+            std::process::exit(1)
+        }
+    }
 }
 
 impl Sidebar {
@@ -77,13 +87,20 @@ impl Stats {
 
 #[derive(ImGuiExt, Clone)]
 pub struct SelectedBody {
-    ptr: *const crate::ffi::NewtonBody,
     #[imgui(display(display = "{:?}", 0))]
-    name: (Option<&'static str>, ),
-    #[imgui(drag(speed = 0.1))]
+    ptr: (*const crate::ffi::NewtonBody,),
+    #[imgui(display(display = "{:?}", 0))]
+    name: (Option<&'static str>,),
+    #[imgui(display(display = "{:?}", 0))]
+    collision: (CollisionType,),
+    #[imgui(new_line, drag(speed = 0.1))]
     position: [f32; 3],
     #[imgui(input(flags = "disabled_text"))]
     velocity: [f32; 3],
+    #[imgui(new_line, input(flags = "disabled_text"))]
+    mass: f32,
+    #[imgui(input(flags = "disabled_text"))]
+    inertia: [f32; 3],
 }
 
 unsafe impl Send for SelectedBody {}
@@ -96,10 +113,13 @@ const fn disabled_text() -> ImGuiInputTextFlags {
 impl Default for SelectedBody {
     fn default() -> Self {
         Self {
-            ptr: 0 as _,
-            name: (None, ),
+            ptr: (ptr::null(),),
+            name: (None,),
+            collision: (CollisionType::Null,),
             position: Default::default(),
             velocity: Default::default(),
+            mass: Default::default(),
+            inertia: Default::default(),
         }
     }
 }
@@ -150,8 +170,8 @@ impl<T: Demo + Send + Sync> Testbed<T> {
         let renderer = TestbedRenderer::new(|s| sdl_video.gl_get_proc_address(s));
         let controls = Stats::new();
 
-        let newton = Newton::create();
-        let demo = T::reset(&newton);
+        let mut newton = Newton::create();
+        let demo = T::reset(&mut newton);
 
         Self {
             selected: None,
@@ -186,7 +206,9 @@ impl<T: Demo + Send + Sync> Testbed<T> {
             // viewport
             let (w, h) = self.sdl_window.size();
             let mut viewport = [0, 0, w, h];
-            if self.sidebar.0 == Sidebar::Open { viewport[2] -= self.sidebar.1 as u32; }
+            if self.sidebar.0 == Sidebar::Open {
+                viewport[2] -= self.sidebar.1 as u32;
+            }
 
             // mouse button states
             // get values here because we need to borrow event pump
@@ -198,16 +220,29 @@ impl<T: Demo + Send + Sync> Testbed<T> {
             for event in self.sdl_events.poll_iter() {
                 imgui_sdl.handle_event(&mut imgui, &event);
                 if !imgui_sdl.ignore_event(&event) {
-
                     use sdl2::mouse::MouseButton::*;
                     match (self.renderer.params().camera.controller, event) {
-                        (_, Event::Window { win_event: WindowEvent::Close, .. }) => break 'mainLoop,
-                        (_, Event::KeyDown { keycode: Some(Keycode::T), .. }) => self.sidebar.0.next(),
+                        (
+                            _,
+                            Event::Window {
+                                win_event: WindowEvent::Close,
+                                ..
+                            },
+                        ) => break 'mainLoop,
+                        (
+                            _,
+                            Event::KeyDown {
+                                keycode: Some(Keycode::T),
+                                ..
+                            },
+                        ) => self.sidebar.0.next(),
                         (_, Event::MouseButtonDown { .. }) => drag = 0.0,
-                        (_, Event::MouseButtonUp { mouse_btn, x, y, .. })
-                            if drag < 16.0 && (mouse_btn == Left || mouse_btn == Right)
-                        => {
-
+                        (
+                            _,
+                            Event::MouseButtonUp {
+                                mouse_btn, x, y, ..
+                            },
+                        ) if drag < 16.0 && (mouse_btn == Left || mouse_btn == Right) => {
                             let (_, h) = self.sdl_window.size();
                             let camera = &self.renderer.params().camera;
                             let (start, end) = compute_ray(&camera, x, h as i32 - y, viewport);
@@ -215,14 +250,22 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                             let mut min = 42.0; // some value > 1.0
                             let mut selected = None;
 
-                            self.newton.ray_cast(&start, &end, |body, _, _, _, hit| {
-                                if hit < min {
-                                    selected = Some(body.as_ptr());
-                                    min = hit;
-                                }
-                                hit
-                            }, None, 0);
-                            self.selected = selected.map(|ptr| SelectedBody { ptr, ..Default::default() });
+                            self.newton.ray_cast(
+                                start,
+                                end,
+                                |body, _, _, _, hit| {
+                                    if hit < min {
+                                        selected = Some(body.as_raw());
+                                        min = hit;
+                                    }
+                                    hit
+                                },
+                                0,
+                            );
+                            self.selected = selected.map(|ptr| SelectedBody {
+                                ptr: (ptr,),
+                                ..Default::default()
+                            });
                             body_popup = mouse_btn == Right && self.selected.is_some();
                         }
                         (true, Event::MouseMotion { xrel, yrel, .. }) => {
@@ -244,7 +287,7 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                 }
             }
 
-            self.controls.bodies = self.newton.bodies().count();
+            self.controls.bodies = self.newton.bodies();
             self.controls.threads = self.newton.threads();
             self.controls.constraints = self.newton.constraints();
 
@@ -271,23 +314,24 @@ impl<T: Demo + Send + Sync> Testbed<T> {
             let mut frame = self.renderer.frame(viewport);
 
             if params.solid {
-                for body in self.newton.bodies().iter() {
+                for body in self.newton.bodies_iter() {
                     let [r, g, b, _] = match body.sleep_state() {
                         SleepState::Active => params.active,
-                        SleepState::Sleeping => params.sleeping,
+                        SleepState::Asleep => params.sleeping,
                     };
 
                     let color = match self.selected {
-                        Some(SelectedBody { ptr, .. }) if ptr == body.as_ptr() => {
+                        Some(SelectedBody { ptr: (ptr,), .. }) if ptr == body.as_raw() => {
                             let [r, g, b, _] = params.selected;
                             [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]
-                        },
+                        }
                         _ => [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8],
                     };
                     let collision = body.collision();
                     let matrix = body.matrix();
 
-                    collision.polygons(&matrix, |face, _face_id| {
+                    let matrix = unsafe { mem::transmute(matrix) };
+                    collision.for_each_polygon(matrix, |face, _face_id| {
                         let mut pos = face.chunks(3).map(|s| [s[0], s[1], s[2]]);
 
                         // Render as a triangle fan
@@ -303,20 +347,21 @@ impl<T: Demo + Send + Sync> Testbed<T> {
             }
 
             if params.wire {
-                for body in self.newton.bodies().iter() {
+                for body in self.newton.bodies_iter() {
                     let collision = body.collision();
                     let matrix = body.matrix();
                     let color = match self.selected {
-                        Some(SelectedBody { ptr, .. }) if ptr == body.as_ptr() => {
-                            [255,255,255]
-                        },
+                        Some(SelectedBody { ptr: (ptr,), .. }) if ptr == body.as_raw() => {
+                            [255, 255, 255]
+                        }
                         _ => {
                             let [r, g, b, _] = params.wireframe;
                             [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8]
-                        },
+                        }
                     };
 
-                    collision.polygons(&matrix, |face, _face_id| {
+                    let matrix = unsafe { mem::transmute(matrix) };
+                    collision.for_each_polygon(matrix, |face, _face_id| {
                         let mut pos = face.chunks(3).map(|s| [s[0], s[1], s[2]]);
 
                         // Render as a triangle fan
@@ -334,44 +379,89 @@ impl<T: Demo + Send + Sync> Testbed<T> {
             }
 
             if params.aabb {
-                for body in self.newton.bodies().iter() {
-                    let Vector { x, y, z, w: _ } = body.matrix().c3;
+                for body in self.newton.bodies_iter() {
+                    let [x, y, z, _] = body.matrix()[3];
                     let (min, max) = body.aabb();
                     let [r, g, b, _] = params.aabb_color;
                     let color = [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8];
-                    let edge = [0.0,0.0];
-                    frame.line(vert([min.x, min.y, min.z], color), vert([max.x, min.y, min.z], color));
-                    frame.line(vert([min.x, min.y, min.z], color), vert([min.x, max.y, min.z], color));
-                    frame.line(vert([min.x, min.y, min.z], color), vert([min.x, min.y, max.z], color));
-                    frame.line(vert([max.x, max.y, max.z], color), vert([min.x, max.y, max.z], color));
-                    frame.line(vert([max.x, max.y, max.z], color), vert([max.x, min.y, max.z], color));
-                    frame.line(vert([max.x, max.y, max.z], color), vert([max.x, max.y, min.z], color));
-                    frame.line(vert([min.x, max.y, min.z], color), vert([max.x, max.y, min.z], color));
-                    frame.line(vert([min.x, max.y, min.z], color), vert([min.x, max.y, max.z], color));
-                    frame.line(vert([max.x, min.y, max.z], color), vert([min.x, min.y, max.z], color));
-                    frame.line(vert([max.x, min.y, max.z], color), vert([max.x, min.y, min.z], color));
-                    frame.line(vert([max.x, min.y, min.z], color), vert([max.x, max.y, min.z], color));
-                    frame.line(vert([min.x, min.y, max.z], color), vert([min.x, max.y, max.z], color));
+                    let edge = [0.0, 0.0];
+                    frame.line(
+                        vert([min[0], min[1], min[2]], color),
+                        vert([max[0], min[1], min[2]], color),
+                    );
+                    frame.line(
+                        vert([min[0], min[1], min[2]], color),
+                        vert([min[0], max[1], min[2]], color),
+                    );
+                    frame.line(
+                        vert([min[0], min[1], min[2]], color),
+                        vert([min[0], min[1], max[2]], color),
+                    );
+                    frame.line(
+                        vert([max[0], max[1], max[2]], color),
+                        vert([min[0], max[1], max[2]], color),
+                    );
+                    frame.line(
+                        vert([max[0], max[1], max[2]], color),
+                        vert([max[0], min[1], max[2]], color),
+                    );
+                    frame.line(
+                        vert([max[0], max[1], max[2]], color),
+                        vert([max[0], max[1], min[2]], color),
+                    );
+                    frame.line(
+                        vert([min[0], max[1], min[2]], color),
+                        vert([max[0], max[1], min[2]], color),
+                    );
+                    frame.line(
+                        vert([min[0], max[1], min[2]], color),
+                        vert([min[0], max[1], max[2]], color),
+                    );
+                    frame.line(
+                        vert([max[0], min[1], max[2]], color),
+                        vert([min[0], min[1], max[2]], color),
+                    );
+                    frame.line(
+                        vert([max[0], min[1], max[2]], color),
+                        vert([max[0], min[1], min[2]], color),
+                    );
+                    frame.line(
+                        vert([max[0], min[1], min[2]], color),
+                        vert([max[0], max[1], min[2]], color),
+                    );
+                    frame.line(
+                        vert([min[0], min[1], max[2]], color),
+                        vert([min[0], max[1], max[2]], color),
+                    );
                 }
             }
 
             if params.axis {
-                let edge = [0.0,0.0];
-                frame.line(vert([0.0,0.0,0.0], [255,0,0]), vert([1024.0,0.0,0.0],[255,0,0]));
-                frame.line(vert([0.0,0.0,0.0], [0,255,0]), vert([0.0,1024.0,0.0],[0,255,0]));
-                frame.line(vert([0.0,0.0,0.0], [0,0,255]), vert([0.0,0.0,1024.0],[0,0,255]));
+                let edge = [0.0, 0.0];
+                frame.line(
+                    vert([0.0, 0.0, 0.0], [255, 0, 0]),
+                    vert([1024.0, 0.0, 0.0], [255, 0, 0]),
+                );
+                frame.line(
+                    vert([0.0, 0.0, 0.0], [0, 255, 0]),
+                    vert([0.0, 1024.0, 0.0], [0, 255, 0]),
+                );
+                frame.line(
+                    vert([0.0, 0.0, 0.0], [0, 0, 255]),
+                    vert([0.0, 0.0, 1024.0], [0, 0, 255]),
+                );
             }
 
             if params.individual_axis {
-                for body in self.newton.bodies().iter() {
-                    let matrix = body.matrix();
-                    let p = [matrix.c3.x, matrix.c3.y, matrix.c3.z];
-                    let x = [p[0] + matrix.c0.x, p[1] + matrix.c0.y, p[2] + matrix.c0.z];
-                    let y = [p[0] + matrix.c1.x, p[1] + matrix.c1.y, p[2] + matrix.c1.z];
-                    let z = [p[0] + matrix.c2.x, p[1] + matrix.c2.y, p[2] + matrix.c2.z];
-                    frame.line(vert(p, [255,0,0]), vert(x, [255,0,0]));
-                    frame.line(vert(p, [0,255,0]), vert(y, [0,255,0]));
-                    frame.line(vert(p, [0,0,255]), vert(z, [0,0,255]));
+                for body in self.newton.bodies_iter() {
+                    let [c0, c1, c2, c3] = body.matrix();
+                    let p = [c3[0], c3[1], c3[2]];
+                    let x = [p[0] + c0[0], p[1] + c0[1], p[2] + c0[2]];
+                    let y = [p[0] + c1[0], p[1] + c1[1], p[2] + c1[2]];
+                    let z = [p[0] + c2[0], p[1] + c2[1], p[2] + c2[2]];
+                    frame.line(vert(p, [255, 0, 0]), vert(x, [255, 0, 0]));
+                    frame.line(vert(p, [0, 255, 0]), vert(y, [0, 255, 0]));
+                    frame.line(vert(p, [0, 0, 255]), vert(z, [0, 0, 255]));
                 }
             }
 
@@ -380,10 +470,7 @@ impl<T: Demo + Send + Sync> Testbed<T> {
             let ui = imgui_sdl.frame(&self.sdl_window, &mut imgui, &self.sdl_events.mouse_state());
 
             if params.names || params.origins {
-                let style = &[
-                    StyleVar::WindowBorderSize(0.0),
-                    StyleVar::Alpha(0.5),
-                ];
+                let style = &[StyleVar::WindowBorderSize(0.0), StyleVar::Alpha(0.5)];
                 let colors = &[
                     (imgui::ImGuiCol::WindowBg, (0.0, 0.0, 0.0, 0.0)),
                     (imgui::ImGuiCol::Text, (1.0, 1.0, 1.0, 1.0)),
@@ -391,12 +478,7 @@ impl<T: Demo + Send + Sync> Testbed<T> {
 
                 let view_proj = compute_view_proj(&params.camera, viewport);
 
-                for (i, body) in self.newton.bodies().iter().enumerate() {
-                    let name = if let Some(name) = body.name() {
-                        name
-                    } else {
-                        continue
-                    };
+                for (i, body) in self.newton.bodies_iter().enumerate() {
                     let model = unsafe { mem::transmute::<_, Matrix4<f32>>(body.matrix()) };
                     let mut screen = view_proj * model * Vector4::new(0.0, 0.0, 0.0, 1.0);
                     screen /= screen.w;
@@ -414,30 +496,53 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                             .movable(false)
                             .build(|| {
                                 let draw = ui.get_window_draw_list();
-                                draw.with_clip_rect((screen.x - 128.0, screen.y - 128.0), (screen.x + 128.0, screen.y + 128.0), || {
-
-                                    if params.origins {
-                                        draw.add_circle((screen.x, screen.y), 4.0, (0.0, 0.0, 0.0, 1.0))
+                                draw.with_clip_rect(
+                                    (screen.x - 128.0, screen.y - 128.0),
+                                    (screen.x + 128.0, screen.y + 128.0),
+                                    || {
+                                        if params.origins {
+                                            draw.add_circle(
+                                                (screen.x, screen.y),
+                                                4.0,
+                                                (0.0, 0.0, 0.0, 1.0),
+                                            )
                                             .filled(true)
                                             .thickness(1.0)
                                             .build();
 
-                                        draw.add_circle((screen.x, screen.y), 3.0, (0.95, 0.64, 0.0, 1.0))
+                                            draw.add_circle(
+                                                (screen.x, screen.y),
+                                                3.0,
+                                                (0.95, 0.64, 0.0, 1.0),
+                                            )
                                             .filled(true)
                                             .thickness(1.0)
                                             .build();
-                                    }
+                                        }
 
-                                    if params.names {
-                                        let imgui::ImVec2 { x, y } = ui.calc_text_size(im_str!("{}", name), true, 1000.0);
-                                        draw.add_rect((screen.x + 2.0, screen.y + 2.0), (screen.x+x+6.0, screen.y+y+6.0), (0.0, 0.0, 0.0, 0.75))
+                                        if let (true, Some(name)) = (params.names, body.name()) {
+                                            let imgui::ImVec2 { x, y } = ui.calc_text_size(
+                                                im_str!("{}", name),
+                                                true,
+                                                1000.0,
+                                            );
+                                            draw.add_rect(
+                                                (screen.x + 2.0, screen.y + 2.0),
+                                                (screen.x + x + 6.0, screen.y + y + 6.0),
+                                                (0.0, 0.0, 0.0, 0.75),
+                                            )
                                             .rounding(2.0)
                                             .filled(true)
                                             .build();
 
-                                        draw.add_text((screen.x + 4.0, screen.y + 4.0), (1.0, 1.0, 1.0, 1.0), name);
-                                    }
-                                });
+                                            draw.add_text(
+                                                (screen.x + 4.0, screen.y + 4.0),
+                                                (1.0, 1.0, 1.0, 1.0),
+                                                name,
+                                            );
+                                        }
+                                    },
+                                );
                                 //ui.text(name)
                             });
                     });
@@ -471,9 +576,9 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                                 self.newton.invalidate();
                             }
                             if events.controls().reset() {
-                                self.controls.elapsed = (Duration::default(), );
-                                let newton = Newton::create();
-                                let demo = T::reset(&newton);
+                                self.controls.elapsed = (Duration::default(),);
+                                let mut newton = Newton::create();
+                                let demo = T::reset(&mut newton);
 
                                 self.selected = None;
                                 self.newton = newton;
@@ -495,20 +600,27 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                 let mut drop_body = false;
                 let mut focus_cam = false;
 
-                let ptr = sel.ptr;
-                let body = unsafe { BodyOld::from_raw(&self.newton, ptr as _) };
-                let mut matrix = body.matrix();
-                let vel = body.velocity();
-                sel.position = [matrix.c3.x, matrix.c3.y, matrix.c3.z];
-                sel.velocity = [vel.x, vel.y, vel.z];
-                sel.name = (body.name(), );
+                let ptr = sel.ptr.0;
+                let body = unsafe { Body::from_raw(ptr as _, false) };
+                sel.position = body.position();
+                sel.velocity = body.velocity();
+                sel.name = (body.name(),);
+                sel.collision = (body.collision().collision_type(),);
+
+                let (mass, inertia) = body.mass();
+                sel.mass = mass;
+                sel.inertia = inertia;
 
                 if body_popup {
                     ui.open_popup(im_str!("##body_popup"))
                 }
                 ui.popup(im_str!("##body_popup"), || {
-                    if ui.menu_item(im_str!("Awake")).build() { body.active() }
-                    if ui.menu_item(im_str!("Sleep")).build() { body.asleep() }
+                    if ui.menu_item(im_str!("Awake")).build() {
+                        body.set_active()
+                    }
+                    if ui.menu_item(im_str!("Sleep")).build() {
+                        body.set_asleep()
+                    }
                     ui.separator();
                     drop_body = ui.menu_item(im_str!("Destroy")).build();
                     focus_cam = ui.menu_item(im_str!("Focus")).build();
@@ -528,8 +640,10 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                     .always_auto_resize(true)
                     .build(|| {
                         if ui.imgui_ext(&mut sel).position() {
-                            matrix.c3 = Vector::from(sel.position);
-                            body.set_matrix(&matrix);
+                            let mut matrix = body.matrix();
+                            let [x, y, z] = sel.position;
+                            matrix[3] = [x, y, z, 1.0];
+                            body.set_matrix(matrix);
                         }
                     });
 
@@ -538,8 +652,7 @@ impl<T: Demo + Send + Sync> Testbed<T> {
                     cam.center = sel.position;
                 }
                 if drop_body {
-                    //let handle = body.into_handle();
-                    //let _ = self.newton.take_body(&handle);
+                    let _ = self.newton.body_take(body.as_handle());
                 } else {
                     self.selected = Some(sel);
                 }
