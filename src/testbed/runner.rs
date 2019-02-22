@@ -22,7 +22,7 @@ use super::Testbed;
 use crate::body::SleepState;
 use crate::collision::Type;
 use crate::prelude::*;
-use crate::{Body, Newton};
+use crate::{Body, Collision, Newton};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Sidebar {
@@ -89,9 +89,9 @@ pub struct SelectedBody {
     #[imgui(input(flags = "disabled_text"))]
     velocity: [f32; 3],
     #[imgui(new_line, input(flags = "disabled_text"))]
-    mass: f32,
+    mass: Option<f32>,
     #[imgui(input(flags = "disabled_text"))]
-    inertia: [f32; 3],
+    inertia: Option<[f32; 3]>,
 }
 
 unsafe impl Send for SelectedBody {}
@@ -322,29 +322,46 @@ impl<T: Testbed> Runner<T> {
                         }
                         _ => [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8],
                     };
-                    let collision = body.collision();
+
                     let matrix = body.matrix();
+                    match body.collision() {
+                        Collision::Cuboid(c) => render_polys(&c, matrix, color, &mut frame),
+                        Collision::Sphere(c) => render_polys(&c, matrix, color, &mut frame),
+                        Collision::Cylinder(c) => render_polys(&c, matrix, color, &mut frame),
+                        Collision::Capsule(c) => render_polys(&c, matrix, color, &mut frame),
+                        Collision::Cone(c) => render_polys(&c, matrix, color, &mut frame),
+                        Collision::Compound(c) => render_polys(&c, matrix, color, &mut frame),
+                        Collision::Tree(c) => render_polys(&c, matrix, color, &mut frame),
+                        Collision::Scene(c) => render_polys(&c, matrix, color, &mut frame),
+                        Collision::ConvexHull(c) => render_polys(&c, matrix, color, &mut frame),
+                        Collision::HeightField(c) => render_polys(&c, matrix, color, &mut frame),
+                        _ => {}
+                    }
 
-                    let matrix = unsafe { mem::transmute(matrix) };
-                    collision.for_each_polygon(matrix, |face, _face_id| {
-                        let mut pos = face.chunks(3).map(|s| [s[0], s[1], s[2]]);
+                    #[rustfmt::skip]
+                    fn render_polys<C: PolygonShape>(collision: &C,
+                                                     matrix: [[f32; 4]; 4],
+                                                     color: [u8; 3],
+                                                     frame: &mut super::renderer::Frame) {
+                        let matrix = unsafe { mem::transmute(matrix) };
+                        collision.for_each_polygon(matrix, |face, _face_id| {
+                            let mut pos = face.chunks(3).map(|s| [s[0], s[1], s[2]]);
 
-                        // Render as a triangle fan
-                        let f = pos.next().expect("First vertex");
-                        let mut a = pos.next();
+                            // Render as a triangle fan
+                            let f = pos.next().expect("First vertex");
+                            let mut a = pos.next();
 
-                        while let (Some(u), Some(v)) = (a, pos.next()) {
-                            frame.triangle(vert(f, color), vert(u, color), vert(v, color));
-                            a = Some(v);
-                        }
-                    });
+                            while let (Some(u), Some(v)) = (a, pos.next()) {
+                                frame.triangle(vert(f, color), vert(u, color), vert(v, color));
+                                a = Some(v);
+                            }
+                        });
+                    }
                 }
             }
 
             if params.wire {
                 for body in self.newton.bodies_iter() {
-                    let collision = body.collision();
-                    let matrix = body.matrix();
                     let color = match self.selected {
                         Some(SelectedBody { ptr: (ptr,), .. }) if ptr == body.as_raw() => {
                             [255, 255, 255]
@@ -355,21 +372,42 @@ impl<T: Testbed> Runner<T> {
                         }
                     };
 
-                    let matrix = unsafe { mem::transmute(matrix) };
-                    collision.for_each_polygon(matrix, |face, _face_id| {
-                        let mut pos = face.chunks(3).map(|s| [s[0], s[1], s[2]]);
+                    let matrix = body.matrix();
+                    match body.collision() {
+                        Collision::Cuboid(c) => render_wire(&c, matrix, color, &mut frame),
+                        Collision::Sphere(c) => render_wire(&c, matrix, color, &mut frame),
+                        Collision::Cylinder(c) => render_wire(&c, matrix, color, &mut frame),
+                        Collision::Capsule(c) => render_wire(&c, matrix, color, &mut frame),
+                        Collision::Cone(c) => render_wire(&c, matrix, color, &mut frame),
+                        Collision::Compound(c) => render_wire(&c, matrix, color, &mut frame),
+                        Collision::Tree(c) => render_wire(&c, matrix, color, &mut frame),
+                        Collision::Scene(c) => render_wire(&c, matrix, color, &mut frame),
+                        Collision::ConvexHull(c) => render_wire(&c, matrix, color, &mut frame),
+                        Collision::HeightField(c) => render_wire(&c, matrix, color, &mut frame),
+                        _ => {}
+                    }
 
-                        // Render as a triangle fan
-                        let f = pos.next().expect("First vertex");
-                        let mut a = pos.next();
+                    #[rustfmt::skip]
+                    fn render_wire<C: PolygonShape>(collision: &C,
+                                                    matrix: [[f32; 4]; 4],
+                                                    color: [u8; 3],
+                                                    frame: &mut super::renderer::Frame) {
+                        let matrix = unsafe { mem::transmute(matrix) };
+                        collision.for_each_polygon(matrix, |face, _face_id| {
+                            let mut pos = face.chunks(3).map(|s| [s[0], s[1], s[2]]);
 
-                        while let (Some(u), Some(v)) = (a, pos.next()) {
-                            frame.line(vert(u, color), vert(v, color));
-                            a = Some(v);
-                        }
+                            // Render as a triangle fan
+                            let f = pos.next().expect("First vertex");
+                            let mut a = pos.next();
 
-                        frame.line(vert(f, color), vert(a.unwrap(), color));
-                    });
+                            while let (Some(u), Some(v)) = (a, pos.next()) {
+                                frame.line(vert(u, color), vert(v, color));
+                                a = Some(v);
+                            }
+
+                            frame.line(vert(f, color), vert(a.unwrap(), color));
+                        });
+                    }
                 }
             }
 
@@ -601,9 +639,24 @@ impl<T: Testbed> Runner<T> {
                 sel.name = (body.name(),);
                 sel.collision = (body.collision().collision_type(),);
 
-                let (mass, inertia) = body.mass();
-                sel.mass = mass;
-                sel.inertia = inertia;
+                match &body {
+                    Body::Dynamic(ref body) => {
+                        let (mass, inertia) = body.mass();
+                        sel.mass = Some(mass);
+                        sel.inertia = Some(inertia);
+                    }
+                    /*
+                    Body::Kinematic(ref body) => {
+                        let (mass, inertia) = body.mass();
+                        sel.mass = Some(mass);
+                        sel.inertia = Some(inertia);
+                    },
+                    */
+                    _ => {
+                        sel.mass = None;
+                        sel.inertia = None;
+                    }
+                }
 
                 if body_popup {
                     ui.open_popup(im_str!("##body_popup"))

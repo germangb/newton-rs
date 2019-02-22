@@ -1,9 +1,9 @@
 use std::cell::Cell;
 
 use crate::ffi;
-use crate::Handle;
+use crate::{Handle, HandleInner};
 
-use super::{Compound, NewtonCollision, Scene, Tree};
+use super::{Compound, ConvexShape, NewtonCollision, Scene, Tree};
 
 /// Type to add/remove collisions from a compound.
 pub struct CompoundBuilder<'a, 'b> {
@@ -25,24 +25,24 @@ impl<'a, 'b> CompoundBuilder<'a, 'b> {
     /// Adds a collision to the compound
     pub fn add<C>(&self, col: &C) -> Handle
     where
-        C: NewtonCollision,
+        C: ConvexShape,
     {
         let comp = self.compound.raw;
         let sub = col.as_raw();
         unsafe {
             let handle = ffi::NewtonCompoundCollisionAddSubCollision(comp, sub);
-            Handle::Pointer(handle as _)
+            Handle::from_ptr(handle as _)
         }
     }
 
     /// Removes a collision from the compound
     pub fn remove(&self, handle: Handle) {
         let comp = self.compound.raw;
-        match handle {
-            Handle::Pointer(ptr) => unsafe {
+        match handle.inner() {
+            HandleInner::Pointer(ptr) => unsafe {
                 ffi::NewtonCompoundCollisionRemoveSubCollision(comp, ptr as _);
             },
-            Handle::Index(idx) => unsafe {
+            HandleInner::Index(idx) => unsafe {
                 let ptr = ffi::NewtonCompoundCollisionGetNodeByIndex(comp, idx as _);
                 if !ptr.is_null() {
                     ffi::NewtonCompoundCollisionRemoveSubCollisionByIndex(comp, idx as _);
@@ -64,18 +64,18 @@ impl<'a, 'b> SceneBuilder<'a, 'b> {
         let sub = col.as_raw();
         unsafe {
             let handle = ffi::NewtonSceneCollisionAddSubCollision(comp, sub);
-            Handle::Pointer(handle as _)
+            Handle::from_ptr(handle as _)
         }
     }
 
     /// Removes a collision from the scene.
     pub fn remove(&self, handle: Handle) {
         let comp = self.scene.raw;
-        match handle {
-            Handle::Pointer(ptr) => unsafe {
+        match handle.inner() {
+            HandleInner::Pointer(ptr) => unsafe {
                 ffi::NewtonSceneCollisionRemoveSubCollision(comp, ptr as _);
             },
-            Handle::Index(idx) => unsafe {
+            HandleInner::Index(idx) => unsafe {
                 let ptr = ffi::NewtonSceneCollisionGetNodeByIndex(comp, idx as _);
                 if !ptr.is_null() {
                     ffi::NewtonSceneCollisionRemoveSubCollisionByIndex(comp, idx as _);

@@ -3,7 +3,7 @@ use std::os::raw::c_void;
 
 use crate::collision::Collision;
 use crate::ffi;
-use crate::Handle;
+use crate::{Handle, HandleInner};
 
 /// An iterator that yields collision handles from a compound or a scene.
 ///
@@ -35,7 +35,7 @@ impl<'a> Iterator for Handles<'a> {
             None
         } else {
             self.next = (self.get_next)(self.collision, current);
-            Some(Handle::Pointer(current as _))
+            Some(Handle::from_ptr(current as _))
         }
     }
 }
@@ -46,9 +46,9 @@ impl<'a> Iterator for Collisions<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let collision = self.handles.collision;
         self.handles.next().and_then(|h| unsafe {
-            match h {
-                Handle::Index(_) => panic!("Unexpected index handle."),
-                Handle::Pointer(ptr) => {
+            match h.inner() {
+                HandleInner::Index(_) => panic!("Unexpected index handle."),
+                HandleInner::Pointer(ptr) => {
                     let col = (self.get_col)(collision, ptr as _);
                     Some(Collision::from_raw(col, false))
                 }

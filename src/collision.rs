@@ -5,8 +5,8 @@ use std::os::raw;
 use super::body::Body;
 use super::ffi;
 use super::newton::Newton;
-use super::Handle;
 use super::{AsHandle, IntoHandle};
+use super::{Handle, HandleInner};
 
 use self::builders::{CompoundBuilder, SceneBuilder, TreeBuilder};
 
@@ -128,7 +128,7 @@ macro_rules! collision {
 
         impl<'a> AsHandle for $collision<'a> {
             fn as_handle(&self) -> Handle {
-                Handle::Pointer(self.raw as _)
+                Handle::from_ptr(self.raw as _)
             }
         }
 
@@ -209,8 +209,8 @@ impl<'a> Compound<'a> {
     }
 
     pub fn get(&self, handle: Handle) -> Option<Collision> {
-        match handle {
-            Handle::Pointer(ptr) => unsafe {
+        match handle.inner() {
+            HandleInner::Pointer(ptr) => unsafe {
                 let raw = ffi::NewtonCompoundCollisionGetCollisionFromNode(self.raw, ptr as _);
                 if raw.is_null() {
                     None
@@ -218,12 +218,12 @@ impl<'a> Compound<'a> {
                     Some(Collision::from_raw(raw, false))
                 }
             },
-            Handle::Index(idx) => unsafe {
+            HandleInner::Index(idx) => unsafe {
                 let ptr = ffi::NewtonCompoundCollisionGetNodeByIndex(self.raw, idx as _);
                 if ptr.is_null() {
                     None
                 } else {
-                    self.get(Handle::Pointer(ptr as _))
+                    self.get(Handle::from_ptr(ptr as _))
                 }
             },
         }
@@ -265,8 +265,8 @@ impl<'a> Scene<'a> {
     }
 
     pub fn get(&self, handle: Handle) -> Option<Collision> {
-        match handle {
-            Handle::Pointer(ptr) => unsafe {
+        match handle.inner() {
+            HandleInner::Pointer(ptr) => unsafe {
                 let raw = ffi::NewtonSceneCollisionGetCollisionFromNode(self.raw, ptr as _);
                 if raw.is_null() {
                     None
@@ -274,12 +274,12 @@ impl<'a> Scene<'a> {
                     Some(Collision::from_raw(raw, false))
                 }
             },
-            Handle::Index(idx) => unsafe {
+            HandleInner::Index(idx) => unsafe {
                 let ptr = ffi::NewtonSceneCollisionGetNodeByIndex(self.raw, idx as _);
                 if ptr.is_null() {
                     None
                 } else {
-                    self.get(Handle::Pointer(ptr as _))
+                    self.get(Handle::from_ptr(ptr as _))
                 }
             },
         }
@@ -398,29 +398,112 @@ trait IntoCollision<'a> {
     fn into_collision(self) -> Collision<'a>;
 }
 
-/*
-impl<'a, T> IntoHandle<Collision<'a>> for T
-where
-    T: NewtonCollision + IntoCollision<'a>,
-{
-    fn into_handle(self, newton: &Newton) -> Handle {
-        let mut collision = self.into_collision();
-        check_owned(&collision);
-        newton.move_collision2(collision)
-    }
+/// A marker trait for static collisions (tree and heightfield).
+pub trait StaticShape: NewtonCollision {}
 
-    fn as_handle(&self) -> Handle {
-        Handle::Pointer(self.as_raw() as _)
+/// A marker trait for collision shapes with convex geometry.
+pub trait ConvexShape: NewtonCollision {}
+
+/// Collisions whose geometry can be iterated over.
+///
+/// Applies to all collision shapes, except for user defined meshes and `Null`.
+pub trait PolygonShape: NewtonCollision {
+    fn for_each_polygon<F: FnMut(&[f32], raw::c_int)>(
+        &self,
+        matrix: [[f32; 4]; 4],
+        mut callback: F,
+    ) {
+        unsafe {
+            let udata = mem::transmute(&mut callback);
+            let matrix = matrix[0].as_ptr();
+            ffi::NewtonCollisionForEachPolygonDo(self.as_raw(), matrix, Some(iterator::<F>), udata);
+        }
+
+        unsafe extern "C" fn iterator<F>(
+            udata: *const raw::c_void,
+            vert_count: raw::c_int,
+            face_array: *const f32,
+            face_id: raw::c_int,
+        ) where
+            F: FnMut(&[f32], raw::c_int),
+        {
+            let slice = std::slice::from_raw_parts(face_array, vert_count as usize * 3);
+            mem::transmute::<_, &mut F>(udata)(slice, face_id);
+        }
     }
 }
-*/
 
+macro_rules! statik {
+    ( $( $collision:ident ),* ) => {$(impl<'a> StaticShape for $collision<'a> {})*}
+}
+
+macro_rules! convex {
+    ( $( $collision:ident ),* ) => {$(impl<'a> ConvexShape for $collision<'a> {})*}
+}
+
+macro_rules! polygon {
+    ( $( $collision:ident ),* ) => {$(impl<'a> PolygonShape for $collision<'a> {})*}
+}
+
+statik! {
+    HeightField, Tree, Scene
+}
+
+convex! {
+    Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Null
+}
+
+polygon! {
+    Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Scene, Compound, Tree, HeightField
+}
+
+// TODO convex?
+/// Tests whether two transformed collisions intersect.
+pub fn intersection_test<A, B>(
+    col_a: &A,
+    col_b: &B,
+    mat_a: [[f32; 4]; 4],
+    mat_b: [[f32; 4]; 4],
+    thread_idx: usize,
+) -> bool
+where
+    A: NewtonCollision,
+    B: NewtonCollision,
+{
+    unimplemented!()
+}
+
+/// Returns the closest point between two convex collisions, or None if they intersect.
+///
+/// Returns the pair of points from each body that are closest to each other.
+pub fn closest_point<A, B>(
+    col_a: &A,
+    col_b: &B,
+    mat_a: [[f32; 4]; 4],
+    mat_b: [[f32; 4]; 4],
+    thread_idx: usize,
+) -> Option<([f32; 3], [f32; 3])>
+where
+    A: ConvexShape,
+    B: ConvexShape,
+{
+    unimplemented!()
+}
+
+/// NewtonCollision functions.
 pub trait NewtonCollision {
     fn as_raw(&self) -> *const ffi::NewtonCollision;
 
     fn is_static(&self) -> bool {
         unsafe {
             let is = ffi::NewtonCollisionIsStaticShape(self.as_raw());
+            is == 1
+        }
+    }
+
+    fn is_convex(&self) -> bool {
+        unsafe {
+            let is = ffi::NewtonCollisionIsConvexShape(self.as_raw());
             is == 1
         }
     }
@@ -452,28 +535,5 @@ pub trait NewtonCollision {
 
     fn user_id(&self) -> u32 {
         unsafe { ffi::NewtonCollisionGetUserID(self.as_raw()) }
-    }
-
-    fn for_each_polygon<F>(&self, matrix: [[f32; 4]; 4], mut callback: F)
-    where
-        F: FnMut(&[f32], raw::c_int),
-    {
-        unsafe {
-            let udata = mem::transmute(&mut callback);
-            let matrix = matrix[0].as_ptr();
-            ffi::NewtonCollisionForEachPolygonDo(self.as_raw(), matrix, Some(iterator::<F>), udata);
-        }
-
-        unsafe extern "C" fn iterator<F>(
-            udata: *const raw::c_void,
-            vert_count: raw::c_int,
-            face_array: *const f32,
-            face_id: raw::c_int,
-        ) where
-            F: FnMut(&[f32], raw::c_int),
-        {
-            let slice = std::slice::from_raw_parts(face_array, vert_count as usize * 3);
-            mem::transmute::<_, &mut F>(udata)(slice, face_id);
-        }
     }
 }

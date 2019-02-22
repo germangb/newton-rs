@@ -8,6 +8,8 @@
 
 [Newton-Dynamics][repo] safe wrapper for [**Rust**][rustlang].
 
+* **Newton-Dynamics version: 3.13a**
+
 [repo]: https://github.com/MADEAPPS/newton-dynamics
 [rustlang]: https://www.rust-lang.org/
 
@@ -26,7 +28,7 @@ sudo apt install libclang-dev
 sudo apt install libsdl2-dev # optional
 ```
 
-2. Declare dependency in your `Cargo.toml`
+2. Add dependency to your `Cargo.toml`
 
 ```toml
 [dependencies]

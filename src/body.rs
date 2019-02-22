@@ -8,7 +8,6 @@ use super::newton::Newton;
 use super::Handle;
 use super::{AsHandle, IntoHandle};
 
-/// Body iterators
 pub mod iters;
 
 #[repr(i32)]
@@ -75,7 +74,7 @@ macro_rules! bodies {
 
         impl<'a> AsHandle for Body<'a> {
             fn as_handle(&self) -> Handle {
-                Handle::Pointer(self.as_raw() as _)
+                Handle::from_ptr(self.as_raw() as _)
             }
         }
 
@@ -157,7 +156,7 @@ macro_rules! bodies {
 
             impl<'a> AsHandle for $body<'a> {
                 fn as_handle(&self) -> Handle {
-                    Handle::Pointer(self.raw as _)
+                    Handle::from_ptr(self.raw as _)
                 }
             }
 
@@ -195,22 +194,24 @@ macro_rules! bodies {
 }
 
 bodies! {
-    /// Dynamic body wrapper
+    /// Dynamic body wrapper.
     ///
-    /// Bodies cannot outlive the NewtonWorld they are created from.
-    /// The size of this type is still the same as the raw pointer.
+    /// If a dynamic body has no mass, it is equivalent to a static body.
     #[derive(Debug, Eq, PartialEq)]
     (Dynamic, NewtonCreateDynamicBody) => pub struct DynamicBody<'a>(...);
 
-    /// Kinematic body wrapper
-    ///
-    /// Kinematic bodies are not affected by forces.
-    /// Bodies cannot outlive the NewtonWorld they are created from.
-    /// The size of this type is still the same as the raw pointer.
+    /// A body that is not affected by forces and is controlled by the application.
     #[derive(Debug, Eq, PartialEq)]
     (Kinematic, NewtonCreateKinematicBody) => pub struct KinematicBody<'a>(...);
 }
 
+impl<'a> Dynamic for DynamicBody<'a> {}
+impl<'a> Dynamic for KinematicBody<'a> {}
+
+/// Trait for bodies that have a mass and are affected by forces
+pub trait Dynamic: NewtonBody {}
+
+/// Implementation of most of the NewtonBody API.
 pub trait NewtonBody {
     fn as_raw(&self) -> *const ffi::NewtonBody;
 
@@ -295,20 +296,6 @@ pub trait NewtonBody {
         self.set_sleep_state(SleepState::Asleep)
     }
 
-    fn mass(&self) -> (f32, [f32; 3]) {
-        let mut mass = 0.0;
-        let mut i: [f32; 3] = [0.0, 0.0, 0.0];
-        unsafe { ffi::NewtonBodyGetMass(self.as_raw(), &mut mass, &mut i[0], &mut i[1], &mut i[2]) }
-        (mass, i)
-    }
-
-    fn set_mass<C: NewtonCollision>(&self, mass: f32, collision: &C) {
-        let collision = collision.as_raw();
-        unsafe {
-            ffi::NewtonBodySetMassProperties(self.as_raw(), mass, collision);
-        }
-    }
-
     fn set_force(&self, force: [f32; 3]) {
         unsafe { ffi::NewtonBodySetForce(self.as_raw(), force.as_ptr()) }
     }
@@ -325,6 +312,20 @@ pub trait NewtonBody {
             let udata = &ffi::NewtonBodyGetUserData(self.as_raw());
             let udata: &Box<UserData> = mem::transmute(udata);
             udata.name
+        }
+    }
+
+    fn mass(&self) -> (f32, [f32; 3]) {
+        let mut mass = 0.0;
+        let mut i: [f32; 3] = [0.0, 0.0, 0.0];
+        unsafe { ffi::NewtonBodyGetMass(self.as_raw(), &mut mass, &mut i[0], &mut i[1], &mut i[2]) }
+        (mass, i)
+    }
+
+    fn set_mass<C: NewtonCollision>(&self, mass: f32, collision: &C) {
+        let collision = collision.as_raw();
+        unsafe {
+            ffi::NewtonBodySetMassProperties(self.as_raw(), mass, collision);
         }
     }
 

@@ -7,9 +7,9 @@ use std::sync::RwLock;
 use std::time::Duration;
 
 use super::body::{iters::Bodies, Body, NewtonBody};
-use super::collision::{Collision, NewtonCollision};
+use super::collision::{Collision, ConvexShape, NewtonCollision};
 use super::ffi;
-use super::Handle;
+use super::{Handle, HandleInner};
 
 /// Type returned by an asynchronous update.
 #[derive(Debug)]
@@ -66,7 +66,7 @@ impl Newton {
     }
 
     pub(crate) fn move_body2(&self, body: Body) -> Handle {
-        let handle = Handle::Pointer(body.as_raw() as _);
+        let handle = Handle::from_ptr(body.as_raw() as _);
         self.user_data()
             .bodies
             .write()
@@ -76,7 +76,7 @@ impl Newton {
     }
 
     pub(crate) fn move_collision2(&self, collision: Collision) -> Handle {
-        let handle = Handle::Pointer(collision.as_raw() as _);
+        let handle = Handle::from_ptr(collision.as_raw() as _);
         self.user_data()
             .collisions
             .write()
@@ -125,8 +125,8 @@ impl Newton {
             .get(&handle)
             .cloned();
         unsafe {
-            body.map(|h| match h {
-                Handle::Pointer(ptr) => Body::from_raw(ptr as _, false),
+            body.map(|h| match h.inner() {
+                HandleInner::Pointer(ptr) => Body::from_raw(ptr as _, false),
                 _ => unimplemented!("index indexing"),
             })
         }
@@ -135,8 +135,8 @@ impl Newton {
     pub fn body_take(&self, handle: Handle) -> Option<Body> {
         let body = self.user_data().bodies.write().unwrap().take(&handle);
         unsafe {
-            body.map(|h| match h {
-                Handle::Pointer(ptr) => Body::from_raw(ptr as _, true),
+            body.map(|h| match h.inner() {
+                HandleInner::Pointer(ptr) => Body::from_raw(ptr as _, true),
                 _ => unimplemented!("index indexing"),
             })
         }
@@ -151,8 +151,8 @@ impl Newton {
             .get(&handle)
             .cloned();
         unsafe {
-            collision.map(|h| match h {
-                Handle::Pointer(ptr) => Collision::from_raw(ptr as _, false),
+            collision.map(|h| match h.inner() {
+                HandleInner::Pointer(ptr) => Collision::from_raw(ptr as _, false),
                 _ => unimplemented!("index indexing"),
             })
         }
@@ -161,8 +161,8 @@ impl Newton {
     pub fn collision_take(&self, handle: Handle) -> Option<Collision> {
         let collision = self.user_data().collisions.write().unwrap().take(&handle);
         unsafe {
-            collision.map(|h| match h {
-                Handle::Pointer(ptr) => Collision::from_raw(ptr as _, true),
+            collision.map(|h| match h.inner() {
+                HandleInner::Pointer(ptr) => Collision::from_raw(ptr as _, true),
                 _ => unimplemented!("index indexing"),
             })
         }
@@ -286,7 +286,7 @@ impl Newton {
 impl Drop for Newton {
     fn drop(&mut self) {
         unsafe {
-            let udata = ffi::NewtonWorldGetUserData(self.as_raw());
+            let udata = ffi::NewtonWorldGetUserData(self.raw);
             let udata: Box<UserData> = Box::from_raw(udata as _);
 
             // free owned bodies & collisions
@@ -295,8 +295,8 @@ impl Drop for Newton {
                 .write()
                 .unwrap()
                 .iter()
-                .map(|h| match h {
-                    Handle::Pointer(ptr) => Body::from_raw(*ptr as _, true),
+                .map(|h| match h.inner() {
+                    HandleInner::Pointer(ptr) => Body::from_raw(ptr as _, true),
                     _ => unimplemented!("index indexing"),
                 })
                 .for_each(drop);
@@ -305,14 +305,15 @@ impl Drop for Newton {
                 .write()
                 .unwrap()
                 .iter()
-                .map(|h| match h {
-                    Handle::Pointer(ptr) => Collision::from_raw(*ptr as _, true),
+                .map(|h| match h.inner() {
+                    HandleInner::Pointer(ptr) => Collision::from_raw(ptr as _, true),
                     _ => unimplemented!("index indexing"),
                 })
                 .for_each(drop);
 
-            ffi::NewtonDestroyAllBodies(self.as_raw());
-            ffi::NewtonDestroy(self.as_raw());
+            ffi::NewtonDestroyAllBodies(self.raw);
+            ffi::NewtonMaterialDestroyAllGroupID(self.raw);
+            ffi::NewtonDestroy(self.raw);
         }
     }
 }

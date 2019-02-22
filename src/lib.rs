@@ -70,8 +70,8 @@ pub mod collision;
 mod utils;
 /// Reexport of the most used traits.
 pub mod prelude {
-    pub use super::body::NewtonBody;
-    pub use super::collision::NewtonCollision;
+    pub use super::body::{Dynamic, NewtonBody};
+    pub use super::collision::{NewtonCollision, PolygonShape};
     pub use super::{AsHandle, IntoHandle};
 }
 /// NewtonWorld wrapper.
@@ -84,7 +84,24 @@ pub mod testbed;
 
 /// Opaque type used to access not-owned Collisions & Bodies.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
-pub enum Handle {
+pub struct Handle(HandleInner);
+
+impl Handle {
+    fn from_usize(idx: usize) -> Self {
+        Self(HandleInner::Index(idx))
+    }
+
+    fn from_ptr(ptr: *const ()) -> Self {
+        Self(HandleInner::Pointer(ptr))
+    }
+
+    fn inner(&self) -> HandleInner {
+        self.0
+    }
+}
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash)]
+pub enum HandleInner {
     Pointer(*const ()),
     Index(usize),
 }
