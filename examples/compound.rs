@@ -20,9 +20,7 @@ impl Testbed for Example {
             builder.add(&c);
             builder.add(&d);
 
-            builder.remove(Handle::Index(0));
-            builder.remove(Handle::Index(0));
-            //builder.remove(h);
+            builder.remove(h);
         }
 
         // iterate over compound collisions

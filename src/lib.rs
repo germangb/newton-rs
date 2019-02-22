@@ -71,7 +71,7 @@ mod utils;
 /// Reexport of the most used traits.
 pub mod prelude {
     pub use super::body::{Dynamic, NewtonBody};
-    pub use super::collision::{NewtonCollision, PolygonShape};
+    pub use super::collision::NewtonCollision;
     pub use super::{AsHandle, IntoHandle};
 }
 /// NewtonWorld wrapper.

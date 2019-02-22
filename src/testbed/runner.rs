@@ -323,26 +323,13 @@ impl<T: Testbed> Runner<T> {
                         _ => [(r * 255.0) as u8, (g * 255.0) as u8, (b * 255.0) as u8],
                     };
 
-                    let matrix = body.matrix();
-                    match body.collision() {
-                        Collision::Cuboid(c) => render_polys(&c, matrix, color, &mut frame),
-                        Collision::Sphere(c) => render_polys(&c, matrix, color, &mut frame),
-                        Collision::Cylinder(c) => render_polys(&c, matrix, color, &mut frame),
-                        Collision::Capsule(c) => render_polys(&c, matrix, color, &mut frame),
-                        Collision::Cone(c) => render_polys(&c, matrix, color, &mut frame),
-                        Collision::Compound(c) => render_polys(&c, matrix, color, &mut frame),
-                        Collision::Tree(c) => render_polys(&c, matrix, color, &mut frame),
-                        Collision::Scene(c) => render_polys(&c, matrix, color, &mut frame),
-                        Collision::ConvexHull(c) => render_polys(&c, matrix, color, &mut frame),
-                        Collision::HeightField(c) => render_polys(&c, matrix, color, &mut frame),
-                        _ => {}
-                    }
+                    render_polys(&body.collision(), body.matrix(), color, &mut frame);
 
                     #[rustfmt::skip]
-                    fn render_polys<C: PolygonShape>(collision: &C,
-                                                     matrix: [[f32; 4]; 4],
-                                                     color: [u8; 3],
-                                                     frame: &mut super::renderer::Frame) {
+                    fn render_polys<C: NewtonCollision>(collision: &C,
+                                                        matrix: [[f32; 4]; 4],
+                                                        color: [u8; 3],
+                                                        frame: &mut super::renderer::Frame) {
                         let matrix = unsafe { mem::transmute(matrix) };
                         collision.for_each_polygon(matrix, |face, _face_id| {
                             let mut pos = face.chunks(3).map(|s| [s[0], s[1], s[2]]);
@@ -372,26 +359,13 @@ impl<T: Testbed> Runner<T> {
                         }
                     };
 
-                    let matrix = body.matrix();
-                    match body.collision() {
-                        Collision::Cuboid(c) => render_wire(&c, matrix, color, &mut frame),
-                        Collision::Sphere(c) => render_wire(&c, matrix, color, &mut frame),
-                        Collision::Cylinder(c) => render_wire(&c, matrix, color, &mut frame),
-                        Collision::Capsule(c) => render_wire(&c, matrix, color, &mut frame),
-                        Collision::Cone(c) => render_wire(&c, matrix, color, &mut frame),
-                        Collision::Compound(c) => render_wire(&c, matrix, color, &mut frame),
-                        Collision::Tree(c) => render_wire(&c, matrix, color, &mut frame),
-                        Collision::Scene(c) => render_wire(&c, matrix, color, &mut frame),
-                        Collision::ConvexHull(c) => render_wire(&c, matrix, color, &mut frame),
-                        Collision::HeightField(c) => render_wire(&c, matrix, color, &mut frame),
-                        _ => {}
-                    }
+                    render_wire(&body.collision(), body.matrix(), color, &mut frame);
 
                     #[rustfmt::skip]
-                    fn render_wire<C: PolygonShape>(collision: &C,
-                                                    matrix: [[f32; 4]; 4],
-                                                    color: [u8; 3],
-                                                    frame: &mut super::renderer::Frame) {
+                    fn render_wire<C: NewtonCollision>(collision: &C,
+                                                       matrix: [[f32; 4]; 4],
+                                                       color: [u8; 3],
+                                                       frame: &mut super::renderer::Frame) {
                         let matrix = unsafe { mem::transmute(matrix) };
                         collision.for_each_polygon(matrix, |face, _face_id| {
                             let mut pos = face.chunks(3).map(|s| [s[0], s[1], s[2]]);

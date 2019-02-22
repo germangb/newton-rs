@@ -404,34 +404,10 @@ pub trait StaticShape: NewtonCollision {}
 /// A marker trait for collision shapes with convex geometry.
 pub trait ConvexShape: NewtonCollision {}
 
-/// Collisions whose geometry can be iterated over.
+/// Marker traits for collisions with geometry that can be iterated.
 ///
-/// Applies to all collision shapes, except for user defined meshes and `Null`.
-pub trait PolygonShape: NewtonCollision {
-    fn for_each_polygon<F: FnMut(&[f32], raw::c_int)>(
-        &self,
-        matrix: [[f32; 4]; 4],
-        mut callback: F,
-    ) {
-        unsafe {
-            let udata = mem::transmute(&mut callback);
-            let matrix = matrix[0].as_ptr();
-            ffi::NewtonCollisionForEachPolygonDo(self.as_raw(), matrix, Some(iterator::<F>), udata);
-        }
-
-        unsafe extern "C" fn iterator<F>(
-            udata: *const raw::c_void,
-            vert_count: raw::c_int,
-            face_array: *const f32,
-            face_id: raw::c_int,
-        ) where
-            F: FnMut(&[f32], raw::c_int),
-        {
-            let slice = std::slice::from_raw_parts(face_array, vert_count as usize * 3);
-            mem::transmute::<_, &mut F>(udata)(slice, face_id);
-        }
-    }
-}
+/// Applies to all collision shapes, except for user defined meshes.
+pub trait RenderableShape: NewtonCollision {}
 
 macro_rules! statik {
     ( $( $collision:ident ),* ) => {$(impl<'a> StaticShape for $collision<'a> {})*}
@@ -441,9 +417,9 @@ macro_rules! convex {
     ( $( $collision:ident ),* ) => {$(impl<'a> ConvexShape for $collision<'a> {})*}
 }
 
-macro_rules! polygon {
-    ( $( $collision:ident ),* ) => {$(impl<'a> PolygonShape for $collision<'a> {})*}
-}
+//macro_rules! polygon {
+//    ( $( $collision:ident ),* ) => {$(impl<'a> RenderableShape for $collision<'a> {})*}
+//}
 
 statik! {
     HeightField, Tree, Scene
@@ -453,9 +429,9 @@ convex! {
     Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Null
 }
 
-polygon! {
-    Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Scene, Compound, Tree, HeightField
-}
+//polygon! {
+//    Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Scene, Compound, Tree, HeightField, Null
+//}
 
 // TODO convex?
 /// Tests whether two transformed collisions intersect.
@@ -493,6 +469,30 @@ where
 /// NewtonCollision functions.
 pub trait NewtonCollision {
     fn as_raw(&self) -> *const ffi::NewtonCollision;
+
+    fn for_each_polygon<F: FnMut(&[f32], raw::c_int)>(
+        &self,
+        matrix: [[f32; 4]; 4],
+        mut callback: F,
+    ) {
+        unsafe {
+            let udata = mem::transmute(&mut callback);
+            let matrix = matrix[0].as_ptr();
+            ffi::NewtonCollisionForEachPolygonDo(self.as_raw(), matrix, Some(iterator::<F>), udata);
+        }
+
+        unsafe extern "C" fn iterator<F>(
+            udata: *const raw::c_void,
+            vert_count: raw::c_int,
+            face_array: *const f32,
+            face_id: raw::c_int,
+        ) where
+            F: FnMut(&[f32], raw::c_int),
+        {
+            let slice = std::slice::from_raw_parts(face_array, vert_count as usize * 3);
+            mem::transmute::<_, &mut F>(udata)(slice, face_id);
+        }
+    }
 
     fn is_static(&self) -> bool {
         unsafe {

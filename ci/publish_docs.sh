@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -x
+
 DOCS_DIR=pages/
 
 if [[ ${CI} -ne "" ]] || [[ ${TRAVIS} -ne "" ]]; then
