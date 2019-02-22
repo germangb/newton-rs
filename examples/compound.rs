@@ -25,6 +25,11 @@ impl Testbed for Example {
             //builder.remove(h);
         }
 
+        // iterate over compound collisions
+        for col in compound.collisions() {
+            println!("{:?}", col);
+        }
+
         DynamicBody::create(newton, &b, transform(0.0, 0.0, 0.1), None).into_handle(newton);
 
         let body = DynamicBody::create(

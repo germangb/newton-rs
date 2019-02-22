@@ -8,7 +8,7 @@ else
     GITHUB=git@github.com:germangb/newton-rs.git
 fi
 
-cargo doc
+cargo doc --all-features
 rm -rf $DOCS_DIR
 cp -r target/doc $DOCS_DIR
 

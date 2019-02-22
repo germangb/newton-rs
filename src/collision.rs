@@ -51,6 +51,12 @@ macro_rules! collision {
             }
         }
 
+        pub fn create_instance(col: &Self) -> Self {
+            match col {
+                $( Collision::$enum_var(ref col) => Collision::$enum_var($collision::create_instance(&col)) ),*
+            }
+        }
+
         $(
         fn $option(self) -> Option<$collision<'a>> {
             match self {
@@ -80,13 +86,10 @@ macro_rules! collision {
         }
 
         impl<'a> $collision<'a> {
-            /// The returned collision owns itself, i.e. It will be freed when the instance
-            /// is dropped.
             pub unsafe fn from_raw(raw: *const ffi::NewtonCollision, owned: bool) -> Self {
                 $collision { raw, owned, _phantom: PhantomData }
             }
 
-            /// Creates an oned collision
             pub fn create_instance(col: &Self) -> Self {
                 unsafe {
                     let instance = ffi::NewtonCollisionCreateInstance(col.raw);
@@ -164,11 +167,22 @@ impl<'a> Compound<'a> {
     }
 
     pub fn handles(&self) -> Handles {
-        unimplemented!()
+        let next = unsafe { ffi::NewtonCompoundCollisionGetFirstNode(self.raw) };
+        Handles {
+            collision: self.raw,
+            get_next: Box::new(|c, n| unsafe { ffi::NewtonCompoundCollisionGetNextNode(c, n) }),
+            next,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn collisions(&self) -> Collisions {
-        unimplemented!()
+        Collisions {
+            handles: self.handles(),
+            get_col: Box::new(|c, n| unsafe {
+                ffi::NewtonCompoundCollisionGetCollisionFromNode(c, n)
+            }),
+        }
     }
 
     pub fn get(&self, handle: Handle) -> Option<Collision> {
@@ -209,11 +223,22 @@ impl<'world> Scene<'world> {
     }
 
     pub fn handles(&self) -> Handles {
-        unimplemented!()
+        let next = unsafe { ffi::NewtonSceneCollisionGetFirstNode(self.raw) };
+        Handles {
+            collision: self.raw,
+            get_next: Box::new(|c, n| unsafe { ffi::NewtonSceneCollisionGetNextNode(c, n) }),
+            next,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn collisions(&self) -> Collisions {
-        unimplemented!()
+        Collisions {
+            handles: self.handles(),
+            get_col: Box::new(|c, n| unsafe {
+                ffi::NewtonSceneCollisionGetCollisionFromNode(c, n)
+            }),
+        }
     }
 
     pub fn get(&self, handle: Handle) -> Option<Collision> {

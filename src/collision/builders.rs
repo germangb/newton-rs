@@ -5,14 +5,17 @@ use crate::Handle;
 
 use super::{Compound, NewtonCollision, Scene, Tree};
 
+/// Type to add/remove collisions from a compound.
 pub struct CompoundBuilder<'a, 'b> {
     pub(super) compound: &'b Compound<'a>,
 }
 
+/// Add/remove collisions from a scene collision.
 pub struct SceneBuilder<'a, 'b> {
     pub(super) scene: &'b Scene<'a>,
 }
 
+/// Type to define the geometry of a tree collision.
 pub struct TreeBuilder<'a, 'b> {
     pub(super) optimize: bool,
     pub(super) tree: &'b Tree<'a>,

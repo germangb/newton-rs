@@ -73,7 +73,7 @@ macro_rules! bodies {
         }
 
         impl<'a> Body<'a> {
-            pub unsafe fn from_raw(raw: *const ffi::NewtonBody, owned: bool) -> Self {
+            pub(crate) unsafe fn from_raw(raw: *const ffi::NewtonBody, owned: bool) -> Self {
                 let body_type = ffi::NewtonBodyGetType(raw);
                 match body_type as _ {
                     ffi::NEWTON_DYNAMIC_BODY => Body::Dynamic(DynamicBody::from_raw(raw, owned)),

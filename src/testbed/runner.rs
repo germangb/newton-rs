@@ -81,7 +81,10 @@ pub struct SelectedBody {
     name: (Option<&'static str>,),
     #[imgui(display(display = "{:?}", 0))]
     collision: (Type,),
-    #[imgui(new_line, drag(speed = 0.1))]
+
+    #[imgui(new_line, checkbox)]
+    awake: bool,
+    #[imgui(drag(speed = 0.1))]
     position: [f32; 3],
     #[imgui(input(flags = "disabled_text"))]
     velocity: [f32; 3],
@@ -103,6 +106,7 @@ impl Default for SelectedBody {
         Self {
             ptr: (ptr::null(),),
             name: (None,),
+            awake: true,
             collision: (Type::Null,),
             position: Default::default(),
             velocity: Default::default(),
@@ -534,7 +538,6 @@ impl<T: Testbed> Runner<T> {
                                         }
                                     },
                                 );
-                                //ui.text(name)
                             });
                     });
                 }

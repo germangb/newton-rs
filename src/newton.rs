@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::marker::PhantomData;
 use std::mem;
 use std::os::raw::{c_longlong, c_void};
 use std::ptr;
@@ -12,7 +13,7 @@ use super::Handle;
 
 /// Type returned by an asynchronous update.
 #[derive(Debug)]
-pub struct AsyncUpdate<'a>(&'a mut Newton);
+pub struct AsyncUpdate<'a>(&'a Newton);
 
 impl<'a> AsyncUpdate<'a> {
     /// Waits for the newton world update to finish, blocking the current thread.
