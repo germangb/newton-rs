@@ -1,5 +1,5 @@
 use newton::prelude::*;
-use newton::{Collision, Compound, Cone, Cuboid, Cylinder, DynamicBody, Handle, Newton, Sphere};
+use newton::{Compound, Cone, Cuboid, Cylinder, DynamicBody, Handle, Newton, Sphere};
 
 use newton::testbed;
 use newton::testbed::Testbed;
@@ -61,8 +61,8 @@ const fn transform(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
 }
 
 fn main() {
-    #[cfg(not(feature = "testbed"))]
-    compile_error!("You must enable the \"testbed\" feature to run this example.");
+    //#[cfg(not(feature = "testbed"))]
+    //compile_error!("You must enable the \"testbed\" feature to build this example.");
 
     testbed::run::<Example>(Some(file!()))
 }

@@ -34,10 +34,8 @@ impl<'a> Iterator for Handles<'a> {
         if current.is_null() {
             None
         } else {
-            unsafe {
-                self.next = (self.get_next)(self.collision, current);
-                Some(Handle::Pointer(current as _))
-            }
+            self.next = (self.get_next)(self.collision, current);
+            Some(Handle::Pointer(current as _))
         }
     }
 }

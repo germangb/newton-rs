@@ -63,8 +63,8 @@ impl Testbed for Jenga {
 }
 
 fn main() {
-    #[cfg(not(feature = "testbed"))]
-    compile_error!("You must enable the \"testbed\" feature to run this example.");
+    //#[cfg(not(feature = "testbed"))]
+    //compile_error!("You must enable the \"testbed\" feature to run this example.");
 
     run::<Jenga>(Some(file!()))
 }

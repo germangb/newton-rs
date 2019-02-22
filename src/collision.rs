@@ -6,7 +6,7 @@ use super::body::Body;
 use super::ffi;
 use super::newton::Newton;
 use super::Handle;
-use super::IntoHandle;
+use super::{AsHandle, IntoHandle};
 
 use self::builders::{CompoundBuilder, SceneBuilder, TreeBuilder};
 
@@ -34,9 +34,9 @@ macro_rules! collision {
         $($enum_var = ffi::$id as i32),*
     }
 
-    fn make_not_owned(coll: &mut Collision) {
+    fn check_owned(coll: &Collision) {
         match coll {
-            $(Collision::$enum_var(ref mut col) => col.owned = false),*
+            $(Collision::$enum_var(ref col) => if !col.owned { panic!() }),*
         }
     }
 
@@ -58,12 +58,12 @@ macro_rules! collision {
         }
 
         $(
-        fn $option(self) -> Option<$collision<'a>> {
-            match self {
-                Collision::$enum_var(col) => Some(col),
-                _ => None,
+            pub fn $option(self) -> Option<$collision<'a>> {
+                match self {
+                    Collision::$enum_var(col) => Some(col),
+                    _ => None,
+                }
             }
-        }
         )*
     }
 
@@ -83,6 +83,15 @@ macro_rules! collision {
             // If set to true, the memory is freed when the instance is dropped.
             owned: bool,
             _phantom: PhantomData<&'a ()>,
+        }
+
+        unsafe impl<'a> Send for $collision<'a> {}
+        unsafe impl<'a> Sync for $collision<'a> {}
+
+        impl<'a> From<$collision<'a>> for Collision<'a> {
+            fn from(col: $collision<'a>) -> Self {
+                Collision::$enum_var ( col )
+            }
         }
 
         impl<'a> $collision<'a> {
@@ -109,6 +118,20 @@ macro_rules! collision {
             }
         }
 
+        impl<'a> IntoHandle for $collision<'a> {
+            fn into_handle(mut self, newton: &Newton) -> Handle {
+                if !self.owned { panic!() }
+                self.owned = false;
+                newton.move_collision2(self.into_collision())
+            }
+        }
+
+        impl<'a> AsHandle for $collision<'a> {
+            fn as_handle(&self) -> Handle {
+                Handle::Pointer(self.raw as _)
+            }
+        }
+
         impl<'a> IntoCollision<'a> for $collision<'a> {
             fn into_collision(self) -> Collision<'a> {
                 Collision::$enum_var(self)
@@ -125,7 +148,7 @@ macro_rules! collision {
 
 collision! {
     #[derive(Debug, Eq, PartialEq)]
-    (Box, ffi::SERIALIZE_ID_BOX, box2) => pub struct Cuboid<'a>(...);
+    (Cuboid, ffi::SERIALIZE_ID_BOX, cuboid) => pub struct Cuboid<'a>(...);
 
     #[derive(Debug, Eq, PartialEq)]
     (Sphere, ffi::SERIALIZE_ID_SPHERE, sphere) => pub struct Sphere<'a>(...);
@@ -214,8 +237,8 @@ impl<'a> Compound<'a> {
     }
 }
 
-impl<'world> Scene<'world> {
-    pub fn create(newton: &'world Newton) -> Self {
+impl<'a> Scene<'a> {
+    pub fn create(newton: &'a Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateSceneCollision(newton.as_raw(), 0);
             Self::from_raw(collision, true)
@@ -270,8 +293,8 @@ impl<'world> Scene<'world> {
     }
 }
 
-impl<'world> Tree<'world> {
-    pub fn create(newton: &'world Newton) -> Self {
+impl<'a> Tree<'a> {
+    pub fn create(newton: &'a Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateTreeCollision(newton.as_raw(), 0);
             Self::from_raw(collision, true)
@@ -287,8 +310,8 @@ impl<'world> Tree<'world> {
     }
 }
 
-impl<'world> Null<'world> {
-    pub fn create(newton: &'world Newton) -> Self {
+impl<'a> Null<'a> {
+    pub fn create(newton: &'a Newton) -> Self {
         unsafe {
             let collision = ffi::NewtonCreateNull(newton.as_raw());
             Self::from_raw(collision, true)
@@ -296,9 +319,9 @@ impl<'world> Null<'world> {
     }
 }
 
-impl<'world> Cuboid<'world> {
+impl<'a> Cuboid<'a> {
     pub fn create(
-        newton: &'world Newton,
+        newton: &'a Newton,
         x: f32,
         y: f32,
         z: f32,
@@ -312,9 +335,9 @@ impl<'world> Cuboid<'world> {
     }
 }
 
-impl<'world> Cone<'world> {
+impl<'a> Cone<'a> {
     pub fn create(
-        newton: &'world Newton,
+        newton: &'a Newton,
         radius: f32,
         height: f32,
         offset: Option<[[f32; 4]; 4]>,
@@ -327,8 +350,8 @@ impl<'world> Cone<'world> {
     }
 }
 
-impl<'world> Sphere<'world> {
-    pub fn create(newton: &'world Newton, radius: f32, offset: Option<[[f32; 4]; 4]>) -> Self {
+impl<'a> Sphere<'a> {
+    pub fn create(newton: &'a Newton, radius: f32, offset: Option<[[f32; 4]; 4]>) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision = ffi::NewtonCreateSphere(newton.as_raw(), radius, 0, offset);
@@ -337,9 +360,9 @@ impl<'world> Sphere<'world> {
     }
 }
 
-impl<'world> Cylinder<'world> {
+impl<'a> Cylinder<'a> {
     pub fn create(
-        newton: &'world Newton,
+        newton: &'a Newton,
         radius0: f32,
         radius1: f32,
         height: f32,
@@ -354,9 +377,9 @@ impl<'world> Cylinder<'world> {
     }
 }
 
-impl<'world> Capsule<'world> {
+impl<'a> Capsule<'a> {
     pub fn create(
-        newton: &'world Newton,
+        newton: &'a Newton,
         radius0: f32,
         radius1: f32,
         height: f32,
@@ -371,18 +394,18 @@ impl<'world> Capsule<'world> {
     }
 }
 
-pub trait IntoCollision<'world> {
-    fn into_collision(self) -> Collision<'world>;
+trait IntoCollision<'a> {
+    fn into_collision(self) -> Collision<'a>;
 }
 
-// FIXME Not owned bodies should be handled differently
+/*
 impl<'a, T> IntoHandle<Collision<'a>> for T
 where
     T: NewtonCollision + IntoCollision<'a>,
 {
     fn into_handle(self, newton: &Newton) -> Handle {
         let mut collision = self.into_collision();
-        make_not_owned(&mut collision);
+        check_owned(&collision);
         newton.move_collision2(collision)
     }
 
@@ -390,6 +413,7 @@ where
         Handle::Pointer(self.as_raw() as _)
     }
 }
+*/
 
 pub trait NewtonCollision {
     fn as_raw(&self) -> *const ffi::NewtonCollision;

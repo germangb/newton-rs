@@ -6,7 +6,7 @@ use super::collision::{Collision, NewtonCollision};
 use super::ffi;
 use super::newton::Newton;
 use super::Handle;
-use super::IntoHandle;
+use super::{AsHandle, IntoHandle};
 
 /// Body iterators
 pub mod iters;
@@ -36,7 +36,7 @@ struct UserData {
 }
 
 // Where should I place the lifetime, in the type, or in the method??
-pub trait IntoBody<'a> {
+trait IntoBody<'a> {
     fn into_body(self) -> Body<'a>;
 }
 
@@ -56,19 +56,26 @@ macro_rules! bodies {
             $( $enum($body<'a>) ),*
         }
 
-        fn make_not_owned(body: &mut Body) {
-            match body {
-                $(
-                Body::$enum(ref mut body) => body.owned = false
-                ),*
-            }
-        }
-
         impl<'a> NewtonBody for Body<'a> {
             fn as_raw(&self) -> *const ffi::NewtonBody {
                 match self {
                     $(Body::$enum(body) => body.as_raw()),*
                 }
+            }
+        }
+
+        impl<'a> IntoHandle for Body<'a> {
+            fn into_handle(mut self, newton: &Newton) -> Handle {
+                match &mut self {
+                    $(Body::$enum(ref mut body) => if !body.owned { panic!() } else { body.owned = false; }),*
+                }
+                newton.move_body2(self)
+            }
+        }
+
+        impl<'a> AsHandle for Body<'a> {
+            fn as_handle(&self) -> Handle {
+                Handle::Pointer(self.as_raw() as _)
             }
         }
 
@@ -82,14 +89,14 @@ macro_rules! bodies {
                 }
             }
 
-            fn dynamic(self) -> Option<DynamicBody<'a>> {
+            pub fn dynamic(self) -> Option<DynamicBody<'a>> {
                 match self {
                     Body::Dynamic(body) => Some(body),
                     _ => None,
                 }
             }
 
-            fn kinematic(self) -> Option<KinematicBody<'a>> {
+            pub fn kinematic(self) -> Option<KinematicBody<'a>> {
                 match self {
                     Body::Kinematic(body) => Some(body),
                     _ => None,
@@ -105,6 +112,12 @@ macro_rules! bodies {
                 // Bodies from iterators or callbacks generally won't be owned.
                 // When they are, the memory is freed when the object is dropped.
                 pub(crate) owned: bool,
+            }
+
+            impl<'a> From<$body<'a>> for Body<'a> {
+                fn from(body: $body<'a>) -> Self {
+                    Body::$enum ( body )
+                }
             }
 
             unsafe impl<'a> Send for $body<'a> {}
@@ -131,6 +144,20 @@ macro_rules! bodies {
                             ffi::NewtonDestroyBody(self.raw);
                         }
                     }
+                }
+            }
+
+            impl<'a> IntoHandle for $body<'a> {
+                fn into_handle(mut self, newton: &Newton) -> Handle {
+                    if !self.owned { panic!() }
+                    self.owned = false;
+                    newton.move_body2(self.into_body())
+                }
+            }
+
+            impl<'a> AsHandle for $body<'a> {
+                fn as_handle(&self) -> Handle {
+                    Handle::Pointer(self.raw as _)
                 }
             }
 
@@ -182,21 +209,6 @@ bodies! {
     /// The size of this type is still the same as the raw pointer.
     #[derive(Debug, Eq, PartialEq)]
     (Kinematic, NewtonCreateKinematicBody) => pub struct KinematicBody<'a>(...);
-}
-
-impl<'a, T> IntoHandle<Body<'a>> for T
-where
-    T: NewtonBody + IntoBody<'a>,
-{
-    fn into_handle(self, newton: &Newton) -> Handle {
-        let mut body = self.into_body();
-        make_not_owned(&mut body);
-        newton.move_body2(body)
-    }
-
-    fn as_handle(&self) -> Handle {
-        Handle::Pointer(self.as_raw() as _)
-    }
 }
 
 pub trait NewtonBody {
