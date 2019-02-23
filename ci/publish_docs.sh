@@ -3,12 +3,7 @@
 set -x
 
 DOCS_DIR=pages/
-
-if [[ ${CI} -ne "" ]] || [[ ${TRAVIS} -ne "" ]]; then
-    GITHUB=https://germangb:$TOKEN@github.com/germangb/newton-rs.git
-else
-    GITHUB=git@github.com:germangb/newton-rs.git
-fi
+GITHUB=https://germangb:$TOKEN@github.com/germangb/newton-rs.git
 
 cargo doc --all-features
 rm -rf $DOCS_DIR
