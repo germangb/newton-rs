@@ -122,7 +122,7 @@ macro_rules! collision {
             fn into_handle(mut self, newton: &Newton) -> Handle {
                 if !self.owned { panic!() }
                 self.owned = false;
-                newton.move_collision2(self.into_collision())
+                newton.storage().move_collision(self.into_collision())
             }
         }
 

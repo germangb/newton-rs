@@ -6,14 +6,23 @@ use std::ptr;
 use std::sync::RwLock;
 use std::time::Duration;
 
+use self::storage::BTreeStorage;
+
 use super::body::{iters::Bodies, Body, NewtonBody};
 use super::collision::{Collision, ConvexShape, NewtonCollision};
 use super::ffi;
 use super::{Handle, HandleInner};
+use crate::newton::storage::NewtonStorage;
+
+/// Data structured for bodies & collisions.
+pub mod storage;
 
 /// Type returned by an asynchronous update.
 #[derive(Debug)]
-pub struct AsyncUpdate<'a>(&'a Newton);
+pub struct AsyncUpdate<'a> {
+    world: *const ffi::NewtonWorld,
+    _phantom: PhantomData<&'a ()>,
+}
 
 impl<'a> AsyncUpdate<'a> {
     /// Waits for the newton world update to finish, blocking the current thread.
@@ -22,67 +31,60 @@ impl<'a> AsyncUpdate<'a> {
 
 impl<'a> Drop for AsyncUpdate<'a> {
     fn drop(&mut self) {
-        let world = self.0.as_raw();
+        let world = self.world;
         unsafe { ffi::NewtonWaitForUpdateToFinish(world) }
     }
-}
-
-// Heap memory to support the wrapper
-#[derive(Default)]
-struct UserData {
-    bodies: RwLock<HashSet<Handle>>,
-    collisions: RwLock<HashSet<Handle>>,
 }
 
 /// Newton dynamics context
 #[derive(Debug)]
 pub struct Newton {
     raw: *const ffi::NewtonWorld,
+    owned: bool,
 }
 
 unsafe impl Send for Newton {}
 unsafe impl Sync for Newton {}
 
+// Trait objects are "fat pointers" (their size is not the same as usize).
+// I need to wrap the trait object in a struct and introduce an extra layer of indirection (pointer to a pointer)...
+// The only way this could backfire is if the application calls `storage` and `storage_mut` very often in the program.
+//
+// An alternative to remove this indirection is to make Newton generic (Newton<S>) over the NewtonStorage.
+struct Storage(Box<dyn NewtonStorage>);
+
 impl Newton {
-    pub unsafe fn from_raw(raw: *const ffi::NewtonWorld) -> Self {
-        Self { raw }
+    pub unsafe fn from_raw(raw: *const ffi::NewtonWorld, owned: bool) -> Self {
+        Self { raw, owned }
     }
 
-    pub fn create() -> Self {
-        let data = Box::new(UserData::default());
+    pub fn with_storage<S: NewtonStorage + 'static>(storage: S) -> Self {
+        let data = Box::new(Storage(Box::new(storage)));
         let raw = unsafe {
             let raw = ffi::NewtonCreate();
             ffi::NewtonWorldSetUserData(raw, mem::transmute(data));
             raw
         };
-        Self { raw }
+        Self { raw, owned: true }
     }
 
-    fn user_data(&self) -> &Box<UserData> {
+    pub fn create() -> Self {
+        Self::with_storage(BTreeStorage::default())
+    }
+
+    pub fn storage(&self) -> &Box<dyn NewtonStorage> {
         unsafe {
-            let udata = &ffi::NewtonWorldGetUserData(self.raw);
-            mem::transmute(udata)
+            let udata: &Box<Storage> = mem::transmute(&ffi::NewtonWorldGetUserData(self.raw));
+            &udata.0
         }
     }
 
-    pub(crate) fn move_body2(&self, body: Body) -> Handle {
-        let handle = Handle::from_ptr(body.as_raw() as _);
-        self.user_data()
-            .bodies
-            .write()
-            .unwrap()
-            .insert(handle.clone());
-        handle
-    }
-
-    pub(crate) fn move_collision2(&self, collision: Collision) -> Handle {
-        let handle = Handle::from_ptr(collision.as_raw() as _);
-        self.user_data()
-            .collisions
-            .write()
-            .unwrap()
-            .insert(handle.clone());
-        handle
+    pub fn storage_mut(&mut self) -> &mut Box<dyn NewtonStorage> {
+        unsafe {
+            let udata: &mut Box<Storage> =
+                mem::transmute(&mut ffi::NewtonWorldGetUserData(self.raw));
+            &mut udata.0
+        }
     }
 
     /// Sets the solver model.
@@ -113,61 +115,16 @@ impl Newton {
 
     pub fn bodies_iter(&self) -> Bodies {
         let next = unsafe { ffi::NewtonWorldGetFirstBody(self.as_raw()) };
-        Bodies { newton: self, next }
-    }
-
-    pub fn body(&self, handle: Handle) -> Option<Body> {
-        let body = self
-            .user_data()
-            .bodies
-            .read()
-            .unwrap()
-            .get(&handle)
-            .cloned();
-        unsafe {
-            body.map(|h| match h.inner() {
-                HandleInner::Pointer(ptr) => Body::from_raw(ptr as _, false),
-                _ => unimplemented!("index indexing"),
-            })
+        Bodies {
+            newton: self.as_raw(),
+            next,
+            _phantom: PhantomData,
         }
     }
+}
 
-    pub fn body_take(&self, handle: Handle) -> Option<Body> {
-        let body = self.user_data().bodies.write().unwrap().take(&handle);
-        unsafe {
-            body.map(|h| match h.inner() {
-                HandleInner::Pointer(ptr) => Body::from_raw(ptr as _, true),
-                _ => unimplemented!("index indexing"),
-            })
-        }
-    }
-
-    pub fn collision(&self, handle: Handle) -> Option<Collision> {
-        let collision = self
-            .user_data()
-            .collisions
-            .read()
-            .unwrap()
-            .get(&handle)
-            .cloned();
-        unsafe {
-            collision.map(|h| match h.inner() {
-                HandleInner::Pointer(ptr) => Collision::from_raw(ptr as _, false),
-                _ => unimplemented!("index indexing"),
-            })
-        }
-    }
-
-    pub fn collision_take(&self, handle: Handle) -> Option<Collision> {
-        let collision = self.user_data().collisions.write().unwrap().take(&handle);
-        unsafe {
-            collision.map(|h| match h.inner() {
-                HandleInner::Pointer(ptr) => Collision::from_raw(ptr as _, true),
-                _ => unimplemented!("index indexing"),
-            })
-        }
-    }
-
+/// ffi wrappers
+impl Newton {
     pub const fn as_raw(&self) -> *const ffi::NewtonWorld {
         self.raw
     }
@@ -175,10 +132,7 @@ impl Newton {
     pub fn into_raw(self) -> *const ffi::NewtonWorld {
         self.raw
     }
-}
 
-/// ffi wrappers
-impl Newton {
     /// Invalidated any cached contacts information.
     ///
     /// Useful for when you synchronize a simulation over a network and need
@@ -203,12 +157,12 @@ impl Newton {
     pub fn update_async(&mut self, step: Duration) -> AsyncUpdate {
         let seconds = step.as_secs() * 1_000_000_000 + step.subsec_nanos() as u64;
         unsafe { ffi::NewtonUpdateAsync(self.as_raw(), seconds as f32 / 1_000_000_000.0) }
-        AsyncUpdate(self)
+        AsyncUpdate {
+            world: self.as_raw(),
+            _phantom: PhantomData,
+        }
     }
-}
 
-/// Ray & convex collision casting
-impl Newton {
     /// Samples world with a ray, and runs the given filter closure for every
     /// body that intersects.
     ///
@@ -285,35 +239,14 @@ impl Newton {
 
 impl Drop for Newton {
     fn drop(&mut self) {
-        unsafe {
-            let udata = ffi::NewtonWorldGetUserData(self.raw);
-            let udata: Box<UserData> = Box::from_raw(udata as _);
-
-            // free owned bodies & collisions
-            udata
-                .bodies
-                .write()
-                .unwrap()
-                .iter()
-                .map(|h| match h.inner() {
-                    HandleInner::Pointer(ptr) => Body::from_raw(ptr as _, true),
-                    _ => unimplemented!("index indexing"),
-                })
-                .for_each(drop);
-            udata
-                .collisions
-                .write()
-                .unwrap()
-                .iter()
-                .map(|h| match h.inner() {
-                    HandleInner::Pointer(ptr) => Collision::from_raw(ptr as _, true),
-                    _ => unimplemented!("index indexing"),
-                })
-                .for_each(drop);
-
-            ffi::NewtonDestroyAllBodies(self.raw);
-            ffi::NewtonMaterialDestroyAllGroupID(self.raw);
-            ffi::NewtonDestroy(self.raw);
+        if self.owned {
+            unsafe {
+                let udata = ffi::NewtonWorldGetUserData(self.raw);
+                let udata: Box<Storage> = Box::from_raw(udata as _);
+                ffi::NewtonDestroyAllBodies(self.raw);
+                ffi::NewtonMaterialDestroyAllGroupID(self.raw);
+                ffi::NewtonDestroy(self.raw);
+            }
         }
     }
 }

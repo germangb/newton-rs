@@ -43,7 +43,8 @@ impl Testbed for Example {
 
         // ground
         let ground = Cuboid::create(newton, 8.0, 0.5, 8.0, None);
-        DynamicBody::create(newton, &ground, transform(0.0, 0.0, 0.0), None).into_handle(newton);
+        let ground = DynamicBody::create(newton, &ground, transform(0.0, 0.0, 0.0), None);
+        ground.into_handle(newton);
 
         Self
     }

@@ -68,7 +68,7 @@ macro_rules! bodies {
                 match &mut self {
                     $(Body::$enum(ref mut body) => if !body.owned { panic!() } else { body.owned = false; }),*
                 }
-                newton.move_body2(self)
+                newton.storage().move_body(self)
             }
         }
 
@@ -150,7 +150,7 @@ macro_rules! bodies {
                 fn into_handle(mut self, newton: &Newton) -> Handle {
                     if !self.owned { panic!() }
                     self.owned = false;
-                    newton.move_body2(self.into_body())
+                    newton.storage().move_body(self.into_body())
                 }
             }
 
@@ -204,12 +204,6 @@ bodies! {
     #[derive(Debug, Eq, PartialEq)]
     (Kinematic, NewtonCreateKinematicBody) => pub struct KinematicBody<'a>(...);
 }
-
-impl<'a> Dynamic for DynamicBody<'a> {}
-impl<'a> Dynamic for KinematicBody<'a> {}
-
-/// Trait for bodies that have a mass and are affected by forces
-pub trait Dynamic: NewtonBody {}
 
 /// Implementation of most of the NewtonBody API.
 pub trait NewtonBody {

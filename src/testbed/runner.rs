@@ -673,7 +673,7 @@ impl<T: Testbed> Runner<T> {
                     cam.center = sel.position;
                 }
                 if drop_body {
-                    let _ = self.newton.body_take(body.as_handle());
+                    let _ = self.newton.storage_mut().take_body(body.as_handle());
                 } else {
                     self.selected = Some(sel);
                 }

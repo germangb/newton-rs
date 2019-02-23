@@ -2,12 +2,14 @@ use crate::ffi;
 use crate::newton::Newton;
 
 use super::Body;
+use std::marker::PhantomData;
 
 /// Iterator over all the bodies in a NewtonWorld.
 #[derive(Debug)]
 pub struct Bodies<'a> {
-    pub(crate) newton: &'a Newton,
+    pub(crate) newton: *const ffi::NewtonWorld,
     pub(crate) next: *const ffi::NewtonBody,
+    pub(crate) _phantom: PhantomData<&'a ()>,
 }
 
 impl<'a> Iterator for Bodies<'a> {
@@ -19,7 +21,7 @@ impl<'a> Iterator for Bodies<'a> {
             None
         } else {
             unsafe {
-                self.next = ffi::NewtonWorldGetNextBody(self.newton.as_raw(), current);
+                self.next = ffi::NewtonWorldGetNextBody(self.newton, current);
                 Some(Body::from_raw(current, false))
             }
         }
