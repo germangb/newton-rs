@@ -153,6 +153,8 @@ pub struct RenderParams {
     #[imgui(checkbox)]
     pub individual_axis: bool,
 
+    #[imgui(checkbox(label = "Joints"))]
+    pub joints: bool,
     #[imgui(checkbox(label = "AABB"))]
     pub aabb: bool,
     #[imgui(checkbox(label = "Names"))]
@@ -208,6 +210,7 @@ impl Default for RenderParams {
             selected: [1.0, 1.0, 0.5, 1.0],
             aabb_color: [1.0, 1.0, 1.0, 1.0],
 
+            joints: true,
             solid: true,
             wire: true,
             wire_size: 2.0,

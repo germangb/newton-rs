@@ -8,30 +8,45 @@ use super::newton::Newton;
 use super::{AsHandle, IntoHandle};
 use super::{Handle, HandleInner};
 
-use self::builders::{CompoundBuilder, SceneBuilder, TreeBuilder};
+use self::builder::{CompoundBuilder, SceneBuilder, TreeBuilder};
 
-use self::iters::{Collisions, Handles};
+use self::iter::{Collisions, Handles};
 
 /// Types to build compounds, scenes, and tree collisions.
-pub mod builders;
+pub mod builder;
 /// Collision & collision handles iterators
-pub mod iters;
+pub mod iter;
 
 macro_rules! collision {
     ($(
-        $( #[ $($meta:meta)+ ] )*
-        ($enum_var:ident , ffi::$id:ident , $option:ident ) => pub struct $collision:ident<'a>(...);
+        {
+            enum $enum_var:ident
+            fn $option:ident
+            $( #[ $($meta:meta)+ ] )*
+            struct $collision:ident
+            const ffi::$id:ident
+            params $param_name:ident $params:tt
+        }
+        //($enum_var:ident , ffi::$id:ident , $option:ident ) => pub struct $collision:ident<'a>(...);
     )*) => {
 
+    /// Enum grouping all collision types.
     #[derive(Debug, Eq, PartialEq)]
     pub enum Collision<'a> {
         $($enum_var($collision<'a>)),*
     }
 
+    /// Collision types.
     #[repr(i32)]
     #[derive(Clone, Copy, Hash, Debug, Eq, PartialEq, PartialOrd, Ord)]
     pub enum Type {
         $($enum_var = ffi::$id as i32),*
+    }
+
+    /// Collision params
+    #[derive(Clone, Copy, Debug)]
+    pub enum Params<'a, T> {
+        $( $param_name  $params),*
     }
 
     fn check_owned(coll: &Collision) {
@@ -147,38 +162,180 @@ macro_rules! collision {
 }
 
 collision! {
-    #[derive(Debug, Eq, PartialEq)]
-    (Cuboid, ffi::SERIALIZE_ID_BOX, cuboid) => pub struct Cuboid<'a>(...);
+    {
+        enum Cuboid
+        fn cuboid
+        #[derive(Debug, Eq, PartialEq)]
+        struct Cuboid
+        const ffi::SERIALIZE_ID_BOX
+        params Cuboid {
+            dx: f32,
+            dy: f32,
+            dz: f32
+        }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (Sphere, ffi::SERIALIZE_ID_SPHERE, sphere) => pub struct Sphere<'a>(...);
+    {
+        enum Sphere
+        fn sphere
+        #[derive(Debug, Eq, PartialEq)]
+        struct Sphere
+        const ffi::SERIALIZE_ID_SPHERE
+        params Sphere {
+            radius: f32,
+        }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (Cylinder, ffi::SERIALIZE_ID_CYLINDER, cylinder) => pub struct Cylinder<'a>(...);
+    {
+        enum Cylinder
+        fn cylinder
+        #[derive(Debug, Eq, PartialEq)]
+        struct Cylinder
+        const ffi::SERIALIZE_ID_CYLINDER
+        params Cylinder {
+            radius0: f32,
+            radius1: f32,
+            height: f32,
+        }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (Capsule, ffi::SERIALIZE_ID_CAPSULE, capsule) => pub struct Capsule<'a>(...);
+    {
+        enum ChamferCylinder
+        fn chamfer_cylinder
+        #[derive(Debug, Eq, PartialEq)]
+        struct ChamferCylinder
+        const ffi::SERIALIZE_ID_CHAMFERCYLINDER
+        params ChamferCylinder {
+            radius: f32,
+            height: f32,
+        }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (Cone, ffi::SERIALIZE_ID_CONE, cone) => pub struct Cone<'a>(...);
+    {
+        enum Capsule
+        fn capsule
+        #[derive(Debug, Eq, PartialEq)]
+        struct Capsule
+        const ffi::SERIALIZE_ID_CAPSULE
+        params Capsule {
+            radius0: f32,
+            radius1: f32,
+            height: f32,
+        }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (Compound, ffi::SERIALIZE_ID_COMPOUND, compound) => pub struct Compound<'a>(...);
+    {
+        enum Cone
+        fn cone
+        #[derive(Debug, Eq, PartialEq)]
+        struct Cone
+        const ffi::SERIALIZE_ID_CONE
+        params Cone {
+            radius: f32,
+            height: f32,
+        }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (Tree, ffi::SERIALIZE_ID_TREE, tree) => pub struct Tree<'a>(...);
+    {
+        enum Compound
+        fn compound
+        #[derive(Debug, Eq, PartialEq)]
+        struct Compound
+        const ffi::SERIALIZE_ID_COMPOUND
+        params Compound {
+            children_count: usize,
+        }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (Scene, ffi::SERIALIZE_ID_SCENE, scene) => pub struct Scene<'a>(...);
+    {
+        enum FracturedCompound
+        fn fractured_compound
+        #[derive(Debug, Eq, PartialEq)]
+        struct FracturedCompound
+        const ffi::SERIALIZE_ID_FRACTURED_COMPOUND
+        params FracturedCompound { }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (ConvexHull, ffi::SERIALIZE_ID_CONVEXHULL, convex_hull) => pub struct ConvexHull<'a>(...);
+    {
+        enum Tree
+        fn tree
+        #[derive(Debug, Eq, PartialEq)]
+        struct Tree
+        const ffi::SERIALIZE_ID_TREE
+        params Tree {
+            vertex_count: usize,
+            index_count: usize,
+        }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (HeightField, ffi::SERIALIZE_ID_HEIGHTFIELD, height_field) => pub struct HeightField<'a>(...);
+    {
+        enum Scene
+        fn scene
+        #[derive(Debug, Eq, PartialEq)]
+        struct Scene
+        const ffi::SERIALIZE_ID_SCENE
+        params Scene {
+            children_proxy_count: usize,
+        }
+    }
 
-    #[derive(Debug, Eq, PartialEq)]
-    (Null, ffi::SERIALIZE_ID_NULL, null) => pub struct Null<'a>(...);
+    {
+        enum ConvexHull
+        fn convex_hull
+        #[derive(Debug, Eq, PartialEq)]
+        struct ConvexHull
+        const ffi::SERIALIZE_ID_CONVEXHULL
+        params ConvexHull { }
+    }
+
+    {
+        enum HeightField
+        fn height_field
+        #[derive(Debug, Eq, PartialEq)]
+        struct HeightField
+        const ffi::SERIALIZE_ID_HEIGHTFIELD
+        params HeightField {
+            width: usize,
+            height: usize,
+            vertical_elevation: &'a [T],
+            vertical_scale: f32,
+            horizontal_scale_x: f32,
+            horizontal_scale_z: f32,
+            horizontal_displacement_scale_x: f32,
+            horizontal_displacement_scale_z: f32,
+            horizontal_displacement: &'a [i16],
+            attributes: &'a [i8],
+
+        }
+    }
+
+    {
+        enum Null
+        fn null
+        #[derive(Debug, Eq, PartialEq)]
+        struct Null
+        const ffi::SERIALIZE_ID_NULL
+        params Null { }
+    }
+
+    {
+        enum DeformableSolid
+        fn deformable_solid
+        #[derive(Debug, Eq, PartialEq)]
+        struct DeformableSolid
+        const ffi::SERIALIZE_ID_DEFORMABLE_SOLID
+        params DeformableSolid { }
+    }
+
+    {
+        enum MassSpringDamperSystem
+        fn mass_spring_damper_system
+        #[derive(Debug, Eq, PartialEq)]
+        struct MassSpringDamperSystem
+        // TODO is the constant the correct one?
+        const ffi::SERIALIZE_ID_CLOTH_PATCH
+        params MassSpringDamperSystem { }
+    }
 }
 
 impl<'a> Compound<'a> {
@@ -404,10 +561,12 @@ pub trait StaticShape: NewtonCollision {}
 /// A marker trait for collision shapes with convex geometry.
 pub trait ConvexShape: NewtonCollision {}
 
+/*
 /// Marker traits for collisions with geometry that can be iterated.
 ///
 /// Applies to all collision shapes, except for user defined meshes.
 pub trait RenderableShape: NewtonCollision {}
+*/
 
 macro_rules! statik {
     ( $( $collision:ident ),* ) => {$(impl<'a> StaticShape for $collision<'a> {})*}
@@ -426,12 +585,19 @@ statik! {
 }
 
 convex! {
-    Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Null
+    Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Null, ChamferCylinder
 }
 
 //polygon! {
 //    Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Scene, Compound, Tree, HeightField, Null
 //}
+
+/// Calculates acceleration that satisfies a given damper system.
+///
+/// http://newtondynamics.com/wiki/index.php5?title=NewtonCalculateSpringDamperAcceleration
+pub fn calculate_spring_damper_acceleration(dt: f32, ks: f32, x: f32, kd: f32, s: f32) -> f32 {
+    unsafe { ffi::NewtonCalculateSpringDamperAcceleration(dt, ks, x, kd, s) }
+}
 
 // TODO convex?
 /// Tests whether two transformed collisions intersect.

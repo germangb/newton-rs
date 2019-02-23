@@ -20,9 +20,3 @@ pub fn get_euler_angles(matrix: [[f32; 4]; 4]) -> ([f32; 3], [f32; 3]) {
     }
     (sel0, sel1)
 }
-/// Calculates acceleration that satisfies a given damper system.
-///
-/// http://newtondynamics.com/wiki/index.php5?title=NewtonCalculateSpringDamperAcceleration
-pub fn calculate_spring_damper_acceleration(dt: f32, ks: f32, x: f32, kd: f32, s: f32) -> f32 {
-    unsafe { ffi::NewtonCalculateSpringDamperAcceleration(dt, ks, x, kd, s) }
-}

@@ -33,7 +33,7 @@ fn main() {
     for it in 0..(60 * 4) {
         world.update(std::time::Duration::new(0, 1_000_000_000 / 60));
 
-        let body = world.body(h).unwrap();
+        let body = world.storage().body(h).unwrap();
         println!("position = {:?}", body.position());
     }
 }

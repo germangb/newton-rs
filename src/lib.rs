@@ -43,7 +43,7 @@
 //! for it in 0..(60*4) {
 //!     world.update(std::time::Duration::new(0, 1_000_000_000 / 60));
 //!
-//!     let body = world.body(h).unwrap();
+//!     let body = world.storage().body(h).unwrap();
 //!     println!("position = {:?}", body.position());
 //! }
 //!
@@ -57,21 +57,29 @@
 //! ![](https://i.imgur.com/Pbxbzfl.png)
 pub use ffi;
 
-pub use crate::newton::Newton;
 pub use body::{Body, DynamicBody, KinematicBody};
-pub use collision::{Collision, Compound, Cone, Cuboid, Cylinder, Null, Scene, Sphere, Tree};
+pub use collision::{
+    ChamferCylinder, Collision, Compound, Cone, Cuboid, Cylinder, DeformableSolid,
+    FracturedCompound, MassSpringDamperSystem, Null, Scene, Sphere, Tree,
+};
+pub use joint::{Ball, Constraint, Corkscrew, Hinge, Slider, Universal, UpVector, UserJoint};
 pub use utils::*;
+
+pub use crate::newton::Newton;
 
 /// Dynamic & Kinematic body wrappers.
 pub mod body;
 /// NewtonCollision wrappers.
 pub mod collision;
+/// Newton Constraints.
+pub mod joint;
 /// Coverage for newton's utility functions.
 mod utils;
 /// Reexport of the most used traits.
 pub mod prelude {
     pub use super::body::NewtonBody;
     pub use super::collision::NewtonCollision;
+    pub use super::joint::NewtonJoint;
     pub use super::newton::storage::NewtonStorage;
     pub use super::{AsHandle, IntoHandle};
 }
@@ -82,6 +90,15 @@ pub mod newton;
 /// This module is included only if the *testbed* feature is enabled.
 #[cfg(feature = "testbed")]
 pub mod testbed;
+
+/// 3D vector
+pub type Vec3 = [f32; 3];
+/// 4D vector
+pub type Vec4 = [f32; 4];
+/// Quaternion
+pub type Quat = [f32; 4];
+/// 4x4 matrix, arranged in columns
+pub type Mat4 = [Vec4; 4];
 
 /// Opaque type used to access not-owned Collisions & Bodies.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -102,7 +119,7 @@ impl Handle {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
-pub enum HandleInner {
+enum HandleInner {
     Pointer(*const ()),
     Index(usize),
 }
@@ -120,7 +137,7 @@ pub trait IntoHandle {
     fn into_handle(self, newton: &Newton) -> Handle;
 }
 
-pub trait AsHandle: IntoHandle {
+pub trait AsHandle {
     /// Returns the same vale that would be returned by `into_handle`, but
     /// without moving the object.
     fn as_handle(&self) -> Handle;

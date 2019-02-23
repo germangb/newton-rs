@@ -4,17 +4,19 @@ use std::time::Duration;
 
 use super::collision::{Collision, NewtonCollision};
 use super::ffi;
+use super::joint::iter::Joints;
 use super::newton::Newton;
 use super::Handle;
-use super::{AsHandle, IntoHandle};
+use super::{AsHandle, IntoHandle, Mat4};
 
-pub mod iters;
+/// Body iterators.
+pub mod iter;
 
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 pub enum SleepState {
     Active = 0,
-    Asleep = 1,
+    Sleeping = 1,
 }
 
 #[repr(u32)]
@@ -28,7 +30,15 @@ pub enum Type {
 struct UserData {
     /// Callback only applicable to dynamic bodies.
     /// Where you apply weight and other forces on the body.
-    force_and_torque: Option<Box<dyn FnMut(&Body, Duration, usize)>>,
+    force_and_torque: Option<Box<dyn FnMut(Body, Duration, usize)>>,
+
+    /// Body transform callback.
+    /// This closure is called whenever there is a change in the transformation of a body.
+    transform: Option<Box<dyn FnMut(Body, Mat4, usize)>>,
+
+    /// Destructor callback
+    // Type is FnMut because FnOnce cannot be consumed when Boxed.
+    destructor: Option<Box<dyn FnMut(Body)>>,
 
     /// An optional name given to the body when it is created.
     name: Option<&'static str>,
@@ -50,6 +60,8 @@ macro_rules! bodies {
         $(#[$($meta:meta)+])*
         ($enum:ident, $ffi:ident) => pub struct $body:ident<'a>(...);
     )*) => {
+
+        /// Enum grouping all body types.
         #[derive(Debug, Eq, PartialEq)]
         pub enum Body<'a> {
             $( $enum($body<'a>) ),*
@@ -138,8 +150,6 @@ macro_rules! bodies {
                 fn drop(&mut self) {
                     if self.owned {
                         unsafe {
-                            let udata = ffi::NewtonBodyGetUserData(self.raw);
-                            let udata: Box<UserData> = mem::transmute(udata);
                             ffi::NewtonDestroyBody(self.raw);
                         }
                     }
@@ -182,8 +192,9 @@ macro_rules! bodies {
                         let collision = collision.as_raw();
 
                         let body = ffi::$ffi(newton, collision, matrix);
-                        let mut userdata = Box::new(UserData { name, ..Default::default() });
+                        let userdata = Box::new(UserData { name, ..Default::default() });
 
+                        ffi::NewtonBodySetDestructorCallback(body, Some(body_destructor));
                         ffi::NewtonBodySetUserData(body, mem::transmute(userdata));
                         Self { raw: body, owned: true, _phantom: PhantomData }
                     }
@@ -203,6 +214,16 @@ bodies! {
     /// A body that is not affected by forces and is controlled by the application.
     #[derive(Debug, Eq, PartialEq)]
     (Kinematic, NewtonCreateKinematicBody) => pub struct KinematicBody<'a>(...);
+}
+
+unsafe extern "C" fn body_destructor(body: *const ffi::NewtonBody) {
+    let udata = ffi::NewtonBodyGetUserData(body);
+    let mut udata: Box<UserData> = Box::from_raw(udata as _);
+
+    if let Some(mut destructor) = udata.destructor.take() {
+        let body = Body::from_raw(body, false);
+        destructor(body);
+    }
 }
 
 /// Implementation of most of the NewtonBody API.
@@ -286,8 +307,8 @@ pub trait NewtonBody {
         self.set_sleep_state(SleepState::Active)
     }
 
-    fn set_asleep(&self) {
-        self.set_sleep_state(SleepState::Asleep)
+    fn set_sleeping(&self) {
+        self.set_sleep_state(SleepState::Sleeping)
     }
 
     fn set_force(&self, force: [f32; 3]) {
@@ -323,9 +344,37 @@ pub trait NewtonBody {
         }
     }
 
+    fn set_destroy_callback<F>(&self, callback: F)
+    where
+        F: FnMut(Body) + 'static,
+    {
+        unsafe {
+            let mut udata: &mut Box<UserData> =
+                mem::transmute(&mut ffi::NewtonBodyGetUserData(self.as_raw()));
+
+            udata.destructor = Some(Box::new(callback));
+        }
+    }
+
+    fn set_transform_callback<F>(&self, callback: F)
+    where
+        F: FnMut(Body, Mat4, usize),
+    {
+        unimplemented!()
+    }
+
+    fn joints(&self) -> Joints {
+        let joint = unsafe { ffi::NewtonBodyGetFirstJoint(self.as_raw()) };
+        Joints {
+            joint,
+            body: self.as_raw(),
+            _phantom: PhantomData,
+        }
+    }
+
     fn set_force_and_torque_callback<F>(&self, callback: F)
     where
-        F: FnMut(&Body, Duration, usize) + 'static,
+        F: FnMut(Body, Duration, usize) + 'static,
     {
         unsafe {
             let mut udata: &mut Box<UserData> =
@@ -359,7 +408,7 @@ pub trait NewtonBody {
                     }),
                     _ => unreachable!(),
                 };
-                callback(&body, timestep, thread as usize);
+                callback(body, timestep, thread as usize);
             }
         }
     }

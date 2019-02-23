@@ -308,11 +308,24 @@ impl<T: Testbed> Runner<T> {
             let params = self.renderer.params().clone();
             let mut frame = self.renderer.frame(viewport);
 
+            if params.joints {
+                for body in self.newton.bodies_iter() {
+                    for joint in body.joints() {
+                        println!("joint!");
+
+                        match joint.bodies() {
+                            (a, Some(b)) => {}
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
             if params.solid {
                 for body in self.newton.bodies_iter() {
                     let [r, g, b, _] = match body.sleep_state() {
                         SleepState::Active => params.active,
-                        SleepState::Asleep => params.sleeping,
+                        SleepState::Sleeping => params.sleeping,
                     };
 
                     let color = match self.selected {
@@ -640,7 +653,7 @@ impl<T: Testbed> Runner<T> {
                         body.set_active()
                     }
                     if ui.menu_item(im_str!("Sleep")).build() {
-                        body.set_asleep()
+                        body.set_sleeping()
                     }
                     ui.separator();
                     drop_body = ui.menu_item(im_str!("Destroy")).build();

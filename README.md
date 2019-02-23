@@ -19,7 +19,7 @@
 
 * `rust` (recommended method is [rustup](https://rustup.rs))
 * `cmake`
-* `libclang`
+* `libclang-dev`
 * `libsdl2-dev` optional (testbed feature)
 
 ```bash
@@ -67,5 +67,3 @@ git clone --recursive https://github.com/germangb/newton-rs.git
 # the "testbed" feature has to be enabled.
 cargo run --features testbed --example "<name>"
 ```
-
-![](assets/testbed.png)

@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use self::storage::BTreeStorage;
 
-use super::body::{iters::Bodies, Body, NewtonBody};
+use super::body::{iter::Bodies, Body, NewtonBody};
 use super::collision::{Collision, ConvexShape, NewtonCollision};
 use super::ffi;
 use super::{Handle, HandleInner};
@@ -19,10 +19,7 @@ pub mod storage;
 
 /// Type returned by an asynchronous update.
 #[derive(Debug)]
-pub struct AsyncUpdate<'a> {
-    world: *const ffi::NewtonWorld,
-    _phantom: PhantomData<&'a ()>,
-}
+pub struct AsyncUpdate<'a>(&'a Newton);
 
 impl<'a> AsyncUpdate<'a> {
     /// Waits for the newton world update to finish, blocking the current thread.
@@ -31,7 +28,7 @@ impl<'a> AsyncUpdate<'a> {
 
 impl<'a> Drop for AsyncUpdate<'a> {
     fn drop(&mut self) {
-        let world = self.world;
+        let world = self.0.as_raw();
         unsafe { ffi::NewtonWaitForUpdateToFinish(world) }
     }
 }
@@ -157,10 +154,7 @@ impl Newton {
     pub fn update_async(&mut self, step: Duration) -> AsyncUpdate {
         let seconds = step.as_secs() * 1_000_000_000 + step.subsec_nanos() as u64;
         unsafe { ffi::NewtonUpdateAsync(self.as_raw(), seconds as f32 / 1_000_000_000.0) }
-        AsyncUpdate {
-            world: self.as_raw(),
-            _phantom: PhantomData,
-        }
+        AsyncUpdate(self)
     }
 
     /// Samples world with a ray, and runs the given filter closure for every
