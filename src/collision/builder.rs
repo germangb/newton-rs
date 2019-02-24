@@ -1,7 +1,7 @@
 use std::cell::Cell;
 
 use crate::ffi;
-use crate::{Handle, HandleInner};
+use crate::{Handle, HandleInner, Vec3};
 
 use super::{Compound, ConvexShape, NewtonCollision, Scene, Tree};
 
@@ -24,8 +24,7 @@ pub struct TreeBuilder<'a, 'b> {
 impl<'a, 'b> CompoundBuilder<'a, 'b> {
     /// Adds a collision to the compound
     pub fn add<C>(&self, col: &C) -> Handle
-    where
-        C: ConvexShape,
+        where C: ConvexShape
     {
         let comp = self.compound.raw;
         let sub = col.as_raw();
@@ -57,8 +56,7 @@ impl<'a, 'b> CompoundBuilder<'a, 'b> {
 impl<'a, 'b> SceneBuilder<'a, 'b> {
     /// Adds a collision to the scene
     pub fn add<C>(&self, col: &C) -> Handle
-    where
-        C: NewtonCollision,
+        where C: NewtonCollision
     {
         let comp = self.scene.raw;
         let sub = col.as_raw();
@@ -88,18 +86,16 @@ impl<'a, 'b> SceneBuilder<'a, 'b> {
 }
 
 impl<'a, 'b> TreeBuilder<'a, 'b> {
-    // TODO is an IntoIterator<Item=[f32; 3]> better?
+    // TODO is an IntoIterator<Item=Vec3> better?
     // Adds a single triangle to the collision tree
-    pub fn add<I: IntoIterator<Item = [f32; 3]>>(&self, verts: I, attr: i32) {
+    pub fn add<I: IntoIterator<Item = Vec3>>(&self, verts: I, attr: i32) {
         unsafe {
-            let face: Vec<[f32; 3]> = verts.into_iter().collect();
-            ffi::NewtonTreeCollisionAddFace(
-                self.tree.raw,
-                face.len() as _,
-                face.as_ptr() as _,
-                12,
-                attr,
-            );
+            let face: Vec<Vec3> = verts.into_iter().collect();
+            ffi::NewtonTreeCollisionAddFace(self.tree.raw,
+                                            face.len() as _,
+                                            face.as_ptr() as _,
+                                            12,
+                                            attr);
         }
     }
 

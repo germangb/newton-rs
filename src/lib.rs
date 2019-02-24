@@ -10,7 +10,7 @@
 //!
 //! ```
 //! use newton::prelude::*;
-//! use newton::{Newton, Sphere, Cuboid, DynamicBody};
+//! use newton::{Newton, Sphere, Cuboid, DynamicBody, Mat4};
 //!
 //! // init newton world
 //! let mut world = Newton::create();
@@ -47,7 +47,7 @@
 //!     println!("position = {:?}", body.position());
 //! }
 //!
-//! # fn pos(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
+//! # fn pos(x: f32, y: f32, z: f32) -> Mat4 {
 //! #    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [x, y, z, 1.0]]
 //! # }
 //! ```
@@ -55,6 +55,8 @@
 //! ### Result
 //!
 //! ![](https://i.imgur.com/Pbxbzfl.png)
+use std::ptr;
+
 pub use ffi;
 
 pub use body::{Body, DynamicBody, KinematicBody};
@@ -81,7 +83,7 @@ pub mod prelude {
     pub use super::collision::NewtonCollision;
     pub use super::joint::NewtonJoint;
     pub use super::newton::storage::NewtonStorage;
-    pub use super::{AsHandle, IntoHandle};
+    pub use super::{AsHandle, FromHandle, IntoHandle};
 }
 /// NewtonWorld wrapper.
 pub mod newton;
@@ -100,11 +102,28 @@ pub type Quat = [f32; 4];
 /// 4x4 matrix, arranged in columns
 pub type Mat4 = [Vec4; 4];
 
-/// Opaque type used to access not-owned Collisions & Bodies.
+/// ```
+/// use newton::prelude::*;
+/// use newton::{Handle, Newton, Sphere, Collision};
+///
+/// let newton = Newton::create();
+/// let sphere = Sphere::create(&newton, 1.0, None).into_handle(&newton);
+///
+/// let collision = newton.storage().collision(sphere);
+///
+/// assert!(collision.is_some());
+/// assert_eq!(sphere, collision.unwrap().as_handle(&newton));
+/// assert_eq!(None, newton.storage().body(Handle::null()));
+/// ```
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct Handle(HandleInner);
 
 impl Handle {
+    /// Handle that references nothing.
+    pub fn null() -> Self {
+        Self::from_ptr(ptr::null())
+    }
+
     fn from_usize(idx: usize) -> Self {
         Self(HandleInner::Index(idx))
     }
@@ -127,18 +146,27 @@ enum HandleInner {
 unsafe impl Send for Handle {}
 unsafe impl Sync for Handle {}
 
+pub trait FromHandle<'a>: Sized {
+    /// Borrows object from newton storage.
+    fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self>;
+
+    /// Retakes ownership of an object stored in Newton.
+    /// The returned object is destroyed after drop.
+    fn from_handle_owned(newton: &'a mut Newton, handle: Handle) -> Option<Self>;
+}
+
 pub trait IntoHandle {
     /// Moves the object into the given Newton and returns a handle to
     /// borrow it or retake ownership of it later.
     ///
     /// ## Panics
     /// On both Bodies and Collisions, this method panics if the object
-    /// is not owned, but you can still call `as_handle` on these.
+    /// is not owned, but you can still call `as_handle` on those.
     fn into_handle(self, newton: &Newton) -> Handle;
 }
 
 pub trait AsHandle {
     /// Returns the same vale that would be returned by `into_handle`, but
     /// without moving the object.
-    fn as_handle(&self) -> Handle;
+    fn as_handle(&self, newton: &Newton) -> Handle;
 }

@@ -8,39 +8,35 @@ use gl::types::*;
 use imgui_ext::ImGuiExt;
 use serde::{Deserialize, Serialize};
 
+use crate::Vec3;
+
 #[derive(ImGuiExt, Serialize, Deserialize, Clone)]
 pub struct Camera {
     #[imgui(checkbox(label = "Mouse control"))]
     pub controller: bool,
     #[imgui(drag(speed = 0.1))]
-    pub eye: [f32; 3],
+    pub eye: Vec3,
     #[imgui(drag(speed = 0.1))]
-    pub center: [f32; 3],
+    pub center: Vec3,
     #[imgui(slider(min = 1.0, max = 179.0))]
     pub fov: f32,
     #[imgui(slider(min = 0.01, max = 2000.0))]
     pub near: f32,
-    #[imgui(
-        slider(min = 0.01, max = 2000.0),
-        button(label = "Reset camera", catch = "reset")
-    )]
+    #[imgui(slider(min = 0.01, max = 2000.0), button(label = "Reset camera", catch = "reset"))]
     pub far: f32,
 }
 
 impl Default for Camera {
     fn default() -> Self {
-        Self {
-            eye: [6.0, 8.0, 16.0],
-            center: [0.0, 0.0, 0.0],
-            controller: true,
-            fov: 55.0,
-            near: 0.01,
-            far: 1000.0,
-        }
+        Self { eye: [6.0, 8.0, 16.0],
+               center: [0.0, 0.0, 0.0],
+               controller: true,
+               fov: 55.0,
+               near: 0.01,
+               far: 1000.0 }
     }
 }
 
-#[rustfmt::skip]
 pub fn compute_view_proj(camera: &Camera, viewport: [u32; 4]) -> Matrix4<f32> {
     let aspect = viewport[2] as f32 / viewport[3] as f32;
     let proj = cgmath::perspective(Deg(camera.fov), aspect, camera.near, camera.far);
@@ -50,13 +46,17 @@ pub fn compute_view_proj(camera: &Camera, viewport: [u32; 4]) -> Matrix4<f32> {
     proj * view
 }
 
-#[rustfmt::skip]
-pub fn compute_ray(camera: &Camera, mut mx: i32, mut my: i32, [x, y, w, h]: [u32; 4]) -> ([f32; 3], [f32; 3]) {
+pub fn compute_ray(camera: &Camera,
+                   mut mx: i32,
+                   mut my: i32,
+                   [x, y, w, h]: [u32; 4])
+                   -> (Vec3, Vec3) {
     mx -= x as i32;
     my -= y as i32;
     let view_proj = compute_view_proj(camera, [x, y, w, h]);
     let view_proj_inv = view_proj.invert().unwrap();
-    let mut start = Vector4::new(mx as f32 / w as f32 * 2.0 - 1.0, my as f32 / h as f32 * 2.0 - 1.0, 0.0, 1.0);
+    let mut start =
+        Vector4::new(mx as f32 / w as f32 * 2.0 - 1.0, my as f32 / h as f32 * 2.0 - 1.0, 0.0, 1.0);
     let mut end = start;
     end.z = 1.0;
 
@@ -70,7 +70,7 @@ pub fn compute_ray(camera: &Camera, mut mx: i32, mut my: i32, [x, y, w, h]: [u32
 }
 
 impl Camera {
-    pub fn r(&self) -> [f32; 3] {
+    pub fn r(&self) -> Vec3 {
         let [cx, cy, cz] = self.center;
         let [ex, ey, ez] = self.eye;
         [ex - cx, ey - cy, ez - cz]
@@ -91,11 +91,7 @@ impl Camera {
     }
 
     pub fn orbit(&mut self, xrel: f32, yrel: f32) {
-        let Matrix3 {
-            x: right,
-            y: up,
-            z: look,
-        } = self.basis();
+        let Matrix3 { x: right, y: up, z: look } = self.basis();
 
         let k = 0.005;
         let tan = (up * yrel * k + right * xrel * k - look).normalize_to(self.dist());
@@ -107,11 +103,7 @@ impl Camera {
     }
 
     pub fn pan(&mut self, xrel: f32, yrel: f32) {
-        let Matrix3 {
-            x: right,
-            y: up,
-            z: look,
-        } = self.basis();
+        let Matrix3 { x: right, y: up, z: look } = self.basis();
 
         let k = 0.001 * self.dist();
         self.center[0] += right.x * xrel * k;
@@ -166,11 +158,7 @@ pub struct RenderParams {
     #[imgui(checkbox(label = "Shadows"))]
     pub shadows: bool,
 
-    #[imgui(
-        button(label = "Reset##RenderParams", catch = "reset"),
-        new_line,
-        nested
-    )]
+    #[imgui(button(label = "Reset##RenderParams", catch = "reset"), new_line, nested)]
     pub camera: Camera,
     // colors
     #[imgui(new_line, color(edit))]
@@ -201,40 +189,38 @@ impl RenderParams {
 
 impl Default for RenderParams {
     fn default() -> Self {
-        Self {
-            camera: Default::default(),
-            background: [0.24, 0.24, 0.3, 1.0],
-            wireframe: [0.0, 0.0, 0.0, 1.0],
-            active: [1.0, 0.5, 1.0, 1.0],
-            sleeping: [0.7, 0.7, 0.7, 1.0],
-            selected: [1.0, 1.0, 0.5, 1.0],
-            aabb_color: [1.0, 1.0, 1.0, 1.0],
+        Self { camera: Default::default(),
+               background: [0.24, 0.24, 0.3, 1.0],
+               wireframe: [0.0, 0.0, 0.0, 1.0],
+               active: [1.0, 0.5, 1.0, 1.0],
+               sleeping: [0.7, 0.7, 0.7, 1.0],
+               selected: [1.0, 1.0, 0.5, 1.0],
+               aabb_color: [1.0, 1.0, 1.0, 1.0],
 
-            joints: true,
-            solid: true,
-            wire: true,
-            wire_size: 2.0,
-            axis: true,
-            individual_axis: false,
+               joints: true,
+               solid: true,
+               wire: true,
+               wire_size: 2.0,
+               axis: true,
+               individual_axis: false,
 
-            aabb: true,
-            names: true,
-            origins: true,
+               aabb: true,
+               names: true,
+               origins: true,
 
-            lighting: false,
-            shadows: false,
-        }
+               lighting: false,
+               shadows: false }
     }
 }
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct Vert {
-    pub pos: [f32; 3],
+    pub pos: Vec3,
     pub color: [u8; 3],
 }
 
-pub const fn vert(pos: [f32; 3], color: [u8; 3]) -> Vert {
+pub const fn vert(pos: Vec3, color: [u8; 3]) -> Vert {
     Vert { pos, color }
 }
 
@@ -310,8 +296,7 @@ impl TestbedRenderer {
         let (mut ebo, mut vbo, mut vao) = (0, 0, 0);
         let mut vbo_data = Vec::with_capacity(0xFFFF);
         let mut ebo_data = Vec::with_capacity(0xFFFF);
-        #[rustfmt::skip]
-            let _ = unsafe {
+        let _ = unsafe {
             gl!(GenBuffers(1, &mut vbo));
             gl!(GenBuffers(1, &mut ebo));
             gl!(GenVertexArrays(1, &mut vao));
@@ -322,13 +307,29 @@ impl TestbedRenderer {
 
             let vbo_size = 0xFFFF * mem::size_of::<Vert>();
             let ebo_size = 0xFFFF * mem::size_of::<u16>();
-            gl!(BufferData(gl::ARRAY_BUFFER, vbo_size as _, vbo_data.as_ptr() as _, gl::STREAM_DRAW));
-            gl!(BufferData(gl::ELEMENT_ARRAY_BUFFER, ebo_size as _, ebo_data.as_ptr() as _, gl::STREAM_DRAW));
+            gl!(BufferData(gl::ARRAY_BUFFER,
+                           vbo_size as _,
+                           vbo_data.as_ptr() as _,
+                           gl::STREAM_DRAW));
+            gl!(BufferData(gl::ELEMENT_ARRAY_BUFFER,
+                           ebo_size as _,
+                           ebo_data.as_ptr() as _,
+                           gl::STREAM_DRAW));
 
             gl!(EnableVertexAttribArray(0));
             gl!(EnableVertexAttribArray(1));
-            gl!(VertexAttribPointer(0, 3, gl::FLOAT, gl::FALSE, mem::size_of::<Vert>() as _, 0 as _));
-            gl!(VertexAttribPointer(1, 3, gl::UNSIGNED_BYTE, gl::FALSE, mem::size_of::<Vert>() as _, (mem::size_of::<[f32; 3]>()) as _));
+            gl!(VertexAttribPointer(0,
+                                    3,
+                                    gl::FLOAT,
+                                    gl::FALSE,
+                                    mem::size_of::<Vert>() as _,
+                                    0 as _));
+            gl!(VertexAttribPointer(1,
+                                    3,
+                                    gl::UNSIGNED_BYTE,
+                                    gl::FALSE,
+                                    mem::size_of::<Vert>() as _,
+                                    (mem::size_of::<Vec3>()) as _));
 
             gl!(BindVertexArray(0));
             gl!(DisableVertexAttribArray(0));
@@ -347,28 +348,26 @@ impl TestbedRenderer {
             }
         };
 
-        Self {
-            vbo,
-            ebo,
-            vao,
-            vbo_data,
-            ebo_data,
-            program,
-            u_view_proj,
-            u_tint,
-            u_offset,
+        Self { vbo,
+               ebo,
+               vao,
+               vbo_data,
+               ebo_data,
+               program,
+               u_view_proj,
+               u_tint,
+               u_offset,
 
-            params,
-            persist: true,
+               params,
+               persist: true,
 
-            stats: Default::default(),
-        }
+               stats: Default::default() }
     }
 
     unsafe fn init_program() -> (GLuint, GLint, GLint, GLint) {
         let vert = Self::shader(
-            gl::VERTEX_SHADER,
-            r#"#version 330 core
+                                gl::VERTEX_SHADER,
+                                r#"#version 330 core
 layout(location = 0) in vec3 a_position;
 layout(location = 1) in vec4 a_color; // 0-255 ranges
 out vec4 v_color;
@@ -380,8 +379,8 @@ void main() {
         "#,
         );
         let frag = Self::shader(
-            gl::FRAGMENT_SHADER,
-            r#"#version 330 core
+                                gl::FRAGMENT_SHADER,
+                                r#"#version 330 core
 in vec4 v_color;
 out vec4 frag_color;
 uniform vec4 u_tint;
@@ -413,12 +412,7 @@ void main() {
 
     unsafe fn shader(shader_ty: GLenum, source: &str) -> GLuint {
         let shader = gl!(CreateShader(shader_ty));
-        gl!(ShaderSource(
-            shader,
-            1,
-            [source.as_ptr() as _].as_ptr(),
-            [source.len() as _].as_ptr()
-        ));
+        gl!(ShaderSource(shader, 1, [source.as_ptr() as _].as_ptr(), [source.len() as _].as_ptr()));
         gl!(CompileShader(shader));
 
         let mut log = vec![0_u8; 1024];
@@ -445,27 +439,16 @@ void main() {
             gl!(UseProgram(self.program));
             gl!(LineWidth(params.wire_size));
 
-            gl!(UniformMatrix4fv(
-                self.u_view_proj,
-                1,
-                gl::FALSE,
-                view_proj.as_ptr()
-            ));
+            gl!(UniformMatrix4fv(self.u_view_proj, 1, gl::FALSE, view_proj.as_ptr()));
 
             gl!(BindVertexArray(self.vao));
             gl!(BindBuffer(gl::ARRAY_BUFFER, self.vbo));
             gl!(BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo));
         }
 
-        Frame {
-            renderer: self,
-            primitive: None,
-            stats: FrameStats {
-                drawcalls: 0,
-                verts: 0,
-                indices: 0,
-            },
-        }
+        Frame { renderer: self,
+                primitive: None,
+                stats: FrameStats { drawcalls: 0, verts: 0, indices: 0 } }
     }
 }
 
@@ -549,9 +532,7 @@ impl<'a> Frame<'a> {
         }
 
         let idx = self.renderer.ebo_data.len() as u16;
-        self.renderer
-            .ebo_data
-            .extend_from_slice(&[idx, idx + 1, idx + 2]);
+        self.renderer.ebo_data.extend_from_slice(&[idx, idx + 1, idx + 2]);
         self.renderer.vbo_data.extend_from_slice(&[a, b, c]);
     }
 
@@ -571,12 +552,10 @@ impl<'a> Frame<'a> {
         self.stats.indices += index;
 
         unsafe {
-            #[rustfmt::skip]
             gl!(BufferSubData(gl::ARRAY_BUFFER,
                               0,
                               (verts * mem::size_of::<Vert>()) as _,
                               self.renderer.vbo_data.as_ptr() as *const _));
-            #[rustfmt::skip]
             gl!(BufferSubData(gl::ELEMENT_ARRAY_BUFFER,
                               0,
                               (index * mem::size_of::<u16>()) as _,
@@ -599,12 +578,7 @@ impl<'a> Frame<'a> {
                 gl!(PolygonOffset(1.0, 1.0));
             }
 
-            gl!(DrawElements(
-                primitive,
-                index as _,
-                gl::UNSIGNED_SHORT,
-                0 as _
-            ));
+            gl!(DrawElements(primitive, index as _, gl::UNSIGNED_SHORT, 0 as _));
 
             if primitive == gl::TRIANGLES {
                 gl!(Disable(gl::POLYGON_OFFSET_FILL));

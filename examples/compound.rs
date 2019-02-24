@@ -30,12 +30,8 @@ impl Testbed for Example {
 
         DynamicBody::create(newton, &b, transform(0.0, 0.0, 0.1), None).into_handle(newton);
 
-        let body = DynamicBody::create(
-            newton,
-            &compound,
-            transform(0.0, 2.0, 0.0),
-            Some("compound"),
-        );
+        let body =
+            DynamicBody::create(newton, &compound, transform(0.0, 2.0, 0.0), Some("compound"));
 
         body.set_mass(1.0, &compound);
         body.set_force_and_torque_callback(|b, _, _| b.set_force([0.0, -9.8, 0.0]));
@@ -51,12 +47,7 @@ impl Testbed for Example {
 }
 
 const fn transform(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [x, y, z, 1.0],
-    ]
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [x, y, z, 1.0]]
 }
 
 fn main() {

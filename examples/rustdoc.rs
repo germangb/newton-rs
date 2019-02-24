@@ -16,9 +16,9 @@ fn main() {
     let body = DynamicBody::create(&world, &sphere, pos(0.0, 8.0, 0.0), None);
     body.set_mass(1.0, &sphere);
     body.set_force_and_torque_callback(|b, _, _| {
-        let (mass, _) = b.mass();
-        b.set_force([0.0, -9.8 * mass, 0.0])
-    });
+            let (mass, _) = b.mass();
+            b.set_force([0.0, -9.8 * mass, 0.0])
+        });
 
     // drop collisions because we no longer need them and they keep the world borrowed.
     drop(sphere);
@@ -39,10 +39,5 @@ fn main() {
 }
 
 fn pos(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [x, y, z, 1.0],
-    ]
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [x, y, z, 1.0]]
 }

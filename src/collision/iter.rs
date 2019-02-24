@@ -46,13 +46,13 @@ impl<'a> Iterator for Collisions<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let collision = self.handles.collision;
         self.handles.next().and_then(|h| unsafe {
-            match h.inner() {
-                HandleInner::Index(_) => panic!("Unexpected index handle."),
-                HandleInner::Pointer(ptr) => {
-                    let col = (self.get_col)(collision, ptr as _);
-                    Some(Collision::from_raw(col, false))
-                }
-            }
-        })
+                               match h.inner() {
+                                   HandleInner::Index(_) => panic!("Unexpected index handle."),
+                                   HandleInner::Pointer(ptr) => {
+                                       let col = (self.get_col)(collision, ptr as _);
+                                       Some(Collision::from_raw(col, false))
+                                   }
+                               }
+                           })
     }
 }

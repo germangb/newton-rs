@@ -5,8 +5,8 @@ use std::os::raw;
 use super::body::Body;
 use super::ffi;
 use super::newton::Newton;
-use super::{AsHandle, IntoHandle};
-use super::{Handle, HandleInner};
+use super::IntoHandle;
+use super::{AsHandle, FromHandle, Handle, HandleInner, Mat4, Vec3};
 
 use self::builder::{CompoundBuilder, SceneBuilder, TreeBuilder};
 
@@ -55,6 +55,24 @@ macro_rules! collision {
         }
     }
 
+    impl<'a> FromHandle<'a> for Collision<'a> {
+        fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
+            newton.storage().collision(handle)
+        }
+
+        fn from_handle_owned(newton: &'a mut Newton, handle: Handle) -> Option<Self> {
+            newton.storage_mut().take_collision(handle)
+        }
+    }
+
+    impl<'a> AsHandle for Collision<'a> {
+        fn as_handle(&self, newton: &Newton) -> Handle {
+            match self {
+                $(Collision::$enum_var(ref col) => col.as_handle(newton)),*
+            }
+        }
+    }
+
     impl<'a> Collision<'a> {
         pub unsafe fn from_raw(raw: *const ffi::NewtonCollision, owned: bool) -> Self {
             let col_type = ffi::NewtonCollisionGetType(raw);
@@ -99,13 +117,23 @@ macro_rules! collision {
             owned: bool,
             _phantom: PhantomData<&'a ()>,
         }
-
+/*
         unsafe impl<'a> Send for $collision<'a> {}
         unsafe impl<'a> Sync for $collision<'a> {}
-
+*/
         impl<'a> From<$collision<'a>> for Collision<'a> {
             fn from(col: $collision<'a>) -> Self {
                 Collision::$enum_var ( col )
+            }
+        }
+
+        impl<'a> FromHandle<'a> for $collision<'a> {
+            fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
+                newton.storage().collision(handle).and_then(|h| h.$option())
+            }
+
+            fn from_handle_owned(newton: &'a mut Newton, handle: Handle) -> Option<Self> {
+                newton.storage_mut().take_collision(handle).and_then(|h| h.$option())
             }
         }
 
@@ -142,7 +170,7 @@ macro_rules! collision {
         }
 
         impl<'a> AsHandle for $collision<'a> {
-            fn as_handle(&self) -> Handle {
+            fn as_handle(&self, _: &Newton) -> Handle {
                 Handle::from_ptr(self.raw as _)
             }
         }
@@ -348,21 +376,19 @@ impl<'a> Compound<'a> {
 
     pub fn handles(&self) -> Handles {
         let next = unsafe { ffi::NewtonCompoundCollisionGetFirstNode(self.raw) };
-        Handles {
-            collision: self.raw,
-            get_next: Box::new(|c, n| unsafe { ffi::NewtonCompoundCollisionGetNextNode(c, n) }),
-            next,
-            _phantom: PhantomData,
-        }
+        Handles { collision: self.raw,
+                  get_next: Box::new(|c, n| unsafe {
+                      ffi::NewtonCompoundCollisionGetNextNode(c, n)
+                  }),
+                  next,
+                  _phantom: PhantomData }
     }
 
     pub fn collisions(&self) -> Collisions {
-        Collisions {
-            handles: self.handles(),
-            get_col: Box::new(|c, n| unsafe {
-                ffi::NewtonCompoundCollisionGetCollisionFromNode(c, n)
-            }),
-        }
+        Collisions { handles: self.handles(),
+                     get_col: Box::new(|c, n| unsafe {
+                         ffi::NewtonCompoundCollisionGetCollisionFromNode(c, n)
+                     }) }
     }
 
     pub fn get(&self, handle: Handle) -> Option<Collision> {
@@ -404,21 +430,19 @@ impl<'a> Scene<'a> {
 
     pub fn handles(&self) -> Handles {
         let next = unsafe { ffi::NewtonSceneCollisionGetFirstNode(self.raw) };
-        Handles {
-            collision: self.raw,
-            get_next: Box::new(|c, n| unsafe { ffi::NewtonSceneCollisionGetNextNode(c, n) }),
-            next,
-            _phantom: PhantomData,
-        }
+        Handles { collision: self.raw,
+                  get_next: Box::new(|c, n| unsafe {
+                      ffi::NewtonSceneCollisionGetNextNode(c, n)
+                  }),
+                  next,
+                  _phantom: PhantomData }
     }
 
     pub fn collisions(&self) -> Collisions {
-        Collisions {
-            handles: self.handles(),
-            get_col: Box::new(|c, n| unsafe {
-                ffi::NewtonSceneCollisionGetCollisionFromNode(c, n)
-            }),
-        }
+        Collisions { handles: self.handles(),
+                     get_col: Box::new(|c, n| unsafe {
+                         ffi::NewtonSceneCollisionGetCollisionFromNode(c, n)
+                     }) }
     }
 
     pub fn get(&self, handle: Handle) -> Option<Collision> {
@@ -460,10 +484,7 @@ impl<'a> Tree<'a> {
 
     pub fn begin(&mut self) -> TreeBuilder {
         unsafe { ffi::NewtonTreeCollisionBeginBuild(self.raw) }
-        TreeBuilder {
-            tree: self,
-            optimize: false,
-        }
+        TreeBuilder { tree: self, optimize: false }
     }
 }
 
@@ -477,13 +498,7 @@ impl<'a> Null<'a> {
 }
 
 impl<'a> Cuboid<'a> {
-    pub fn create(
-        newton: &'a Newton,
-        x: f32,
-        y: f32,
-        z: f32,
-        offset: Option<[[f32; 4]; 4]>,
-    ) -> Self {
+    pub fn create(newton: &'a Newton, x: f32, y: f32, z: f32, offset: Option<Mat4>) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision = ffi::NewtonCreateBox(newton.as_raw(), x, y, z, 0, offset);
@@ -493,12 +508,7 @@ impl<'a> Cuboid<'a> {
 }
 
 impl<'a> Cone<'a> {
-    pub fn create(
-        newton: &'a Newton,
-        radius: f32,
-        height: f32,
-        offset: Option<[[f32; 4]; 4]>,
-    ) -> Self {
+    pub fn create(newton: &'a Newton, radius: f32, height: f32, offset: Option<Mat4>) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision = ffi::NewtonCreateCone(newton.as_raw(), radius, height, 0, offset);
@@ -508,7 +518,7 @@ impl<'a> Cone<'a> {
 }
 
 impl<'a> Sphere<'a> {
-    pub fn create(newton: &'a Newton, radius: f32, offset: Option<[[f32; 4]; 4]>) -> Self {
+    pub fn create(newton: &'a Newton, radius: f32, offset: Option<Mat4>) -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision = ffi::NewtonCreateSphere(newton.as_raw(), radius, 0, offset);
@@ -518,13 +528,12 @@ impl<'a> Sphere<'a> {
 }
 
 impl<'a> Cylinder<'a> {
-    pub fn create(
-        newton: &'a Newton,
-        radius0: f32,
-        radius1: f32,
-        height: f32,
-        offset: Option<[[f32; 4]; 4]>,
-    ) -> Self {
+    pub fn create(newton: &'a Newton,
+                  radius0: f32,
+                  radius1: f32,
+                  height: f32,
+                  offset: Option<Mat4>)
+                  -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision =
@@ -535,13 +544,12 @@ impl<'a> Cylinder<'a> {
 }
 
 impl<'a> Capsule<'a> {
-    pub fn create(
-        newton: &'a Newton,
-        radius0: f32,
-        radius1: f32,
-        height: f32,
-        offset: Option<[[f32; 4]; 4]>,
-    ) -> Self {
+    pub fn create(newton: &'a Newton,
+                  radius0: f32,
+                  radius1: f32,
+                  height: f32,
+                  offset: Option<Mat4>)
+                  -> Self {
         unsafe {
             let offset = mem::transmute(offset.as_ref());
             let collision =
@@ -601,16 +609,14 @@ pub fn calculate_spring_damper_acceleration(dt: f32, ks: f32, x: f32, kd: f32, s
 
 // TODO convex?
 /// Tests whether two transformed collisions intersect.
-pub fn intersection_test<A, B>(
-    col_a: &A,
-    col_b: &B,
-    mat_a: [[f32; 4]; 4],
-    mat_b: [[f32; 4]; 4],
-    thread_idx: usize,
-) -> bool
-where
-    A: NewtonCollision,
-    B: NewtonCollision,
+pub fn intersection_test<A, B>(col_a: &A,
+                               col_b: &B,
+                               mat_a: Mat4,
+                               mat_b: Mat4,
+                               thread_idx: usize)
+                               -> bool
+    where A: NewtonCollision,
+          B: NewtonCollision
 {
     unimplemented!()
 }
@@ -618,16 +624,14 @@ where
 /// Returns the closest point between two convex collisions, or None if they intersect.
 ///
 /// Returns the pair of points from each body that are closest to each other.
-pub fn closest_point<A, B>(
-    col_a: &A,
-    col_b: &B,
-    mat_a: [[f32; 4]; 4],
-    mat_b: [[f32; 4]; 4],
-    thread_idx: usize,
-) -> Option<([f32; 3], [f32; 3])>
-where
-    A: ConvexShape,
-    B: ConvexShape,
+pub fn closest_point<A, B>(col_a: &A,
+                           col_b: &B,
+                           mat_a: Mat4,
+                           mat_b: Mat4,
+                           thread_idx: usize)
+                           -> Option<(Vec3, Vec3)>
+    where A: ConvexShape,
+          B: ConvexShape
 {
     unimplemented!()
 }
@@ -636,24 +640,18 @@ where
 pub trait NewtonCollision {
     fn as_raw(&self) -> *const ffi::NewtonCollision;
 
-    fn for_each_polygon<F: FnMut(&[f32], raw::c_int)>(
-        &self,
-        matrix: [[f32; 4]; 4],
-        mut callback: F,
-    ) {
+    fn for_each_polygon<F: FnMut(&[f32], raw::c_int)>(&self, matrix: Mat4, mut callback: F) {
         unsafe {
             let udata = mem::transmute(&mut callback);
             let matrix = matrix[0].as_ptr();
             ffi::NewtonCollisionForEachPolygonDo(self.as_raw(), matrix, Some(iterator::<F>), udata);
         }
 
-        unsafe extern "C" fn iterator<F>(
-            udata: *const raw::c_void,
-            vert_count: raw::c_int,
-            face_array: *const f32,
-            face_id: raw::c_int,
-        ) where
-            F: FnMut(&[f32], raw::c_int),
+        unsafe extern "C" fn iterator<F>(udata: *const raw::c_void,
+                                         vert_count: raw::c_int,
+                                         face_array: *const f32,
+                                         face_id: raw::c_int)
+            where F: FnMut(&[f32], raw::c_int)
         {
             let slice = std::slice::from_raw_parts(face_array, vert_count as usize * 3);
             mem::transmute::<_, &mut F>(udata)(slice, face_id);
@@ -675,8 +673,7 @@ pub trait NewtonCollision {
     }
 
     fn into_raw(self) -> *const ffi::NewtonCollision
-    where
-        Self: Sized,
+        where Self: Sized
     {
         self.as_raw()
     }
@@ -685,13 +682,13 @@ pub trait NewtonCollision {
         unsafe { mem::transmute(ffi::NewtonCollisionGetType(self.as_raw())) }
     }
 
-    fn matrix(&self) -> [[f32; 4]; 4] {
-        let mut mat: [[f32; 4]; 4] = Default::default();
+    fn matrix(&self) -> Mat4 {
+        let mut mat: Mat4 = Default::default();
         unsafe { ffi::NewtonCollisionGetMatrix(self.as_raw(), mat[0].as_mut_ptr()) }
         mat
     }
 
-    fn set_matrix(&self, matrix: [[f32; 4]; 4]) {
+    fn set_matrix(&self, matrix: Mat4) {
         unsafe { ffi::NewtonCollisionSetMatrix(self.as_raw(), matrix[0].as_ptr()) }
     }
 

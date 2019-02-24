@@ -83,14 +83,14 @@ macro_rules! joints {
             }
 
             impl<'a> AsHandle for $joint<'a> {
-                fn as_handle(&self) -> Handle {
+                fn as_handle(&self, _: &Newton) -> Handle {
                     Handle::from_ptr(self.raw as _)
                 }
             }
-
             impl<'a> IntoHandle for $joint<'a> {
                 fn into_handle(mut self, newton: &Newton) -> Handle {
                     self.owned = false;
+                    //newton.storage().move_constraint(newton);
                     Handle::from_ptr(self.raw as _)
                 }
             }
@@ -151,8 +151,7 @@ joints! {
 
 impl<'a> Ball<'a> {
     pub fn set_callback<F>(&self, callback: F)
-    where
-        F: FnMut(Ball, Duration) + 'static,
+        where F: FnMut(Ball, Duration) + 'static
     {
         unsafe {
             let udata = ffi::NewtonJointGetUserData(self.raw);
@@ -176,31 +175,56 @@ impl<'a> Ball<'a> {
         }
     }
 
-    pub fn create<A, B>(
-        newton: &Newton,
-        pivot: Vec3,
-        child: &'a A,
-        parent: Option<&'a B>,
-        name: Option<&'static str>,
-    ) -> Self
-    where
-        A: NewtonBody,
-        B: NewtonBody,
+    pub fn create<A, B>(newton: &Newton,
+                        pivot: Vec3,
+                        child: &'a A,
+                        parent: Option<&'a B>,
+                        name: Option<&'static str>)
+                        -> Self
+        where A: NewtonBody,
+              B: NewtonBody
     {
         unsafe {
             let world = newton.as_raw();
-
             let child = child.as_raw();
             let parent = parent.map(|b| b.as_raw()).unwrap_or(ptr::null());
-
             let raw = ffi::NewtonConstraintCreateBall(world, pivot.as_ptr(), child, parent);
+            let udata = UserData { name,
+                                   world: newton.as_raw(),
+                                   ball_callback: None,
+                                   destroy_callback: None };
 
-            let udata = UserData {
-                name,
-                world: newton.as_raw(),
-                ball_callback: None,
-                destroy_callback: None,
-            };
+            ffi::NewtonJointSetDestructor(raw, Some(joint_destroy));
+            ffi::NewtonJointSetUserData(raw, mem::transmute(Box::new(udata)));
+            Self::from_raw(raw, true)
+        }
+    }
+}
+
+impl<'a> Slider<'a> {
+    pub fn create<A, B>(newton: &Newton,
+                        pivot: Vec3,
+                        pin_dir: Vec3,
+                        child: &'a A,
+                        parent: Option<&'a B>,
+                        name: Option<&'static str>)
+                        -> Self
+        where A: NewtonBody,
+              B: NewtonBody
+    {
+        unsafe {
+            let world = newton.as_raw();
+            let child = child.as_raw();
+            let parent = parent.map(|b| b.as_raw()).unwrap_or(ptr::null());
+            let raw = ffi::NewtonConstraintCreateSlider(world,
+                                                        pivot.as_ptr(),
+                                                        pin_dir.as_ptr(),
+                                                        child,
+                                                        parent);
+            let udata = UserData { name,
+                                   world: newton.as_raw(),
+                                   ball_callback: None,
+                                   destroy_callback: None };
 
             ffi::NewtonJointSetDestructor(raw, Some(joint_destroy));
             ffi::NewtonJointSetUserData(raw, mem::transmute(Box::new(udata)));
@@ -222,8 +246,7 @@ pub trait NewtonJoint {
     fn as_raw(&self) -> *const ffi::NewtonJoint;
 
     fn into_raw(self) -> *const ffi::NewtonJoint
-    where
-        Self: Sized,
+        where Self: Sized
     {
         self.as_raw()
     }
@@ -242,11 +265,7 @@ pub trait NewtonJoint {
             let body1 = ffi::NewtonJointGetBody1(self.as_raw());
 
             let body0 = Body::from_raw(body0, false);
-            let body1 = if body1.is_null() {
-                None
-            } else {
-                Some(Body::from_raw(body1, false))
-            };
+            let body1 = if body1.is_null() { None } else { Some(Body::from_raw(body1, false)) };
 
             (body0, body1)
         }
@@ -263,8 +282,7 @@ pub trait NewtonJoint {
     }
 
     fn set_destroy_callback<F>(&self, callback: F)
-    where
-        F: FnMut() + 'static,
+        where F: FnMut() + 'static
     {
         unsafe {
             let udata = &mut ffi::NewtonJointGetUserData(self.as_raw());

@@ -7,7 +7,7 @@ use super::ffi;
 use super::joint::iter::Joints;
 use super::newton::Newton;
 use super::Handle;
-use super::{AsHandle, IntoHandle, Mat4};
+use super::{AsHandle, FromHandle, IntoHandle, Mat4, Vec3};
 
 /// Body iterators.
 pub mod iter;
@@ -58,7 +58,7 @@ impl<'a> IntoBody<'a> for Body<'a> {
 macro_rules! bodies {
     ($(
         $(#[$($meta:meta)+])*
-        ($enum:ident, $ffi:ident) => pub struct $body:ident<'a>(...);
+        ($enum:ident, $ffi:ident, $option:ident) => pub struct $body:ident<'a>(...);
     )*) => {
 
         /// Enum grouping all body types.
@@ -85,8 +85,18 @@ macro_rules! bodies {
         }
 
         impl<'a> AsHandle for Body<'a> {
-            fn as_handle(&self) -> Handle {
+            fn as_handle(&self, _: &Newton) -> Handle {
                 Handle::from_ptr(self.as_raw() as _)
+            }
+        }
+
+        impl<'a> FromHandle<'a> for Body<'a> {
+            fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
+                newton.storage().body(handle)
+            }
+
+            fn from_handle_owned(newton: &'a mut Newton, handle: Handle) -> Option<Self> {
+                newton.storage_mut().take_body(handle)
             }
         }
 
@@ -131,9 +141,19 @@ macro_rules! bodies {
                 }
             }
 
+            impl<'a> FromHandle<'a> for $body<'a> {
+                fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
+                    newton.storage().body(handle).and_then(|h| h.$option())
+                }
+
+                fn from_handle_owned(newton: &'a mut Newton, handle: Handle) -> Option<Self> {
+                    newton.storage_mut().take_body(handle).and_then(|h| h.$option())
+                }
+            }
+/*
             unsafe impl<'a> Send for $body<'a> {}
             unsafe impl<'a> Sync for $body<'a> {}
-
+*/
             impl<'a> IntoBody<'a> for $body<'a> {
                 fn into_body(self) -> Body<'a> {
                     Body::$enum(self)
@@ -165,7 +185,7 @@ macro_rules! bodies {
             }
 
             impl<'a> AsHandle for $body<'a> {
-                fn as_handle(&self) -> Handle {
+                fn as_handle(&self, _: &Newton) -> Handle {
                     Handle::from_ptr(self.raw as _)
                 }
             }
@@ -181,7 +201,7 @@ macro_rules! bodies {
 
                 pub fn create<C>(newton: &'a Newton,
                                  collision: &C,
-                                 matrix: [[f32; 4]; 4],
+                                 matrix: Mat4,
                                  name: Option<&'static str>) -> Self
                 where
                     C: NewtonCollision,
@@ -209,11 +229,11 @@ bodies! {
     ///
     /// If a dynamic body has no mass, it is equivalent to a static body.
     #[derive(Debug, Eq, PartialEq)]
-    (Dynamic, NewtonCreateDynamicBody) => pub struct DynamicBody<'a>(...);
+    (Dynamic, NewtonCreateDynamicBody, dynamic) => pub struct DynamicBody<'a>(...);
 
     /// A body that is not affected by forces and is controlled by the application.
     #[derive(Debug, Eq, PartialEq)]
-    (Kinematic, NewtonCreateKinematicBody) => pub struct KinematicBody<'a>(...);
+    (Kinematic, NewtonCreateKinematicBody, kinematic) => pub struct KinematicBody<'a>(...);
 }
 
 unsafe extern "C" fn body_destructor(body: *const ffi::NewtonBody) {
@@ -230,8 +250,8 @@ unsafe extern "C" fn body_destructor(body: *const ffi::NewtonBody) {
 pub trait NewtonBody {
     fn as_raw(&self) -> *const ffi::NewtonBody;
 
-    fn matrix(&self) -> [[f32; 4]; 4] {
-        let mut mat: [[f32; 4]; 4] = Default::default();
+    fn matrix(&self) -> Mat4 {
+        let mut mat: Mat4 = Default::default();
         unsafe { ffi::NewtonBodyGetMatrix(self.as_raw(), mat[0].as_mut_ptr()) }
         mat
     }
@@ -250,32 +270,31 @@ pub trait NewtonBody {
         }
     }
 
-    fn set_matrix(&self, matrix: [[f32; 4]; 4]) {
+    fn set_matrix(&self, matrix: Mat4) {
         unsafe { ffi::NewtonBodySetMatrix(self.as_raw(), matrix[0].as_ptr()) }
     }
 
-    fn position(&self) -> [f32; 3] {
-        let mut pos: [f32; 3] = Default::default();
+    fn position(&self) -> Vec3 {
+        let mut pos: Vec3 = Default::default();
         unsafe { ffi::NewtonBodyGetPosition(self.as_raw(), pos.as_mut_ptr()) }
         pos
     }
 
     fn into_raw(self) -> *const ffi::NewtonBody
-    where
-        Self: Sized,
+        where Self: Sized
     {
         self.as_raw()
     }
 
-    fn velocity(&self) -> [f32; 3] {
-        let mut velo: [f32; 3] = Default::default();
+    fn velocity(&self) -> Vec3 {
+        let mut velo: Vec3 = Default::default();
         unsafe { ffi::NewtonBodyGetVelocity(self.as_raw(), velo.as_mut_ptr()) }
         velo
     }
 
-    fn aabb(&self) -> ([f32; 3], [f32; 3]) {
-        let mut min: [f32; 3] = Default::default();
-        let mut max: [f32; 3] = Default::default();
+    fn aabb(&self) -> (Vec3, Vec3) {
+        let mut min: Vec3 = Default::default();
+        let mut max: Vec3 = Default::default();
         unsafe {
             ffi::NewtonBodyGetAABB(self.as_raw(), min.as_mut_ptr(), max.as_mut_ptr());
         }
@@ -311,7 +330,7 @@ pub trait NewtonBody {
         self.set_sleep_state(SleepState::Sleeping)
     }
 
-    fn set_force(&self, force: [f32; 3]) {
+    fn set_force(&self, force: Vec3) {
         unsafe { ffi::NewtonBodySetForce(self.as_raw(), force.as_ptr()) }
     }
 
@@ -330,9 +349,9 @@ pub trait NewtonBody {
         }
     }
 
-    fn mass(&self) -> (f32, [f32; 3]) {
+    fn mass(&self) -> (f32, Vec3) {
         let mut mass = 0.0;
-        let mut i: [f32; 3] = [0.0, 0.0, 0.0];
+        let mut i: Vec3 = [0.0, 0.0, 0.0];
         unsafe { ffi::NewtonBodyGetMass(self.as_raw(), &mut mass, &mut i[0], &mut i[1], &mut i[2]) }
         (mass, i)
     }
@@ -345,8 +364,7 @@ pub trait NewtonBody {
     }
 
     fn set_destroy_callback<F>(&self, callback: F)
-    where
-        F: FnMut(Body) + 'static,
+        where F: FnMut(Body) + 'static
     {
         unsafe {
             let mut udata: &mut Box<UserData> =
@@ -357,24 +375,18 @@ pub trait NewtonBody {
     }
 
     fn set_transform_callback<F>(&self, callback: F)
-    where
-        F: FnMut(Body, Mat4, usize),
+        where F: FnMut(Body, Mat4, usize)
     {
         unimplemented!()
     }
 
     fn joints(&self) -> Joints {
         let joint = unsafe { ffi::NewtonBodyGetFirstJoint(self.as_raw()) };
-        Joints {
-            joint,
-            body: self.as_raw(),
-            _phantom: PhantomData,
-        }
+        Joints { joint, body: self.as_raw(), _phantom: PhantomData }
     }
 
     fn set_force_and_torque_callback<F>(&self, callback: F)
-    where
-        F: FnMut(Body, Duration, usize) + 'static,
+        where F: FnMut(Body, Duration, usize) + 'static
     {
         unsafe {
             let mut udata: &mut Box<UserData> =
@@ -383,11 +395,9 @@ pub trait NewtonBody {
             ffi::NewtonBodySetForceAndTorqueCallback(self.as_raw(), Some(force_and_torque));
         }
 
-        unsafe extern "C" fn force_and_torque(
-            body: *const ffi::NewtonBody,
-            timestep: f32,
-            thread: std::os::raw::c_int,
-        ) {
+        unsafe extern "C" fn force_and_torque(body: *const ffi::NewtonBody,
+                                              timestep: f32,
+                                              thread: std::os::raw::c_int) {
             let seconds = timestep.floor() as u64;
             let nanos = (timestep.fract() * 1_000_000_000.0) as u32;
             let timestep = Duration::new(seconds, nanos);
@@ -396,16 +406,14 @@ pub trait NewtonBody {
             let mut udata: &mut Box<UserData> = mem::transmute(&mut udata);
             if let Some(callback) = &mut udata.force_and_torque {
                 let body = match ffi::NewtonBodyGetType(body) as _ {
-                    ffi::NEWTON_DYNAMIC_BODY => Body::Dynamic(DynamicBody {
-                        raw: body,
-                        _phantom: PhantomData,
-                        owned: false,
-                    }),
-                    ffi::NEWTON_KINEMATIC_BODY => Body::Kinematic(KinematicBody {
-                        raw: body,
-                        _phantom: PhantomData,
-                        owned: false,
-                    }),
+                    ffi::NEWTON_DYNAMIC_BODY => Body::Dynamic(DynamicBody { raw: body,
+                                                                            _phantom:
+                                                                                PhantomData,
+                                                                            owned: false }),
+                    ffi::NEWTON_KINEMATIC_BODY => Body::Kinematic(KinematicBody { raw: body,
+                                                                                  _phantom:
+                                                                                      PhantomData,
+                                                                                  owned: false }),
                     _ => unreachable!(),
                 };
                 callback(body, timestep, thread as usize);

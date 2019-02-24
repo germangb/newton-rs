@@ -6,13 +6,12 @@ use std::ptr;
 use std::sync::RwLock;
 use std::time::Duration;
 
-use self::storage::BTreeStorage;
+use self::storage::{BTreeStorage, NewtonStorage};
 
 use super::body::{iter::Bodies, Body, NewtonBody};
 use super::collision::{Collision, ConvexShape, NewtonCollision};
 use super::ffi;
-use super::{Handle, HandleInner};
-use crate::newton::storage::NewtonStorage;
+use super::{Handle, HandleInner, Vec3};
 
 /// Data structured for bodies & collisions.
 pub mod storage;
@@ -39,9 +38,6 @@ pub struct Newton {
     raw: *const ffi::NewtonWorld,
     owned: bool,
 }
-
-unsafe impl Send for Newton {}
-unsafe impl Sync for Newton {}
 
 // Trait objects are "fat pointers" (their size is not the same as usize).
 // I need to wrap the trait object in a struct and introduce an extra layer of indirection (pointer to a pointer)...
@@ -112,11 +108,7 @@ impl Newton {
 
     pub fn bodies_iter(&self) -> Bodies {
         let next = unsafe { ffi::NewtonWorldGetFirstBody(self.as_raw()) };
-        Bodies {
-            newton: self.as_raw(),
-            next,
-            _phantom: PhantomData,
-        }
+        Bodies { newton: self.as_raw(), next, _phantom: PhantomData }
     }
 }
 
@@ -164,20 +156,18 @@ impl Newton {
     /// Refer to the [official wiki][wiki] for further info.
     ///
     /// [wiki]: http://newtondynamics.com/wiki/index.php5?title=NewtonWorldRayCast
-    #[rustfmt::skip]
     pub fn ray_cast<F>(&self,
-                       p0: [f32; 3],
-                       p1: [f32; 3],
+                       p0: Vec3,
+                       p1: Vec3,
                        mut filter: F,
 
                        // lifetime is elided
                        //mut prefilter: Option<RayCastPrefilter>,
                        thread: usize)
-    where
-        F: FnMut(Body, Collision, [f32; 3], [f32; 3],  f32) -> f32,
+        where F: FnMut(Body, Collision, Vec3, Vec3, f32) -> f32
     {
-        type Userdata<'a, T> = (&'a mut T, );
-        let mut user_data = (&mut filter, );
+        type Userdata<'a, T> = (&'a mut T,);
+        let mut user_data = (&mut filter,);
         unsafe {
             ffi::NewtonWorldRayCast(self.as_raw(),
                                     p0.as_ptr(),
@@ -193,7 +183,7 @@ impl Newton {
                                         collision: *const ffi::NewtonCollision,
                                         user_data: *const c_void) -> u32
             where
-                F: FnMut(Body, Collision, [f32; 3], [f32; 3],  f32) -> f32,
+                F: FnMut(Body, Collision, Vec3, Vec3,  f32) -> f32,
         {
             let mut filter: &mut Userdata<F> = mem::transmute(user_data);
             let body = Body::from_raw(body, false);
@@ -213,9 +203,9 @@ impl Newton {
                                         normal: *const f32,
                                         collision_id: c_longlong,
                                         user_data: *const c_void,
-                                        intersect_param: f32) -> f32
-            where
-                F: FnMut(Body, Collision, [f32; 3], [f32; 3], f32) -> f32,
+                                        intersect_param: f32)
+                                        -> f32
+            where F: FnMut(Body, Collision, Vec3, Vec3, f32) -> f32
         {
             let mut filter: &mut Userdata<F> = mem::transmute(user_data);
 
@@ -236,7 +226,7 @@ impl Drop for Newton {
         if self.owned {
             unsafe {
                 let udata = ffi::NewtonWorldGetUserData(self.raw);
-                let udata: Box<Storage> = Box::from_raw(udata as _);
+                let _: Box<Storage> = Box::from_raw(udata as _);
                 ffi::NewtonDestroyAllBodies(self.raw);
                 ffi::NewtonMaterialDestroyAllGroupID(self.raw);
                 ffi::NewtonDestroy(self.raw);

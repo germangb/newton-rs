@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashSet};
 
 use crate::body::{Body, NewtonBody};
 use crate::collision::{Collision, NewtonCollision};
+use crate::joint::Constraint;
 use crate::{Handle, HandleInner};
 
 /// Data structure for Newton Bodies & Collisions.
@@ -13,17 +14,25 @@ pub trait NewtonStorage {
     /// Stores the given collision.
     fn move_collision(&self, col: Collision) -> Handle;
 
+    /// Stores the given constraint
+    fn move_constraint(&self, con: Constraint) -> Handle;
+
     /// Borrows a Newton Body.
     fn body(&self, handle: Handle) -> Option<Body>;
 
     /// Borrows a Newton Collision.
     fn collision(&self, handle: Handle) -> Option<Collision>;
 
+    /// Borrows constraint
+    fn constraint(&self, handle: Handle) -> Option<Constraint>;
+
     /// Retakes ownership of a Newton Body.
     fn take_body(&mut self, handle: Handle) -> Option<Body>;
 
     /// Retakes ownership of a Newton Collision.
     fn take_collision(&mut self, handle: Handle) -> Option<Collision>;
+
+    fn take_constraint(&mut self, handle: Handle) -> Option<Collision>;
 }
 
 macro_rules! set {
@@ -34,6 +43,15 @@ macro_rules! set {
             pub struct $name {
                 bodies: RefCell<$data_struct<Handle>>,
                 collisions: RefCell<$data_struct<Handle>>,
+            }
+
+            impl Drop for $name {
+                fn drop(&mut self) {
+                    let collisions = self.collisions.clone();
+                    for col in collisions.borrow().iter() {
+                        let _ = self.take_collision(*col);
+                    }
+                }
             }
 
             impl NewtonStorage for $name {
@@ -47,6 +65,10 @@ macro_rules! set {
                     let handle = Handle::from_ptr(col.as_raw() as _);
                     self.collisions.borrow_mut().insert(handle.clone());
                     handle
+                }
+
+                fn move_constraint(&self, con: Constraint) -> Handle {
+                    unimplemented!()
                 }
 
                 fn body(&self, handle: Handle) -> Option<Body> {
@@ -69,6 +91,10 @@ macro_rules! set {
                     }
                 }
 
+                fn constraint(&self, handle: Handle) -> Option<Constraint> {
+                    unimplemented!()
+                }
+
                 fn take_body(&mut self, handle: Handle) -> Option<Body> {
                     let body = self.bodies.borrow_mut().take(&handle);
                     unsafe {
@@ -88,14 +114,16 @@ macro_rules! set {
                         })
                     }
                 }
+
+                fn take_constraint(&mut self, handle: Handle) -> Option<Collision> {
+                    unimplemented!()
+                }
             }
 
         )*
     }
 }
 
-// We don't need to impl `Drop` because collisions and bodies are dropped when
-// ffi::NewtonDestroyAllBodies is called in `Newton`'s Drop implementation.
 set! {
     /// Storage of bodies & collisions in a HashSet.
     struct HashStorage<HashSet>

@@ -8,11 +8,12 @@ impl Testbed for Joints {
     fn reset(newton: &mut Newton) -> Self {
         let sphere = Sphere::create(newton, 0.5, None);
 
-        let mut last_body =
-            DynamicBody::create(newton, &sphere, pos(0.0, 0.0, 0.0), Some("ground"))
-                .into_handle(newton);
+        let mut last_body = DynamicBody::create(newton,
+                                                &sphere,
+                                                pos(0.0, 0.0, 0.0),
+                                                Some("ground")).into_handle(newton);
 
-        for (offset, pivot) in (1..8).map(|i| (2.0 * i as f32, 2.0 * (i - 1) as f32)) {
+        for (offset, pivot) in (1..8).map(|i| (0.5 * i as f32, 0.5 * (i - 1) as f32)) {
             let parent = newton.storage().body(last_body).unwrap();
 
             let ball = DynamicBody::create(newton, &sphere, pos(offset, offset, 0.0), Some("ball"));
@@ -38,10 +39,5 @@ fn main() {
 }
 
 const fn pos(x: f32, y: f32, z: f32) -> [[f32; 4]; 4] {
-    [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [x, y, z, 1.0],
-    ]
+    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [x, y, z, 1.0]]
 }
