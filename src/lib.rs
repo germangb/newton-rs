@@ -3,67 +3,14 @@
 //! - **Newton version: 3.13a**
 //!
 //! [newton]: https://github.com/MADEAPPS/newton-dynamics
-//!
-//! ## Example
-//!
-//! The following example creates a plane, and a unit sphere bounding on it.
-//!
-//! ```
-//! use newton::prelude::*;
-//! use newton::{Newton, Sphere, Cuboid, DynamicBody, Mat4};
-//!
-//! // init newton world
-//! let mut world = Newton::create();
-//!
-//! // Create collisions
-//! let sphere = Sphere::create(&world, 1.0, None);
-//! let plane = Cuboid::create(&world, 16.0, 0.1, 16.0, None);
-//!
-//! // create plane
-//! DynamicBody::create(&world, &plane, pos(0.0, 0.0, 0.0), None).into_handle(&world);
-//!
-//! /// Create bounding body
-//! let body = DynamicBody::create(&world, &sphere, pos(0.0, 8.0, 0.0), None);
-//! body.set_mass(1.0, &sphere);
-//! body.set_force_and_torque_callback(|b, _, _| {
-//!     let (mass, _) = b.mass();
-//!     b.set_force([0.0, -9.8 * mass, 0.0])
-//! });
-//!
-//! // drop collisions because we no longer need them and they keep the world borrowed.
-//! drop(sphere);
-//! drop(plane);
-//!
-//! println!("Body starts at position = {:?}", body.position());
-//!
-//! // save body for later...
-//! let h = body.into_handle(&world);
-//!
-//! // simulate 4 seconds...
-//! for it in 0..(60*4) {
-//!     world.update(std::time::Duration::new(0, 1_000_000_000 / 60));
-//!
-//!     let body = world.storage().body(h).unwrap();
-//!     println!("position = {:?}", body.position());
-//! }
-//!
-//! # fn pos(x: f32, y: f32, z: f32) -> Mat4 {
-//! #    [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 0.0], [x, y, z, 1.0]]
-//! # }
-//! ```
-//!
-//! ### Result
-//!
-//! ![](https://i.imgur.com/Pbxbzfl.png)
-use std::ptr;
-
-pub use ffi;
+include!("macros.rs");
 
 pub use body::{Body, DynamicBody, KinematicBody};
 pub use collision::{
     ChamferCylinder, Collision, Compound, Cone, Cuboid, Cylinder, DeformableSolid,
     FracturedCompound, MassSpringDamperSystem, Null, Scene, Sphere, Tree,
 };
+pub use ffi;
 pub use joint::{Ball, Constraint, Corkscrew, Hinge, Slider, Universal, UpVector, UserJoint};
 pub use utils::*;
 
@@ -102,7 +49,7 @@ pub type Quat = [f32; 4];
 /// 4x4 matrix, arranged in columns
 pub type Mat4 = [Vec4; 4];
 
-/// ```
+/// ```ignore
 /// use newton::prelude::*;
 /// use newton::{Handle, Newton, Sphere, Collision};
 ///
@@ -119,9 +66,8 @@ pub type Mat4 = [Vec4; 4];
 pub struct Handle(HandleInner);
 
 impl Handle {
-    /// Handle that references nothing.
     pub fn null() -> Self {
-        Self::from_ptr(ptr::null())
+        Self::from_ptr(std::ptr::null())
     }
 
     fn from_usize(idx: usize) -> Self {

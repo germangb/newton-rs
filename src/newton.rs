@@ -214,8 +214,8 @@ impl Newton {
 
             // We can safely cast from *const f32 to &Vector because the later has the
             // same representation.
-            let mut contact = [*contact, *contact.offset(1), *contact.offset(2)];
-            let mut normal = [*normal, *normal.offset(1), *normal.offset(2)];
+            let contact = mem::transmute::<_, &Vec3>(contact).clone();
+            let normal = mem::transmute::<_, &Vec3>(normal).clone();
             filter.0(body, collision, contact, normal, intersect_param)
         }
     }

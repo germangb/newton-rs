@@ -19,12 +19,13 @@ impl Testbed for Joints {
             let ball = DynamicBody::create(newton, &sphere, pos(offset, offset, 0.0), Some("ball"));
             let joint = Ball::create(newton, [pivot, pivot, 0.0], &ball, Some(&parent), None);
 
-            joint.set_stiffness(10.0);
+            joint.set_cone_limits([-1.0, 0.0, 0.0], 0.0, 0.0);
             joint.set_destroy_callback(|| println!("Destroy joint"));
             joint.into_handle(&newton);
 
             ball.set_mass(1.0, &sphere);
             ball.set_destroy_callback(|_| println!("Destroy ball"));
+            ball.set_transform_callback(|b, _, _| eprintln!("Transform update"));
             ball.set_force_and_torque_callback(|b, _, _| b.set_force([0.0, -9.8, 0.0]));
 
             last_body = ball.into_handle(newton);

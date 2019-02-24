@@ -199,6 +199,30 @@ impl<'a> Ball<'a> {
             Self::from_raw(raw, true)
         }
     }
+
+    pub fn set_cone_limits(&self, pin: Vec3, max_cone_angle: f32, max_twist_angle: f32) {
+        unsafe {
+            ffi::NewtonBallSetConeLimits(self.raw, pin.as_ptr(), max_cone_angle, max_twist_angle)
+        };
+    }
+
+    pub fn joint_angle(&self) -> Vec3 {
+        let mut angles = [0.0, 0.0, 0.0];
+        unsafe { ffi::NewtonBallGetJointAngle(self.raw, angles.as_mut_ptr()) }
+        angles
+    }
+
+    pub fn joint_force(&self) -> Vec3 {
+        let mut force = [0.0, 0.0, 0.0];
+        unsafe { ffi::NewtonBallGetJointForce(self.raw, force.as_mut_ptr()) }
+        force
+    }
+
+    pub fn joint_omega(&self) -> Vec3 {
+        let mut omega = [0.0, 0.0, 0.0];
+        unsafe { ffi::NewtonBallGetJointOmega(self.raw, omega.as_mut_ptr()) }
+        omega
+    }
 }
 
 impl<'a> Slider<'a> {

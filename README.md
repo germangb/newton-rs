@@ -49,6 +49,7 @@ The wrapper gives coverage to a subset of the C API (see [#1][issue]).
 
 * Documentation
 * Constraints (joints)
+* Materials
 * Inverse kinematics
 * Mesh collisions
 * Most callbacks

@@ -55,175 +55,6 @@ impl<'a> IntoBody<'a> for Body<'a> {
     }
 }
 
-macro_rules! bodies {
-    ($(
-        $(#[$($meta:meta)+])*
-        ($enum:ident, $ffi:ident, $option:ident) => pub struct $body:ident<'a>(...);
-    )*) => {
-
-        /// Enum grouping all body types.
-        #[derive(Debug, Eq, PartialEq)]
-        pub enum Body<'a> {
-            $( $enum($body<'a>) ),*
-        }
-
-        impl<'a> NewtonBody for Body<'a> {
-            fn as_raw(&self) -> *const ffi::NewtonBody {
-                match self {
-                    $(Body::$enum(body) => body.as_raw()),*
-                }
-            }
-        }
-
-        impl<'a> IntoHandle for Body<'a> {
-            fn into_handle(mut self, newton: &Newton) -> Handle {
-                match &mut self {
-                    $(Body::$enum(ref mut body) => if !body.owned { panic!() } else { body.owned = false; }),*
-                }
-                newton.storage().move_body(self)
-            }
-        }
-
-        impl<'a> AsHandle for Body<'a> {
-            fn as_handle(&self, _: &Newton) -> Handle {
-                Handle::from_ptr(self.as_raw() as _)
-            }
-        }
-
-        impl<'a> FromHandle<'a> for Body<'a> {
-            fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
-                newton.storage().body(handle)
-            }
-
-            fn from_handle_owned(newton: &'a mut Newton, handle: Handle) -> Option<Self> {
-                newton.storage_mut().take_body(handle)
-            }
-        }
-
-        impl<'a> Body<'a> {
-            pub(crate) unsafe fn from_raw(raw: *const ffi::NewtonBody, owned: bool) -> Self {
-                let body_type = ffi::NewtonBodyGetType(raw);
-                match body_type as _ {
-                    ffi::NEWTON_DYNAMIC_BODY => Body::Dynamic(DynamicBody::from_raw(raw, owned)),
-                    ffi::NEWTON_KINEMATIC_BODY => Body::Kinematic(KinematicBody::from_raw(raw, owned)),
-                    _ => unreachable!("Unexpected body type ({})", body_type),
-                }
-            }
-
-            pub fn dynamic(self) -> Option<DynamicBody<'a>> {
-                match self {
-                    Body::Dynamic(body) => Some(body),
-                    _ => None,
-                }
-            }
-
-            pub fn kinematic(self) -> Option<KinematicBody<'a>> {
-                match self {
-                    Body::Kinematic(body) => Some(body),
-                    _ => None,
-                }
-            }
-        }
-
-        $(
-            $(#[$($meta)+])*
-            pub struct $body<'a> {
-                raw: *const ffi::NewtonBody,
-                _phantom: PhantomData<&'a ()>,
-                // Bodies from iterators or callbacks generally won't be owned.
-                // When they are, the memory is freed when the object is dropped.
-                pub(crate) owned: bool,
-            }
-
-            impl<'a> From<$body<'a>> for Body<'a> {
-                fn from(body: $body<'a>) -> Self {
-                    Body::$enum ( body )
-                }
-            }
-
-            impl<'a> FromHandle<'a> for $body<'a> {
-                fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
-                    newton.storage().body(handle).and_then(|h| h.$option())
-                }
-
-                fn from_handle_owned(newton: &'a mut Newton, handle: Handle) -> Option<Self> {
-                    newton.storage_mut().take_body(handle).and_then(|h| h.$option())
-                }
-            }
-/*
-            unsafe impl<'a> Send for $body<'a> {}
-            unsafe impl<'a> Sync for $body<'a> {}
-*/
-            impl<'a> IntoBody<'a> for $body<'a> {
-                fn into_body(self) -> Body<'a> {
-                    Body::$enum(self)
-                }
-            }
-
-            impl<'a> NewtonBody for $body<'a> {
-                fn as_raw(&self) -> *const ffi::NewtonBody {
-                    self.raw
-                }
-            }
-
-            impl<'a> Drop for $body<'a> {
-                fn drop(&mut self) {
-                    if self.owned {
-                        unsafe {
-                            ffi::NewtonDestroyBody(self.raw);
-                        }
-                    }
-                }
-            }
-
-            impl<'a> IntoHandle for $body<'a> {
-                fn into_handle(mut self, newton: &Newton) -> Handle {
-                    if !self.owned { panic!() }
-                    self.owned = false;
-                    newton.storage().move_body(self.into_body())
-                }
-            }
-
-            impl<'a> AsHandle for $body<'a> {
-                fn as_handle(&self, _: &Newton) -> Handle {
-                    Handle::from_ptr(self.raw as _)
-                }
-            }
-
-            impl<'a> $body<'a> {
-                pub unsafe fn from_raw(raw: *const ffi::NewtonBody, owned: bool) -> Self {
-                    Self {
-                        raw,
-                        owned,
-                        _phantom: PhantomData,
-                    }
-                }
-
-                pub fn create<C>(newton: &'a Newton,
-                                 collision: &C,
-                                 matrix: Mat4,
-                                 name: Option<&'static str>) -> Self
-                where
-                    C: NewtonCollision,
-                {
-                    unsafe {
-                        let newton = newton.as_raw();
-                        let matrix = matrix[0].as_ptr();
-                        let collision = collision.as_raw();
-
-                        let body = ffi::$ffi(newton, collision, matrix);
-                        let userdata = Box::new(UserData { name, ..Default::default() });
-
-                        ffi::NewtonBodySetDestructorCallback(body, Some(body_destructor));
-                        ffi::NewtonBodySetUserData(body, mem::transmute(userdata));
-                        Self { raw: body, owned: true, _phantom: PhantomData }
-                    }
-                }
-            }
-        )*
-    }
-}
-
 bodies! {
     /// Dynamic body wrapper.
     ///
@@ -375,9 +206,26 @@ pub trait NewtonBody {
     }
 
     fn set_transform_callback<F>(&self, callback: F)
-        where F: FnMut(Body, Mat4, usize)
+        where F: FnMut(Body, Mat4, usize) + 'static
     {
-        unimplemented!()
+        unsafe {
+            let mut udata: &mut Box<UserData> =
+                mem::transmute(&mut ffi::NewtonBodyGetUserData(self.as_raw()));
+            udata.transform = Some(Box::new(callback));
+            ffi::NewtonBodySetTransformCallback(self.as_raw(), Some(set_transform));
+        }
+
+        unsafe extern "C" fn set_transform(body: *const ffi::NewtonBody,
+                                           matrix: *const f32,
+                                           thread: std::os::raw::c_int) {
+            let mut udata = ffi::NewtonBodyGetUserData(body);
+            let udata: &mut Box<UserData> = mem::transmute(&mut udata);
+
+            if let Some(callback) = &mut udata.transform {
+                let matrix = mem::transmute::<_, &Mat4>(matrix).clone();
+                callback(Body::from_raw(body, false), matrix, thread as _);
+            }
+        }
     }
 
     fn joints(&self) -> Joints {
