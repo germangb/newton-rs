@@ -1,7 +1,7 @@
+use crate::body::Body;
 use crate::ffi;
 use crate::newton::Newton;
 
-use super::Body;
 use std::marker::PhantomData;
 
 /// Iterator over all the bodies in a NewtonWorld.

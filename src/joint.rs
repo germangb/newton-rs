@@ -7,9 +7,9 @@ use std::time::Duration;
 
 use crate::body::{Body, NewtonBody};
 use crate::ffi;
+use crate::handle::{AsHandle, Handle, IntoHandle};
 use crate::newton::Newton;
 use crate::Vec3;
-use crate::{AsHandle, Handle, IntoHandle};
 
 /// Joint iterators
 pub mod iter;
@@ -24,134 +24,51 @@ pub enum CollisionState {
 struct UserData {
     /// I need a pointer to the NewtonWorld in order to destroy the collision...
     world: *const ffi::NewtonWorld,
+
     /// Human readable name (useful for debugging)
     name: Option<&'static str>,
 
     /// Ball joint callback
     ball_callback: Option<Box<dyn FnMut(Ball, Duration)>>,
+
     ///// Slider joint callback
     //slider_callback: Option<Box<dyn FnMut(Slider, Duration)>>,
     /// Joint destructor callback.
     /// Common to all joint types.
     destroy_callback: Option<Box<dyn FnMut()>>,
-}
 
-macro_rules! joints {
-    ($(
-        {
-            $( #[ $($meta:meta)+ ] )*
-            struct $joint:ident
-        }
-    )*) => {
-        $(
-            $( #[ $($meta)+ ] )*
-            pub struct $joint<'a> {
-                raw: *const ffi::NewtonJoint,
-                owned: bool,
-                _phantom: PhantomData<&'a ()>,
-            }
-
-            impl<'a> NewtonJoint for $joint<'a> {
-                fn as_raw(&self) -> *const ffi::NewtonJoint {
-                    self.raw
-                }
-            }
-
-            impl<'a> Drop for $joint<'a> {
-                fn drop(&mut self) {
-                    if self.owned {
-                        let world = unsafe {
-                            let udata = ffi::NewtonJointGetUserData(self.raw);
-                            let udata: &Box<UserData> = mem::transmute(&udata);
-                            udata.world
-                        };
-                        unsafe {
-                            ffi::NewtonDestroyJoint(world, self.raw);
-                        }
-                    }
-                }
-            }
-
-            impl<'a> $joint<'a> {
-                pub unsafe fn from_raw(raw: *const ffi::NewtonJoint, owned: bool) -> Self {
-                    Self {
-                        raw,
-                        owned,
-                        _phantom: PhantomData,
-                    }
-                }
-            }
-
-            impl<'a> AsHandle for $joint<'a> {
-                fn as_handle(&self, _: &Newton) -> Handle {
-                    Handle::from_ptr(self.raw as _)
-                }
-            }
-            impl<'a> IntoHandle for $joint<'a> {
-                fn into_handle(mut self, newton: &Newton) -> Handle {
-                    self.owned = false;
-                    //newton.storage().move_constraint(newton);
-                    Handle::from_ptr(self.raw as _)
-                }
-            }
-        )*
-
-        /// Enum grouping all Newton joints
-        #[derive(Debug)]
-        pub enum Constraint<'a> {
-            $( $joint($joint<'a>) ),*
-        }
-
-        impl<'a> Constraint<'a> {
-            pub unsafe fn from_raw(raw: *const ffi::NewtonJoint, owned: bool) -> Self {
-                Constraint::Ball(Ball::from_raw(raw, owned))
-            }
-        }
-
-        impl<'a> NewtonJoint for Constraint<'a> {
-            fn as_raw(&self) -> *const ffi::NewtonJoint {
-                match self {
-                    $(Constraint::$joint(ref joint) => joint.as_raw() ),*
-                }
-            }
-        }
-    }
+    // The concrete type is
+    joint_type: Type,
 }
 
 joints! {
-    {
-        #[derive(Debug)]
-        struct Ball
-    }
-    {
-        #[derive(Debug)]
-        struct Slider
-    }
-    {
-        #[derive(Debug)]
-        struct UpVector
-    }
-    {
-        #[derive(Debug)]
-        struct Hinge
-    }
-    {
-        #[derive(Debug)]
-        struct Corkscrew
-    }
-    {
-        #[derive(Debug)]
-        struct Universal
-    }
-    {
-        #[derive(Debug)]
-        struct UserJoint
-    }
+    /// Ball & socket joint.
+    #[derive(Debug)]
+    struct Ball
+
+    #[derive(Debug)]
+    struct Slider
+
+    /// Constraints rotation to a single axis.
+    #[derive(Debug)]
+    struct UpVector
+
+    #[derive(Debug)]
+    struct Hinge
+
+    #[derive(Debug)]
+    struct Corkscrew
+
+    #[derive(Debug)]
+    struct Universal
+
+    #[derive(Debug)]
+    struct UserJoint
 }
 
 impl<'a> Ball<'a> {
     pub fn set_callback<F>(&self, callback: F)
-        where F: FnMut(Ball, Duration) + 'static
+        where F: FnMut(Ball, Duration) + Send + 'static
     {
         unsafe {
             let udata = ffi::NewtonJointGetUserData(self.raw);
@@ -190,6 +107,7 @@ impl<'a> Ball<'a> {
             let parent = parent.map(|b| b.as_raw()).unwrap_or(ptr::null());
             let raw = ffi::NewtonConstraintCreateBall(world, pivot.as_ptr(), child, parent);
             let udata = UserData { name,
+                                   joint_type: Type::Ball,
                                    world: newton.as_raw(),
                                    ball_callback: None,
                                    destroy_callback: None };
@@ -246,6 +164,7 @@ impl<'a> Slider<'a> {
                                                         child,
                                                         parent);
             let udata = UserData { name,
+                                   joint_type: Type::Slider,
                                    world: newton.as_raw(),
                                    ball_callback: None,
                                    destroy_callback: None };
@@ -306,7 +225,7 @@ pub trait NewtonJoint {
     }
 
     fn set_destroy_callback<F>(&self, callback: F)
-        where F: FnMut() + 'static
+        where F: FnMut() + Send + 'static
     {
         unsafe {
             let udata = &mut ffi::NewtonJointGetUserData(self.as_raw());

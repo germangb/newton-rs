@@ -3,7 +3,7 @@ use std::os::raw::c_void;
 
 use crate::collision::Collision;
 use crate::ffi;
-use crate::{Handle, HandleInner};
+use crate::handle::{Handle, HandleInner};
 
 /// An iterator that yields collision handles from a compound or a scene.
 ///

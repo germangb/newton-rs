@@ -1,4 +1,6 @@
-use super::newton::Newton;
+use std::sync::Arc;
+
+use crate::newton::Newton;
 
 #[cfg(not(feature = "ci"))]
 mod renderer;
@@ -6,7 +8,11 @@ mod renderer;
 mod runner;
 
 pub trait Testbed {
-    fn reset(newton: &mut Newton) -> Self;
+    fn newton() -> Newton {
+        Newton::create()
+    }
+
+    fn reset(newton: &Newton) -> Self;
 }
 
 pub fn run<T: Testbed>(title: Option<&str>) {

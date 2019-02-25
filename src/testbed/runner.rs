@@ -22,7 +22,7 @@ use super::Testbed;
 use crate::body::SleepState;
 use crate::collision::Type;
 use crate::prelude::*;
-use crate::{Body, Collision, Handle, Mat4, Newton, Vec3, Vec4};
+use crate::{handle::Handle, Body, Collision, Mat4, Newton, Vec3, Vec4};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Sidebar {
@@ -153,8 +153,8 @@ impl<T: Testbed> Runner<T> {
         let renderer = TestbedRenderer::new(|s| sdl_video.gl_get_proc_address(s));
         let controls = Stats::new();
 
-        let mut newton = Newton::create();
-        let demo = T::reset(&mut newton);
+        let newton = T::newton();
+        let demo = T::reset(&newton);
 
         Self { selected: None,
                sidebar: (Sidebar::Open, 256),
@@ -232,6 +232,8 @@ impl<T: Testbed> Runner<T> {
                                                      }
                                                      hit
                                                  },
+                                                 // no prefilter
+                                                 |_b, _c| true,
                                                  0);
                             self.selected = selected.map(|sel| SelectedBody { body: (sel,),
                                                                       ..Default::default() });
@@ -535,8 +537,8 @@ impl<T: Testbed> Runner<T> {
                             }
                             if events.controls().reset() {
                                 self.controls.elapsed = (Duration::default(),);
-                                let mut newton = Newton::create();
-                                let demo = T::reset(&mut newton);
+                                let newton = T::newton();
+                                let demo = T::reset(&newton);
 
                                 self.selected = None;
                                 self.newton = newton;

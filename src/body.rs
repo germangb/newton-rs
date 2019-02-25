@@ -1,13 +1,14 @@
 use std::marker::PhantomData;
 use std::mem;
+use std::sync::RwLock;
 use std::time::Duration;
 
-use super::collision::{Collision, NewtonCollision};
-use super::ffi;
-use super::joint::iter::Joints;
-use super::newton::Newton;
-use super::Handle;
-use super::{AsHandle, FromHandle, IntoHandle, Mat4, Vec3};
+use crate::collision::{Collision, NewtonCollision};
+use crate::ffi;
+use crate::handle::{AsHandle, FromHandle, Handle, IntoHandle};
+use crate::joint::iter::Joints;
+use crate::newton::Newton;
+use crate::{Mat4, Vec3};
 
 /// Body iterators.
 pub mod iter;
@@ -42,6 +43,13 @@ struct UserData {
 
     /// An optional name given to the body when it is created.
     name: Option<&'static str>,
+
+    // Lock used to write/read body properties such as position, matrix, collision,
+    // etc, ...
+    //
+    // Everything else that is critical to safety (use after free, null references, etc)
+    // should be handled at compile time by the borrow checker.
+    lock: RwLock<()>,
 }
 
 // Where should I place the lifetime, in the type, or in the method??
@@ -67,6 +75,23 @@ bodies! {
     (Kinematic, NewtonCreateKinematicBody, kinematic) => pub struct KinematicBody<'a>(...);
 }
 
+macro_rules! lock {
+    ($body:ident, read) => {
+        unsafe {
+            let udata = &ffi::NewtonBodyGetUserData($body.as_raw());
+            let udata: &Box<UserData> = mem::transmute(udata);
+            let _lock = udata.lock.read().unwrap();
+        }
+    };
+    ($body:ident, write) => {
+        unsafe {
+            let udata = &ffi::NewtonBodyGetUserData($body.as_raw());
+            let udata: &Box<UserData> = mem::transmute(udata);
+            let _lock = udata.lock.write().unwrap();
+        }
+    };
+}
+
 unsafe extern "C" fn body_destructor(body: *const ffi::NewtonBody) {
     let udata = ffi::NewtonBodyGetUserData(body);
     let mut udata: Box<UserData> = Box::from_raw(udata as _);
@@ -82,12 +107,14 @@ pub trait NewtonBody {
     fn as_raw(&self) -> *const ffi::NewtonBody;
 
     fn matrix(&self) -> Mat4 {
+        lock!(self, read);
         let mut mat: Mat4 = Default::default();
         unsafe { ffi::NewtonBodyGetMatrix(self.as_raw(), mat[0].as_mut_ptr()) }
         mat
     }
 
     fn set_continuous(&self, cont: bool) {
+        lock!(self, write);
         unsafe {
             let state = if cont { 1 } else { 0 };
             ffi::NewtonBodySetContinuousCollisionMode(self.as_raw(), state);
@@ -95,6 +122,7 @@ pub trait NewtonBody {
     }
 
     fn is_continuous(&self) -> bool {
+        lock!(self, write);
         unsafe {
             let state = ffi::NewtonBodyGetContinuousCollisionMode(self.as_raw());
             state == 1
@@ -102,10 +130,12 @@ pub trait NewtonBody {
     }
 
     fn set_matrix(&self, matrix: Mat4) {
+        lock!(self, write);
         unsafe { ffi::NewtonBodySetMatrix(self.as_raw(), matrix[0].as_ptr()) }
     }
 
     fn position(&self) -> Vec3 {
+        lock!(self, read);
         let mut pos: Vec3 = Default::default();
         unsafe { ffi::NewtonBodyGetPosition(self.as_raw(), pos.as_mut_ptr()) }
         pos
@@ -118,12 +148,14 @@ pub trait NewtonBody {
     }
 
     fn velocity(&self) -> Vec3 {
+        lock!(self, read);
         let mut velo: Vec3 = Default::default();
         unsafe { ffi::NewtonBodyGetVelocity(self.as_raw(), velo.as_mut_ptr()) }
         velo
     }
 
     fn aabb(&self) -> (Vec3, Vec3) {
+        lock!(self, read);
         let mut min: Vec3 = Default::default();
         let mut max: Vec3 = Default::default();
         unsafe {
@@ -140,6 +172,7 @@ pub trait NewtonBody {
     }
 
     fn sleep_state(&self) -> SleepState {
+        lock!(self, read);
         unsafe {
             let state = ffi::NewtonBodyGetSleepState(self.as_raw());
             mem::transmute(state)
@@ -147,6 +180,7 @@ pub trait NewtonBody {
     }
 
     fn set_sleep_state(&self, state: SleepState) {
+        lock!(self, write);
         unsafe {
             let state = mem::transmute(state);
             ffi::NewtonBodySetSleepState(self.as_raw(), state);
@@ -154,18 +188,27 @@ pub trait NewtonBody {
     }
 
     fn set_active(&self) {
+        lock!(self, write);
         self.set_sleep_state(SleepState::Active)
     }
 
     fn set_sleeping(&self) {
+        lock!(self, write);
         self.set_sleep_state(SleepState::Sleeping)
     }
 
     fn set_force(&self, force: Vec3) {
+        lock!(self, write);
         unsafe { ffi::NewtonBodySetForce(self.as_raw(), force.as_ptr()) }
     }
 
+    fn set_collision<C: NewtonCollision>(&self, collision: C) {
+        lock!(self, write);
+        unsafe { ffi::NewtonBodySetCollision(self.as_raw(), collision.as_raw()) }
+    }
+
     fn collision(&self) -> Collision {
+        lock!(self, read);
         unsafe {
             let collision = ffi::NewtonBodyGetCollision(self.as_raw());
             Collision::from_raw(collision, false)
@@ -181,6 +224,7 @@ pub trait NewtonBody {
     }
 
     fn mass(&self) -> (f32, Vec3) {
+        lock!(self, read);
         let mut mass = 0.0;
         let mut i: Vec3 = [0.0, 0.0, 0.0];
         unsafe { ffi::NewtonBodyGetMass(self.as_raw(), &mut mass, &mut i[0], &mut i[1], &mut i[2]) }
@@ -188,6 +232,7 @@ pub trait NewtonBody {
     }
 
     fn set_mass<C: NewtonCollision>(&self, mass: f32, collision: &C) {
+        lock!(self, write);
         let collision = collision.as_raw();
         unsafe {
             ffi::NewtonBodySetMassProperties(self.as_raw(), mass, collision);
@@ -195,8 +240,9 @@ pub trait NewtonBody {
     }
 
     fn set_destroy_callback<F>(&self, callback: F)
-        where F: FnMut(Body) + 'static
+        where F: FnMut(Body) + Send + 'static
     {
+        lock!(self, write);
         unsafe {
             let mut udata: &mut Box<UserData> =
                 mem::transmute(&mut ffi::NewtonBodyGetUserData(self.as_raw()));
@@ -206,8 +252,9 @@ pub trait NewtonBody {
     }
 
     fn set_transform_callback<F>(&self, callback: F)
-        where F: FnMut(Body, Mat4, usize) + 'static
+        where F: FnMut(Body, Mat4, usize) + Send + 'static
     {
+        lock!(self, write);
         unsafe {
             let mut udata: &mut Box<UserData> =
                 mem::transmute(&mut ffi::NewtonBodyGetUserData(self.as_raw()));
@@ -234,8 +281,9 @@ pub trait NewtonBody {
     }
 
     fn set_force_and_torque_callback<F>(&self, callback: F)
-        where F: FnMut(Body, Duration, usize) + 'static
+        where F: FnMut(Body, Duration, usize) + Send + 'static
     {
+        lock!(self, write);
         unsafe {
             let mut udata: &mut Box<UserData> =
                 mem::transmute(&mut ffi::NewtonBodyGetUserData(self.as_raw()));

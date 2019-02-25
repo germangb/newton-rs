@@ -1,10 +1,10 @@
-use std::cell::RefCell;
 use std::collections::{BTreeSet, HashSet};
+use std::sync::RwLock;
 
 use crate::body::{Body, NewtonBody};
 use crate::collision::{Collision, NewtonCollision};
+use crate::handle::{Handle, HandleInner};
 use crate::joint::Constraint;
-use crate::{Handle, HandleInner};
 
 /// Data structure for Newton Bodies & Collisions.
 pub trait NewtonStorage {
@@ -41,15 +41,19 @@ macro_rules! set {
             #[derive(Debug, Default)]
             $(#[$($meta)+])*
             pub struct $name {
-                bodies: RefCell<$data_struct<Handle>>,
-                collisions: RefCell<$data_struct<Handle>>,
+                bodies: RwLock<$data_struct<Handle>>,
+                collisions: RwLock<$data_struct<Handle>>,
             }
 
             impl Drop for $name {
                 fn drop(&mut self) {
-                    let collisions = self.collisions.clone();
-                    for col in collisions.borrow().iter() {
-                        let _ = self.take_collision(*col);
+                    let collisions = self.collisions.read().unwrap();
+                    for col in collisions.iter() {
+                        if let HandleInner::Pointer(col) = col.inner() {
+                            unsafe {
+                                let _ = Collision::from_raw(col as _, true);
+                            }
+                        }
                     }
                 }
             }
@@ -57,13 +61,13 @@ macro_rules! set {
             impl NewtonStorage for $name {
                 fn move_body(&self, body: Body) -> Handle {
                     let handle = Handle::from_ptr(body.as_raw() as _);
-                    self.bodies.borrow_mut().insert(handle.clone());
+                    self.bodies.write().unwrap().insert(handle.clone());
                     handle
                 }
 
                 fn move_collision(&self, col: Collision) -> Handle {
                     let handle = Handle::from_ptr(col.as_raw() as _);
-                    self.collisions.borrow_mut().insert(handle.clone());
+                    self.collisions.write().unwrap().insert(handle.clone());
                     handle
                 }
 
@@ -72,7 +76,7 @@ macro_rules! set {
                 }
 
                 fn body(&self, handle: Handle) -> Option<Body> {
-                    let body = self.bodies.borrow().get(&handle).cloned();
+                    let body = self.bodies.read().unwrap().get(&handle).cloned();
                     unsafe {
                         body.map(|h| match h.inner() {
                             HandleInner::Pointer(ptr) => Body::from_raw(ptr as _, false),
@@ -82,7 +86,7 @@ macro_rules! set {
                 }
 
                 fn collision(&self, handle: Handle) -> Option<Collision> {
-                    let collision = self.collisions.borrow().get(&handle).cloned();
+                    let collision = self.collisions.read().unwrap().get(&handle).cloned();
                     unsafe {
                         collision.map(|h| match h.inner() {
                             HandleInner::Pointer(ptr) => Collision::from_raw(ptr as _, false),
@@ -96,7 +100,7 @@ macro_rules! set {
                 }
 
                 fn take_body(&mut self, handle: Handle) -> Option<Body> {
-                    let body = self.bodies.borrow_mut().take(&handle);
+                    let body = self.bodies.write().unwrap().take(&handle);
                     unsafe {
                         body.map(|h| match h.inner() {
                             HandleInner::Pointer(ptr) => Body::from_raw(ptr as _, true),
@@ -106,7 +110,7 @@ macro_rules! set {
                 }
 
                 fn take_collision(&mut self, handle: Handle) -> Option<Collision> {
-                    let collision = self.collisions.borrow_mut().take(&handle);
+                    let collision = self.collisions.write().unwrap().take(&handle);
                     unsafe {
                         collision.map(|h| match h.inner() {
                             HandleInner::Pointer(ptr) => Collision::from_raw(ptr as _, true),

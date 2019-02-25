@@ -1,12 +1,13 @@
+use newton::handle::Handle;
 use newton::prelude::*;
-use newton::{Compound, Cone, Cuboid, Cylinder, DynamicBody, Handle, Newton, Sphere};
+use newton::{Compound, Cone, Cuboid, Cylinder, DynamicBody, Newton, Sphere};
 
 use newton::testbed;
 use newton::testbed::Testbed;
 
 struct Example;
 impl Testbed for Example {
-    fn reset(newton: &mut Newton) -> Self {
+    fn reset(newton: &Newton) -> Self {
         let a = Cuboid::create(newton, 1.0, 1.0, 1.0, None);
         let b = Sphere::create(newton, 0.5, Some(transform(0.0, 1.0, 0.0)));
         let c = Cylinder::create(newton, 0.5, 0.5, 1.0, Some(transform(1.0, 0.0, 0.0)));
@@ -14,7 +15,7 @@ impl Testbed for Example {
 
         let mut compound = Compound::create(newton);
         {
-            let builder = compound.begin();
+            let builder = compound.begin_build();
             let h = builder.add(&a);
             builder.add(&b);
             builder.add(&c);

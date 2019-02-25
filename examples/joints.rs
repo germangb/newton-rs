@@ -5,13 +5,18 @@ use newton::testbed::{run, Testbed};
 
 struct Joints;
 impl Testbed for Joints {
-    fn reset(newton: &mut Newton) -> Self {
+    fn newton() -> Newton {
+        Newton::config().threads(4).build()
+    }
+
+    fn reset(newton: &Newton) -> Self {
         let sphere = Sphere::create(newton, 0.5, None);
 
-        let mut last_body = DynamicBody::create(newton,
-                                                &sphere,
-                                                pos(0.0, 0.0, 0.0),
-                                                Some("ground")).into_handle(newton);
+        let last_body = DynamicBody::create(newton, &sphere, pos(0.0, 0.0, 0.0), Some("ground"));
+        last_body.set_destroy_callback(|_| println!("Destroy ball"));
+        last_body.set_transform_callback(|b, _, _| eprintln!("Transform update"));
+
+        let mut last_body = last_body.into_handle(newton);
 
         for (offset, pivot) in (1..8).map(|i| (0.5 * i as f32, 0.5 * (i - 1) as f32)) {
             let parent = newton.storage().body(last_body).unwrap();
@@ -24,8 +29,6 @@ impl Testbed for Joints {
             joint.into_handle(&newton);
 
             ball.set_mass(1.0, &sphere);
-            ball.set_destroy_callback(|_| println!("Destroy ball"));
-            ball.set_transform_callback(|b, _, _| eprintln!("Transform update"));
             ball.set_force_and_torque_callback(|b, _, _| b.set_force([0.0, -9.8, 0.0]));
 
             last_body = ball.into_handle(newton);

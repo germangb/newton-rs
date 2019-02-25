@@ -5,11 +5,11 @@ use newton::testbed::{run, Testbed};
 
 struct TreeDemo;
 impl Testbed for TreeDemo {
-    fn reset(newton: &mut Newton) -> Self {
+    fn reset(newton: &Newton) -> Self {
         let floor = Cuboid::create(newton, 8.0, 0.2, 8.0, None);
         let mut tree = Tree::create(newton);
         {
-            let build = tree.begin();
+            let build = tree.begin_build();
             let face = &[[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
             build.add(face.iter().cloned(), 0);
             build.optimize();

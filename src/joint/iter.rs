@@ -1,8 +1,7 @@
 use std::marker::PhantomData;
 
-use super::Constraint;
-
 use crate::ffi;
+use crate::joint::Constraint;
 use crate::newton::Newton;
 
 #[derive(Debug)]

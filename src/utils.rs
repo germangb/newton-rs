@@ -1,5 +1,4 @@
-use super::ffi;
-use super::{Mat4, Vec3};
+use crate::{ffi, Mat4, Vec3};
 
 /// Converts from Euler angles to a 4x4 rotation matrix.
 pub fn set_euler_angle(euler: Vec3) -> Mat4 {

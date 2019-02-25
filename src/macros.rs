@@ -10,15 +10,15 @@ macro_rules! bodies {
             $( $enum($body<'a>) ),*
         }
 
-        impl<'a> NewtonBody for Body<'a> {
-            fn as_raw(&self) -> *const ffi::NewtonBody {
+        impl<'a> $crate::body::NewtonBody for Body<'a> {
+            fn as_raw(&self) -> *const $crate::ffi::NewtonBody {
                 match self {
                     $(Body::$enum(body) => body.as_raw()),*
                 }
             }
         }
 
-        impl<'a> IntoHandle for Body<'a> {
+        impl<'a> $crate::handle::IntoHandle for $crate::body::Body<'a> {
             fn into_handle(mut self, newton: &Newton) -> Handle {
                 match &mut self {
                     $(Body::$enum(ref mut body) => if !body.owned { panic!() } else { body.owned = false; }),*
@@ -27,14 +27,14 @@ macro_rules! bodies {
             }
         }
 
-        impl<'a> AsHandle for Body<'a> {
-            fn as_handle(&self, _: &Newton) -> Handle {
-                Handle::from_ptr(self.as_raw() as _)
+        impl<'a> $crate::handle::AsHandle for $crate::body::Body<'a> {
+            fn as_handle(&self, _: &$crate::newton::Newton) -> Handle {
+                $crate::handle::Handle::from_ptr(self.as_raw() as _)
             }
         }
 
-        impl<'a> FromHandle<'a> for Body<'a> {
-            fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
+        impl<'a> $crate::handle::FromHandle<'a> for $crate::body::Body<'a> {
+            fn from_handle(newton: &'a $crate::newton::Newton, handle: $crate::handle::Handle) -> Option<Self> {
                 newton.storage().body(handle)
             }
 
@@ -43,12 +43,12 @@ macro_rules! bodies {
             }
         }
 
-        impl<'a> Body<'a> {
-            pub(crate) unsafe fn from_raw(raw: *const ffi::NewtonBody, owned: bool) -> Self {
-                let body_type = ffi::NewtonBodyGetType(raw);
+        impl<'a> $crate::body::Body<'a> {
+            pub(crate) unsafe fn from_raw(raw: *const $crate::ffi::NewtonBody, owned: bool) -> Self {
+                let body_type = $crate::ffi::NewtonBodyGetType(raw);
                 match body_type as _ {
-                    ffi::NEWTON_DYNAMIC_BODY => Body::Dynamic(DynamicBody::from_raw(raw, owned)),
-                    ffi::NEWTON_KINEMATIC_BODY => Body::Kinematic(KinematicBody::from_raw(raw, owned)),
+                    $crate::ffi::NEWTON_DYNAMIC_BODY => Body::Dynamic(DynamicBody::from_raw(raw, owned)),
+                    $crate::ffi::NEWTON_KINEMATIC_BODY => Body::Kinematic(KinematicBody::from_raw(raw, owned)),
                     _ => unreachable!("Unexpected body type ({})", body_type),
                 }
             }
@@ -71,7 +71,7 @@ macro_rules! bodies {
         $(
             $(#[$($meta)+])*
             pub struct $body<'a> {
-                raw: *const ffi::NewtonBody,
+                raw: *const $crate::ffi::NewtonBody,
                 _phantom: PhantomData<&'a ()>,
                 // Bodies from iterators or callbacks generally won't be owned.
                 // When they are, the memory is freed when the object is dropped.
@@ -104,7 +104,7 @@ macro_rules! bodies {
             }
 
             impl<'a> NewtonBody for $body<'a> {
-                fn as_raw(&self) -> *const ffi::NewtonBody {
+                fn as_raw(&self) -> *const $crate::ffi::NewtonBody {
                     self.raw
                 }
             }
@@ -113,7 +113,7 @@ macro_rules! bodies {
                 fn drop(&mut self) {
                     if self.owned {
                         unsafe {
-                            ffi::NewtonDestroyBody(self.raw);
+                            $crate::ffi::NewtonDestroyBody(self.raw);
                         }
                     }
                 }
@@ -134,7 +134,7 @@ macro_rules! bodies {
             }
 
             impl<'a> $body<'a> {
-                pub unsafe fn from_raw(raw: *const ffi::NewtonBody, owned: bool) -> Self {
+                pub unsafe fn from_raw(raw: *const $crate::ffi::NewtonBody, owned: bool) -> Self {
                     Self {
                         raw,
                         owned,
@@ -154,11 +154,11 @@ macro_rules! bodies {
                         let matrix = matrix[0].as_ptr();
                         let collision = collision.as_raw();
 
-                        let body = ffi::$ffi(newton, collision, matrix);
+                        let body = $crate::ffi::$ffi(newton, collision, matrix);
                         let userdata = Box::new(UserData { name, ..Default::default() });
 
-                        ffi::NewtonBodySetDestructorCallback(body, Some(body_destructor));
-                        ffi::NewtonBodySetUserData(body, mem::transmute(userdata));
+                        $crate::ffi::NewtonBodySetDestructorCallback(body, Some(body_destructor));
+                        $crate::ffi::NewtonBodySetUserData(body, mem::transmute(userdata));
                         Self { raw: body, owned: true, _phantom: PhantomData }
                     }
                 }
@@ -195,8 +195,24 @@ macro_rules! collision {
 
     /// Collision params
     #[derive(Clone, Copy, Debug)]
-    pub enum Params<'a, T> {
+    pub enum Params<'a> {
         $( $param_name  $params),*
+        ,
+        HeightFieldI16 (HeightFieldParams<'a, i16>)
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    pub struct HeightFieldParams<'a, T> {
+        pub width: usize,
+        pub height: usize,
+        pub vertical_elevation: &'a [T],
+        pub vertical_scale: f32,
+        pub horizontal_scale_x: f32,
+        pub horizontal_scale_z: f32,
+        pub horizontal_displacement_scale_x: f32,
+        pub horizontal_displacement_scale_z: f32,
+        pub horizontal_displacement: &'a [i16],
+        pub attributes: &'a [i8],
     }
 
     fn check_owned(coll: &Collision) {
@@ -224,11 +240,11 @@ macro_rules! collision {
     }
 
     impl<'a> Collision<'a> {
-        pub unsafe fn from_raw(raw: *const ffi::NewtonCollision, owned: bool) -> Self {
-            let col_type = ffi::NewtonCollisionGetType(raw);
+        pub unsafe fn from_raw(raw: *const $crate::ffi::NewtonCollision, owned: bool) -> Self {
+            let col_type = $crate::ffi::NewtonCollisionGetType(raw);
             match col_type as _ {
                 $(
-                    ffi::$id => Collision::$enum_var($collision::from_raw(raw, owned)),
+                    $crate::ffi::$id => Collision::$enum_var($collision::from_raw(raw, owned)),
                 )*
                 _ => unimplemented!("Collision type ({}) not implemented", col_type),
             }
@@ -251,7 +267,7 @@ macro_rules! collision {
     }
 
     impl<'a> NewtonCollision for Collision<'a> {
-        fn as_raw(&self) -> *const ffi::NewtonCollision {
+        fn as_raw(&self) -> *const $crate::ffi::NewtonCollision {
             match self {
                 $(Collision::$enum_var(col) => col.raw ),*
             }
@@ -261,7 +277,7 @@ macro_rules! collision {
     $(
         $(#[$($meta)+])*
         pub struct $collision<'a> {
-            raw: *const ffi::NewtonCollision,
+            raw: *const $crate::ffi::NewtonCollision,
 
             // If set to true, the memory is freed when the instance is dropped.
             owned: bool,
@@ -288,13 +304,13 @@ macro_rules! collision {
         }
 
         impl<'a> $collision<'a> {
-            pub unsafe fn from_raw(raw: *const ffi::NewtonCollision, owned: bool) -> Self {
+            pub unsafe fn from_raw(raw: *const $crate::ffi::NewtonCollision, owned: bool) -> Self {
                 $collision { raw, owned, _phantom: PhantomData }
             }
 
             pub fn create_instance(col: &Self) -> Self {
                 unsafe {
-                    let instance = ffi::NewtonCollisionCreateInstance(col.raw);
+                    let instance = $crate::ffi::NewtonCollisionCreateInstance(col.raw);
                     Self::from_raw(instance, true)
                 }
             }
@@ -305,7 +321,7 @@ macro_rules! collision {
                 // if collision owns itself, then free the memory
                 if self.owned {
                     unsafe {
-                        ffi::NewtonDestroyCollision(self.raw);
+                        $crate::ffi::NewtonDestroyCollision(self.raw);
                     }
                 }
             }
@@ -332,9 +348,95 @@ macro_rules! collision {
         }
 
         impl<'a> NewtonCollision for $collision<'a> {
-            fn as_raw(&self) -> *const ffi::NewtonCollision {
+            fn as_raw(&self) -> *const $crate::ffi::NewtonCollision {
                 self.raw
             }
         }
     )*}
 }
+
+macro_rules! joints {
+    ($(
+        $( #[ $($meta:meta)+ ] )*
+        struct $joint:ident
+    )*) => {
+        $(
+            $( #[ $($meta)+ ] )*
+            pub struct $joint<'a> {
+                raw: *const ffi::NewtonJoint,
+                owned: bool,
+                _phantom: PhantomData<&'a ()>,
+            }
+
+            impl<'a> NewtonJoint for $joint<'a> {
+                fn as_raw(&self) -> *const ffi::NewtonJoint {
+                    self.raw
+                }
+            }
+
+            impl<'a> Drop for $joint<'a> {
+                fn drop(&mut self) {
+                    if self.owned {
+                        let world = unsafe {
+                            let udata = ffi::NewtonJointGetUserData(self.raw);
+                            let udata: &Box<UserData> = mem::transmute(&udata);
+                            udata.world
+                        };
+                        unsafe {
+                            ffi::NewtonDestroyJoint(world, self.raw);
+                        }
+                    }
+                }
+            }
+
+            impl<'a> $joint<'a> {
+                pub unsafe fn from_raw(raw: *const ffi::NewtonJoint, owned: bool) -> Self {
+                    Self {
+                        raw,
+                        owned,
+                        _phantom: PhantomData,
+                    }
+                }
+            }
+
+            impl<'a> AsHandle for $joint<'a> {
+                fn as_handle(&self, _: &Newton) -> Handle {
+                    Handle::from_ptr(self.raw as _)
+                }
+            }
+            impl<'a> IntoHandle for $joint<'a> {
+                fn into_handle(mut self, newton: &Newton) -> Handle {
+                    self.owned = false;
+                    //newton.storage().move_constraint(newton);
+                    Handle::from_ptr(self.raw as _)
+                }
+            }
+        )*
+
+        /// Enum grouping all Newton joints
+        #[derive(Debug)]
+        pub enum Constraint<'a> {
+            $( $joint($joint<'a>) ),*
+        }
+
+        #[derive(Debug)]
+        pub enum Type {
+            $( $joint ),*
+        }
+
+        impl<'a> Constraint<'a> {
+            pub unsafe fn from_raw(raw: *const ffi::NewtonJoint, owned: bool) -> Self {
+                Constraint::Ball(Ball::from_raw(raw, owned))
+            }
+        }
+
+        impl<'a> NewtonJoint for Constraint<'a> {
+            fn as_raw(&self) -> *const ffi::NewtonJoint {
+                match self {
+                    $(Constraint::$joint(ref joint) => joint.as_raw() ),*
+                }
+            }
+        }
+    }
+}
+

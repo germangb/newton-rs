@@ -2,15 +2,13 @@ use std::marker::PhantomData;
 use std::mem;
 use std::os::raw;
 
-use super::body::Body;
-use super::ffi;
-use super::newton::Newton;
-use super::IntoHandle;
-use super::{AsHandle, FromHandle, Handle, HandleInner, Mat4, Vec3};
+use crate::body::Body;
+use crate::handle::{AsHandle, FromHandle, Handle, HandleInner, IntoHandle};
+use crate::newton::Newton;
+use crate::{ffi, Mat4, Vec3};
 
-use self::builder::{CompoundBuilder, SceneBuilder, TreeBuilder};
-
-use self::iter::{Collisions, Handles};
+use builder::{CompoundBuilder, SceneBuilder, TreeBuilder};
+use iter::{Collisions, Handles};
 
 /// Types to build compounds, scenes, and tree collisions.
 pub mod builder;
@@ -29,6 +27,15 @@ collision! {
             dy: f32,
             dz: f32
         }
+    }
+
+    {
+        enum UserMesh
+        fn user_mesh
+        #[derive(Debug, Eq, PartialEq)]
+        struct UserMesh
+        const ffi::SERIALIZE_ID_USERMESH
+        params UserMesh {}
     }
 
     {
@@ -150,19 +157,7 @@ collision! {
         #[derive(Debug, Eq, PartialEq)]
         struct HeightField
         const ffi::SERIALIZE_ID_HEIGHTFIELD
-        params HeightField {
-            width: usize,
-            height: usize,
-            vertical_elevation: &'a [T],
-            vertical_scale: f32,
-            horizontal_scale_x: f32,
-            horizontal_scale_z: f32,
-            horizontal_displacement_scale_x: f32,
-            horizontal_displacement_scale_z: f32,
-            horizontal_displacement: &'a [i16],
-            attributes: &'a [i8],
-
-        }
+        params HeightFieldF32 (HeightFieldParams<'a, f32>)
     }
 
     {
@@ -240,7 +235,7 @@ impl<'a> Compound<'a> {
         }
     }
 
-    pub fn begin(&mut self) -> CompoundBuilder {
+    pub fn begin_build(&mut self) -> CompoundBuilder {
         unsafe {
             ffi::NewtonCompoundCollisionBeginAddRemove(self.raw);
         }
@@ -294,7 +289,7 @@ impl<'a> Scene<'a> {
         }
     }
 
-    pub fn begin(&mut self) -> SceneBuilder {
+    pub fn begin_build(&mut self) -> SceneBuilder {
         unsafe {
             ffi::NewtonSceneCollisionBeginAddRemove(self.raw);
         }
@@ -310,7 +305,7 @@ impl<'a> Tree<'a> {
         }
     }
 
-    pub fn begin(&mut self) -> TreeBuilder {
+    pub fn begin_build(&mut self) -> TreeBuilder {
         unsafe { ffi::NewtonTreeCollisionBeginBuild(self.raw) }
         TreeBuilder { tree: self, optimize: false }
     }
@@ -397,6 +392,12 @@ pub trait StaticShape: NewtonCollision {}
 /// A marker trait for collision shapes with convex geometry.
 pub trait ConvexShape: NewtonCollision {}
 
+/// HeightField collision elevation data types
+pub trait HeightFieldType {}
+
+impl HeightFieldType for f32 {}
+impl HeightFieldType for i16 {}
+
 /*
 /// Marker traits for collisions with geometry that can be iterated.
 ///
@@ -437,31 +438,69 @@ pub fn calculate_spring_damper_acceleration(dt: f32, ks: f32, x: f32, kd: f32, s
 
 // TODO convex?
 /// Tests whether two transformed collisions intersect.
-pub fn intersection_test<A, B>(col_a: &A,
-                               col_b: &B,
+pub fn intersection_test<A, B>(newton: &Newton,
+                               col_a: &A,
                                mat_a: Mat4,
+                               col_b: &B,
                                mat_b: Mat4,
                                thread_idx: usize)
                                -> bool
     where A: NewtonCollision,
           B: NewtonCollision
 {
-    unimplemented!()
+    unsafe {
+        ffi::NewtonCollisionIntersectionTest(newton.as_raw(),
+                                             col_a.as_raw(),
+                                             mat_a[0].as_ptr(),
+                                             col_b.as_raw(),
+                                             mat_b[0].as_ptr(),
+                                             thread_idx as _)
+        == 1
+    }
 }
 
-/// Returns the closest point between two convex collisions, or None if they intersect.
-///
-/// Returns the pair of points from each body that are closest to each other.
-pub fn closest_point<A, B>(col_a: &A,
-                           col_b: &B,
+/// Closest point between two collisions.
+/// Type returned by the `closest_point` function.
+#[derive(Debug, Clone, Copy)]
+pub struct ClosestPoint {
+    pub p0: Vec3,
+    pub mat0: Mat4,
+    pub p1: Vec3,
+    pub mat1: Mat4,
+    pub normal: Vec3,
+}
+
+/// Returns the closest point between two convex collisions.
+pub fn closest_point<A, B>(newton: &Newton,
+                           col_a: &A,
                            mat_a: Mat4,
+                           col_b: &B,
                            mat_b: Mat4,
                            thread_idx: usize)
-                           -> Option<(Vec3, Vec3)>
+                           -> Option<ClosestPoint>
     where A: ConvexShape,
           B: ConvexShape
 {
-    unimplemented!()
+    unsafe {
+        let mut p0 = [0.0, 0.0, 0.0];
+        let mut p1 = [0.0, 0.0, 0.0];
+        let mut normal = [0.0, 0.0, 0.0];
+        if ffi::NewtonCollisionClosestPoint(newton.as_raw(),
+                                            col_a.as_raw(),
+                                            mat_a[0].as_ptr(),
+                                            col_b.as_raw(),
+                                            mat_b[0].as_ptr(),
+                                            p0.as_mut_ptr(),
+                                            p1.as_mut_ptr(),
+                                            normal.as_mut_ptr(),
+                                            thread_idx as _)
+           == 1
+        {
+            Some(ClosestPoint { p0, p1, normal, mat0: mat_a, mat1: mat_b })
+        } else {
+            None
+        }
+    }
 }
 
 /// NewtonCollision functions.
@@ -484,6 +523,10 @@ pub trait NewtonCollision {
                                          &mut scale[2]);
             scale
         }
+    }
+
+    fn params(&self) -> Params {
+        unimplemented!()
     }
 
     fn for_each_polygon<F: FnMut(&[f32], raw::c_int)>(&self, matrix: Mat4, mut callback: F) {

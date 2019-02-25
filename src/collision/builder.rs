@@ -1,7 +1,8 @@
 use std::cell::Cell;
 
 use crate::ffi;
-use crate::{Handle, HandleInner, Vec3};
+use crate::handle::{Handle, HandleInner};
+use crate::Vec3;
 
 use super::{Compound, ConvexShape, NewtonCollision, Scene, Tree};
 

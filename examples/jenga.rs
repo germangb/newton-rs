@@ -6,7 +6,7 @@ use newton::testbed::{run, Testbed};
 struct Jenga;
 
 impl Testbed for Jenga {
-    fn reset(newton: &mut Newton) -> Self {
+    fn reset(newton: &Newton) -> Self {
         let x = [1.0, 0.0, 0.0, 0.0];
         let y = [0.0, 1.0, 0.0, 0.0];
         let z = [0.0, 0.0, 1.0, 0.0];
