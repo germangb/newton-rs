@@ -207,7 +207,7 @@ impl Newton {
             let body = Body::from_raw(body, false);
             let collision = Collision::from_raw(collision, false);
 
-            if filter.1(body, collision) {
+            if (filter.1)(body, collision) {
                 1
             } else {
                 0

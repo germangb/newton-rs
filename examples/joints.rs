@@ -30,7 +30,6 @@ impl Testbed for Joints {
 
             ball.set_mass(1.0, &sphere);
             ball.set_force_and_torque_callback(|b, _, _| b.set_force([0.0, -9.8, 0.0]));
-
             last_body = ball.into_handle(newton);
         }
 

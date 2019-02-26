@@ -1,5 +1,9 @@
 //!
 //! - ***This module is a Work in progress (all modules are, but this one specially)***
+//! - Official wiki docs: [**official wiki**][wiki].
+//!
+//! [wiki]: http://www.newtondynamics.com/wiki/index.php5?title=Category:Joint_functions
+//!
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
@@ -11,9 +15,9 @@ use crate::handle::{AsHandle, Handle, IntoHandle};
 use crate::newton::Newton;
 use crate::Vec3;
 
-/// Joint iterators
 pub mod iter;
 
+/// Collision state between two joined bodies. Either collidable or non-collidable.
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum CollisionState {
@@ -22,6 +26,10 @@ pub enum CollisionState {
 }
 
 struct UserData {
+    /// The concrete type is stored in order to build a Constraint from the raw pointer...
+    /// I suppose newton joints all derive from a universal type and share the same data structure.
+    joint_type: Type,
+
     /// I need a pointer to the NewtonWorld in order to destroy the collision...
     world: *const ffi::NewtonWorld,
 
@@ -36,32 +44,35 @@ struct UserData {
     /// Joint destructor callback.
     /// Common to all joint types.
     destroy_callback: Option<Box<dyn FnMut()>>,
-
-    // The concrete type is
-    joint_type: Type,
 }
 
 joints! {
-    /// Ball & socket joint.
+    /// The movement and rotation of a body is limited to a given solid angle,
+    /// and angle respectively.
     #[derive(Debug)]
     struct Ball
 
+    /// Constraints body movement to a single axis (car damper shaft).
     #[derive(Debug)]
     struct Slider
 
-    /// Constraints rotation to a single axis.
+    /// Limits rotation of a body to a single axis.
     #[derive(Debug)]
     struct UpVector
 
+    /// Allows rotation movement perpendicular to a given axis. (door , propeller, etc..)
     #[derive(Debug)]
     struct Hinge
 
+    /// Limits body movement to a single axis, and rotation perpendicular to the same.
     #[derive(Debug)]
     struct Corkscrew
 
+    /// Allows a body to rotate on two axis (like a hinge joint with an added *DoF*).
     #[derive(Debug)]
     struct Universal
 
+    /// Generic user-defined joint (for advanced and very specific cases).
     #[derive(Debug)]
     struct UserJoint
 }
@@ -92,14 +103,17 @@ impl<'a> Ball<'a> {
         }
     }
 
-    pub fn create<A, B>(newton: &Newton,
-                        pivot: Vec3,
-                        child: &'a A,
-                        parent: Option<&'a B>,
-                        name: Option<&'static str>)
-                        -> Self
-        where A: NewtonBody,
-              B: NewtonBody
+    pub fn create<'b, 'c, 'd, B, C>(newton: &'d Newton,
+                                    pivot: Vec3,
+                                    child: &'b B,
+                                    parent: Option<&'c C>,
+                                    name: Option<&'static str>)
+                                    -> Self
+        where 'b: 'a,
+              'c: 'a,
+              'd: 'b + 'c,
+              B: NewtonBody,
+              C: NewtonBody
     {
         unsafe {
             let world = newton.as_raw();
@@ -144,15 +158,20 @@ impl<'a> Ball<'a> {
 }
 
 impl<'a> Slider<'a> {
-    pub fn create<A, B>(newton: &Newton,
-                        pivot: Vec3,
-                        pin_dir: Vec3,
-                        child: &'a A,
-                        parent: Option<&'a B>,
-                        name: Option<&'static str>)
-                        -> Self
-        where A: NewtonBody,
-              B: NewtonBody
+    // Example playground with lifetimes and lifetime bounds:
+    // https://play.rust-lang.org/?version=stable&mode=debug&edition=2018&gist=e1ec143dee1f116fa106ff7f6bfbb3de
+    pub fn create<'b, 'c, 'd, B, C>(newton: &'d Newton,
+                                    pivot: Vec3,
+                                    pin_dir: Vec3,
+                                    child: &'b B,
+                                    parent: Option<&'c C>,
+                                    name: Option<&'static str>)
+                                    -> Self
+        where 'b: 'a,
+              'c: 'a,
+              'd: 'b + 'c,
+              B: NewtonBody,
+              C: NewtonBody
     {
         unsafe {
             let world = newton.as_raw();
@@ -202,7 +221,8 @@ pub trait NewtonJoint {
         }
     }
 
-    fn bodies(&self) -> (Body, Option<Body>) {
+    /// Returns the pair of bodies that are linked by this joint
+    fn bodies<'a: 'b, 'b>(&'a self) -> (Body<'b>, Option<Body<'b>>) {
         unsafe {
             let body0 = ffi::NewtonJointGetBody0(self.as_raw());
             let body1 = ffi::NewtonJointGetBody1(self.as_raw());

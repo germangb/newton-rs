@@ -42,17 +42,16 @@ The wrapper gives coverage to a subset of the C API (see [#1][issue]).
 * Most Body functions
 * Most Collision functions (except mesh)
 * Ray casting & convex casting
+* Constraints (joints)
+* Meshes (More or less)
+* Main callbacks
 
 [issue]: https://github.com/germangb/newton-rs/issues/1
 
 ## Unimplemented things
 
-* Documentation
-* Constraints (joints)
 * Materials
 * Inverse kinematics
-* Mesh collisions
-* Most callbacks
 
 ## Testbed
 

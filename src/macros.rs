@@ -413,7 +413,7 @@ macro_rules! joints {
             }
         )*
 
-        /// Enum grouping all Newton joints
+        /// Enum grouping all joint types.
         #[derive(Debug)]
         pub enum Constraint<'a> {
             $( $joint($joint<'a>) ),*
