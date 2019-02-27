@@ -4,7 +4,7 @@ use std::sync::RwLock;
 use crate::body::{Body, NewtonBody};
 use crate::collision::{Collision, NewtonCollision};
 use crate::handle::{Handle, HandleInner};
-use crate::joint::Constraint;
+use crate::joint::Joint;
 
 /// Data structure for Newton Bodies & Collisions.
 pub trait NewtonStorage {
@@ -15,7 +15,7 @@ pub trait NewtonStorage {
     fn move_collision(&self, col: Collision) -> Handle;
 
     /// Stores the given constraint
-    fn move_constraint(&self, con: Constraint) -> Handle;
+    fn move_constraint(&self, con: Joint) -> Handle;
 
     /// Borrows a Newton Body.
     fn body(&self, handle: Handle) -> Option<Body>;
@@ -24,7 +24,7 @@ pub trait NewtonStorage {
     fn collision(&self, handle: Handle) -> Option<Collision>;
 
     /// Borrows constraint
-    fn constraint(&self, handle: Handle) -> Option<Constraint>;
+    fn constraint(&self, handle: Handle) -> Option<Joint>;
 
     /// Retakes ownership of a Newton Body.
     fn take_body(&mut self, handle: Handle) -> Option<Body>;
@@ -71,7 +71,7 @@ macro_rules! set {
                     handle
                 }
 
-                fn move_constraint(&self, con: Constraint) -> Handle {
+                fn move_constraint(&self, con: Joint) -> Handle {
                     unimplemented!()
                 }
 
@@ -95,7 +95,7 @@ macro_rules! set {
                     }
                 }
 
-                fn constraint(&self, handle: Handle) -> Option<Constraint> {
+                fn constraint(&self, handle: Handle) -> Option<Joint> {
                     unimplemented!()
                 }
 

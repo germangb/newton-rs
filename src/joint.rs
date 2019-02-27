@@ -21,16 +21,19 @@ pub mod iter;
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum CollisionState {
+    /// Collision is disabled between the two joined bodies.
     NonCollidable = 0,
+    /// The two connected bodies can collide with each other.
     Collidable = 1,
 }
 
 struct UserData {
-    /// The concrete type is stored in order to build a Constraint from the raw pointer...
-    /// I suppose newton joints all derive from a universal type and share the same data structure.
+    // The concrete type is stored in order to build a Constraint from the raw pointer...
+    // I suppose newton joints all derive from a universal type and share the same data structure.
     joint_type: Type,
 
-    /// I need a pointer to the NewtonWorld in order to destroy the collision...
+    // I need a pointer to the NewtonWorld in order to destroy the collision.
+    // Newton probably keeps some internal data structure for the constraints, but I haven't checked the implementation.
     world: *const ffi::NewtonWorld,
 
     /// Human readable name (useful for debugging)
@@ -51,30 +54,37 @@ joints! {
     /// and angle respectively.
     #[derive(Debug)]
     struct Ball
+    fn ball, is_ball
 
     /// Constraints body movement to a single axis (car damper shaft).
     #[derive(Debug)]
     struct Slider
+    fn slider, is_slider
 
     /// Limits rotation of a body to a single axis.
     #[derive(Debug)]
     struct UpVector
+    fn up_vector, is_up_vector
 
     /// Allows rotation movement perpendicular to a given axis. (door , propeller, etc..)
     #[derive(Debug)]
     struct Hinge
+    fn hinge, is_hinge
 
     /// Limits body movement to a single axis, and rotation perpendicular to the same.
     #[derive(Debug)]
     struct Corkscrew
+    fn corkscrew, is_corkscrew
 
     /// Allows a body to rotate on two axis (like a hinge joint with an added *DoF*).
     #[derive(Debug)]
     struct Universal
+    fn universal, is_universal
 
     /// Generic user-defined joint (for advanced and very specific cases).
     #[derive(Debug)]
     struct UserJoint
+    fn user_joint, is_user_joint
 }
 
 impl<'a> Ball<'a> {
@@ -232,6 +242,21 @@ pub trait NewtonJoint {
 
             (body0, body1)
         }
+    }
+
+    fn collision_state(&self) -> CollisionState {
+        unsafe { mem::transmute(ffi::NewtonJointGetCollisionState(self.as_raw())) }
+    }
+
+    fn set_collision_state(&self, state: CollisionState) {
+        unsafe {
+            let state = mem::transmute(state);
+            ffi::NewtonJointSetCollisionState(self.as_raw(), state);
+        }
+    }
+
+    fn is_active(&self) -> bool {
+        unsafe { ffi::NewtonJointIsActive(self.as_raw()) == 1 }
     }
 
     fn stiffness(&self) -> f32 {

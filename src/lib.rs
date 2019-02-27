@@ -6,7 +6,7 @@
 //!
 //! ## Thread safety
 //!
-//! Newton has built-in support to perform the simulation step on multiple threads, where bodies, collisions, and joints, are updated through application-implemented callbacks.
+//! Newton supports running the simulation step on multiple threads, where bodies, collisions, and joints, are updated through application-implemented callbacks.
 //!
 //! `Collision`, `Body`, and `Joint` types are **NOT** thread safe. You'll have to convert them to `Handle`s first.
 //!
@@ -18,7 +18,8 @@ pub use collision::{
     ChamferCylinder, Collision, Compound, Cone, Cuboid, Cylinder, DeformableSolid,
     FracturedCompound, MassSpringDamperSystem, Null, Scene, Sphere, Tree, UserMesh,
 };
-pub use joint::{Ball, Constraint, Corkscrew, Hinge, Slider, Universal, UpVector, UserJoint};
+pub use joint::{Ball, Corkscrew, Hinge, Joint, Slider, Universal, UpVector, UserJoint};
+pub use mesh::Mesh;
 pub use utils::*;
 
 pub use crate::newton::Newton;
@@ -43,7 +44,6 @@ pub mod prelude {
     pub use crate::collision::NewtonCollision;
     pub use crate::handle::{AsHandle, FromHandle, IntoHandle};
     pub use crate::joint::NewtonJoint;
-    pub use crate::mesh::Mesh;
     pub use crate::newton::storage::NewtonStorage;
 }
 /// NewtonWorld wrapper.

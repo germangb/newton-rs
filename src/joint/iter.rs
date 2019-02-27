@@ -1,7 +1,7 @@
 use std::marker::PhantomData;
 
 use crate::ffi;
-use crate::joint::Constraint;
+use crate::joint::Joint;
 use crate::newton::Newton;
 
 #[derive(Debug)]
@@ -17,7 +17,7 @@ pub struct Joints<'a> {
 }
 
 impl<'a> Iterator for Joints<'a> {
-    type Item = Constraint<'a>;
+    type Item = Joint<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let current = self.joint;
@@ -27,7 +27,7 @@ impl<'a> Iterator for Joints<'a> {
             unsafe {
                 let next = ffi::NewtonBodyGetNextJoint(self.body, current);
                 self.joint = next;
-                Some(Constraint::from_raw(current, false))
+                Some(Joint::from_raw(current, false))
             }
         }
     }

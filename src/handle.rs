@@ -60,10 +60,6 @@ pub trait FromHandle<'a>: Sized {
 pub trait IntoHandle {
     /// Moves the object into the given Newton and returns a handle to
     /// borrow it or retake ownership of it later.
-    ///
-    /// ## Panics
-    /// On both Bodies and Collisions, this method panics if the object
-    /// is not owned, but you can still call `as_handle` on those.
     fn into_handle(self, newton: &Newton) -> Handle;
 }
 

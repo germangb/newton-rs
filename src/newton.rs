@@ -57,6 +57,12 @@ pub struct Config {
 }
 
 impl Config {
+    /// Use all CPU cores.
+    pub fn max_threads(mut self) -> Self {
+        self.threads = Some(num_cpus::get());
+        self
+    }
+
     pub fn threads(mut self, threads: usize) -> Self {
         self.threads = Some(threads);
         self

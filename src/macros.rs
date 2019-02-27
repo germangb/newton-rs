@@ -21,7 +21,7 @@ macro_rules! bodies {
         impl<'a> $crate::handle::IntoHandle for $crate::body::Body<'a> {
             fn into_handle(mut self, newton: &Newton) -> Handle {
                 match &mut self {
-                    $(Body::$enum(ref mut body) => if !body.owned { panic!() } else { body.owned = false; }),*
+                    $(Body::$enum(ref mut body) => body.owned = false),*
                 }
                 newton.storage().move_body(self)
             }
@@ -46,10 +46,9 @@ macro_rules! bodies {
         impl<'a> $crate::body::Body<'a> {
             pub(crate) unsafe fn from_raw(raw: *const $crate::ffi::NewtonBody, owned: bool) -> Self {
                 let body_type = $crate::ffi::NewtonBodyGetType(raw);
-                match body_type as _ {
-                    $crate::ffi::NEWTON_DYNAMIC_BODY => Body::Dynamic(DynamicBody::from_raw(raw, owned)),
-                    $crate::ffi::NEWTON_KINEMATIC_BODY => Body::Kinematic(KinematicBody::from_raw(raw, owned)),
-                    _ => unreachable!("Unexpected body type ({})", body_type),
+                match mem::transmute::<_, Type>(body_type) {
+                    Type::Dynamic => $crate::body::Body::Dynamic(DynamicBody::from_raw(raw, owned)),
+                    Type::Kinematic => $crate::body::Body::Kinematic(KinematicBody::from_raw(raw, owned)),
                 }
             }
 
@@ -135,7 +134,7 @@ macro_rules! bodies {
 
             impl<'a> IntoHandle for $body<'a> {
                 fn into_handle(mut self, newton: &Newton) -> Handle {
-                    if !self.owned { panic!() }
+                    //if !self.owned { panic!() }
                     self.owned = false;
                     newton.storage().move_body(self.into_body())
                 }
@@ -154,6 +153,12 @@ macro_rules! bodies {
                         owned,
                         _phantom: PhantomData,
                     }
+                }
+
+                /// Forgets about this body. It will be freed along the world
+                /// If you want to reference the object later, you should call into_handle instead.
+                pub fn release(mut self) {
+                    self.owned = false;
                 }
 
                 pub fn create<C>(newton: &'a Newton,
@@ -195,7 +200,7 @@ macro_rules! collision {
     )*) => {
 
     /// Enum grouping all collision types.
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq)]
     pub enum Collision<'a> {
         $($enum_var($collision<'a>) ,)*
         HeightFieldF32(HeightField<'a, f32>),
@@ -211,14 +216,14 @@ macro_rules! collision {
     }
 
     /// Collision params
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
     pub enum Params<'a> {
         $( $param_name  $params ,)*
         HeightFieldF32(HeightFieldParams<'a, f32>),
         HeightFieldU16(HeightFieldParams<'a, u16>),
     }
 
-    #[derive(Clone, Copy, Debug)]
+    #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct HeightFieldParams<'a, T: Elevation> {
         pub width: usize,
         pub height: usize,
@@ -232,6 +237,7 @@ macro_rules! collision {
         pub attributes: &'a [i8],
     }
 
+/*
     fn check_owned(coll: &Collision) {
         match coll {
             $(Collision::$enum_var(ref col) => if !col.owned { panic!() }, )*
@@ -239,6 +245,7 @@ macro_rules! collision {
             Collision::HeightFieldU16(ref col) => if !col.owned { panic!() },
         }
     }
+*/
 
     impl<'a> FromHandle<'a> for Collision<'a> {
         fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
@@ -336,7 +343,7 @@ macro_rules! collision {
             }
         }
     }
-    #[derive(Debug)]
+    #[derive(Debug, PartialEq)]
     pub struct HeightField<'a, T: Elevation> {
         raw: *const $crate::ffi::NewtonCollision,
         owned: bool,
@@ -377,11 +384,17 @@ macro_rules! collision {
                 Self::from_raw(instance, true)
             }
         }
+
+        /// Forgets about this body. It will be freed along the world
+        /// If you want to reference the object later, you should call into_handle instead.
+        pub fn release(mut self) {
+            self.owned = false;
+        }
     }
 
     impl<'a> IntoHandle for HeightField<'a, u16> {
         fn into_handle(mut self, newton: &Newton) -> Handle {
-            if !self.owned { panic!() }
+            //if !self.owned { panic!() }
             self.owned = false;
             newton.storage().move_collision(self.into_collision())
         }
@@ -389,7 +402,7 @@ macro_rules! collision {
 
     impl<'a> IntoHandle for HeightField<'a, f32> {
         fn into_handle(mut self, newton: &Newton) -> Handle {
-            if !self.owned { panic!() }
+            //if !self.owned { panic!() }
             self.owned = false;
             newton.storage().move_collision(self.into_collision())
         }
@@ -479,6 +492,12 @@ macro_rules! collision {
                     Self::from_raw(instance, true)
                 }
             }
+
+            /// Forgets about this body. It will be freed along the world
+            /// If you want to reference the object later, you should call into_handle instead.
+            pub fn release(mut self) {
+                self.owned = false;
+            }
         }
 
         impl<'a> Drop for $collision<'a> {
@@ -494,7 +513,7 @@ macro_rules! collision {
 
         impl<'a> IntoHandle for $collision<'a> {
             fn into_handle(mut self, newton: &Newton) -> Handle {
-                if !self.owned { panic!() }
+                //if !self.owned { panic!() }
                 self.owned = false;
                 newton.storage().move_collision(self.into_collision())
             }
@@ -524,6 +543,7 @@ macro_rules! joints {
     ($(
         $( #[ $($meta:meta)+ ] )*
         struct $joint:ident
+        fn $option:ident, $is:ident
     )*) => {
         $(
             $( #[ $($meta)+ ] )*
@@ -562,6 +582,12 @@ macro_rules! joints {
                         _phantom: PhantomData,
                     }
                 }
+
+                /// Forgets about this body. It will be freed along the world
+                /// If you want to reference the object later, you should call into_handle instead.
+                pub fn release(mut self) {
+                    self.owned = false;
+                }
             }
 
             impl<'a> AsHandle for $joint<'a> {
@@ -580,25 +606,48 @@ macro_rules! joints {
 
         /// Enum grouping all joint types.
         #[derive(Debug)]
-        pub enum Constraint<'a> {
+        pub enum Joint<'a> {
             $( $joint($joint<'a>) ),*
         }
 
         #[derive(Debug)]
-        pub enum Type {
+        enum Type {
             $( $joint ),*
         }
 
-        impl<'a> Constraint<'a> {
+        impl<'a> Joint<'a> {
             pub unsafe fn from_raw(raw: *const ffi::NewtonJoint, owned: bool) -> Self {
-                Constraint::Ball(Ball::from_raw(raw, owned))
+                let udata = ffi::NewtonJointGetUserData(raw);
+                let udata: &Box<UserData> = mem::transmute(&udata);
+
+                match udata.joint_type {
+                    $(
+                        Type::$joint => Joint::$joint($joint ::from_raw(raw, owned)),
+                    )*
+                }
             }
+
+            $(
+                pub fn $option(self) -> Option<$joint<'a>> {
+                    match self {
+                        Joint::$joint(con) => Some(con),
+                        _ => None,
+                    }
+                }
+
+                pub fn $is(&self) -> bool {
+                    match self {
+                        Joint::$joint(_) => true,
+                        _ => false,
+                    }
+                }
+            )*
         }
 
-        impl<'a> NewtonJoint for Constraint<'a> {
+        impl<'a> NewtonJoint for Joint<'a> {
             fn as_raw(&self) -> *const ffi::NewtonJoint {
                 match self {
-                    $(Constraint::$joint(ref joint) => joint.as_raw() ),*
+                    $(Joint::$joint(ref joint) => joint.as_raw() ),*
                 }
             }
         }
