@@ -22,7 +22,7 @@ pub enum SleepState {
 
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub enum Type {
+enum Type {
     Dynamic = ffi::NEWTON_DYNAMIC_BODY,
     Kinematic = ffi::NEWTON_KINEMATIC_BODY,
 }
@@ -164,12 +164,14 @@ pub trait NewtonBody {
         (min, max)
     }
 
+    /*
     fn body_type(&self) -> Type {
         unsafe {
             let btype = ffi::NewtonBodyGetType(self.as_raw());
             mem::transmute(btype)
         }
     }
+    */
 
     fn sleep_state(&self) -> SleepState {
         lock!(self, read);
@@ -301,16 +303,13 @@ pub trait NewtonBody {
             let mut udata = ffi::NewtonBodyGetUserData(body);
             let mut udata: &mut Box<UserData> = mem::transmute(&mut udata);
             if let Some(callback) = &mut udata.force_and_torque {
-                let body = match ffi::NewtonBodyGetType(body) as _ {
-                    ffi::NEWTON_DYNAMIC_BODY => Body::Dynamic(DynamicBody { raw: body,
-                                                                            _phantom:
-                                                                                PhantomData,
-                                                                            owned: false }),
-                    ffi::NEWTON_KINEMATIC_BODY => Body::Kinematic(KinematicBody { raw: body,
-                                                                                  _phantom:
-                                                                                      PhantomData,
-                                                                                  owned: false }),
-                    _ => unreachable!(),
+                let body = match mem::transmute::<_, Type>(ffi::NewtonBodyGetType(body)) {
+                    Type::Dynamic => Body::Dynamic(DynamicBody { raw: body,
+                                                                 _phantom: PhantomData,
+                                                                 owned: false }),
+                    Type::Kinematic => Body::Kinematic(KinematicBody { raw: body,
+                                                                       _phantom: PhantomData,
+                                                                       owned: false }),
                 };
                 callback(body, timestep, thread as usize);
             }

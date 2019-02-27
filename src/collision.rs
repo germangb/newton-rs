@@ -18,9 +18,9 @@ pub mod iter;
 collision! {
     {
         enum Cuboid
-        fn cuboid
+        fn cuboid, is_cuboid
         #[derive(Debug, Eq, PartialEq)]
-        struct Cuboid
+        struct Cuboid<'a>
         const ffi::SERIALIZE_ID_BOX
         params Cuboid {
             dx: f32,
@@ -31,18 +31,18 @@ collision! {
 
     {
         enum UserMesh
-        fn user_mesh
+        fn user_mesh, is_user_mesh
         #[derive(Debug, Eq, PartialEq)]
-        struct UserMesh
+        struct UserMesh<'a>
         const ffi::SERIALIZE_ID_USERMESH
         params UserMesh {}
     }
 
     {
         enum Sphere
-        fn sphere
+        fn sphere, is_sphere
         #[derive(Debug, Eq, PartialEq)]
-        struct Sphere
+        struct Sphere<'a>
         const ffi::SERIALIZE_ID_SPHERE
         params Sphere {
             radius: f32,
@@ -51,9 +51,9 @@ collision! {
 
     {
         enum Cylinder
-        fn cylinder
+        fn cylinder, is_cylinder
         #[derive(Debug, Eq, PartialEq)]
-        struct Cylinder
+        struct Cylinder<'a>
         const ffi::SERIALIZE_ID_CYLINDER
         params Cylinder {
             radius0: f32,
@@ -64,9 +64,9 @@ collision! {
 
     {
         enum ChamferCylinder
-        fn chamfer_cylinder
+        fn chamfer_cylinder, is_chamfer_cylinder
         #[derive(Debug, Eq, PartialEq)]
-        struct ChamferCylinder
+        struct ChamferCylinder<'a>
         const ffi::SERIALIZE_ID_CHAMFERCYLINDER
         params ChamferCylinder {
             radius: f32,
@@ -76,9 +76,9 @@ collision! {
 
     {
         enum Capsule
-        fn capsule
+        fn capsule, is_capsule
         #[derive(Debug, Eq, PartialEq)]
-        struct Capsule
+        struct Capsule<'a>
         const ffi::SERIALIZE_ID_CAPSULE
         params Capsule {
             radius0: f32,
@@ -89,9 +89,9 @@ collision! {
 
     {
         enum Cone
-        fn cone
+        fn cone, is_cone
         #[derive(Debug, Eq, PartialEq)]
-        struct Cone
+        struct Cone<'a>
         const ffi::SERIALIZE_ID_CONE
         params Cone {
             radius: f32,
@@ -101,9 +101,9 @@ collision! {
 
     {
         enum Compound
-        fn compound
+        fn compound, is_compound
         #[derive(Debug, Eq, PartialEq)]
-        struct Compound
+        struct Compound<'a>
         const ffi::SERIALIZE_ID_COMPOUND
         params Compound {
             children_count: usize,
@@ -112,18 +112,18 @@ collision! {
 
     {
         enum FracturedCompound
-        fn fractured_compound
+        fn fractured_compound, is_fractured_compound
         #[derive(Debug, Eq, PartialEq)]
-        struct FracturedCompound
+        struct FracturedCompound<'a>
         const ffi::SERIALIZE_ID_FRACTURED_COMPOUND
         params FracturedCompound { }
     }
 
     {
         enum Tree
-        fn tree
+        fn tree, is_tree
         #[derive(Debug, Eq, PartialEq)]
-        struct Tree
+        struct Tree<'a>
         const ffi::SERIALIZE_ID_TREE
         params Tree {
             vertex_count: usize,
@@ -133,9 +133,9 @@ collision! {
 
     {
         enum Scene
-        fn scene
+        fn scene, is_scene
         #[derive(Debug, Eq, PartialEq)]
-        struct Scene
+        struct Scene<'a>
         const ffi::SERIALIZE_ID_SCENE
         params Scene {
             children_proxy_count: usize,
@@ -144,45 +144,47 @@ collision! {
 
     {
         enum ConvexHull
-        fn convex_hull
+        fn convex_hull, is_convex_hull
         #[derive(Debug, Eq, PartialEq)]
-        struct ConvexHull
+        struct ConvexHull<'a>
         const ffi::SERIALIZE_ID_CONVEXHULL
         params ConvexHull { }
     }
 
+/*
     {
         enum HeightField
         fn height_field
         #[derive(Debug, Eq, PartialEq)]
-        struct HeightField
+        struct HeightField<'a>
         const ffi::SERIALIZE_ID_HEIGHTFIELD
         params HeightFieldF32 (HeightFieldParams<'a, f32>)
     }
+*/
 
     {
         enum Null
-        fn null
+        fn null, is_null
         #[derive(Debug, Eq, PartialEq)]
-        struct Null
+        struct Null<'a>
         const ffi::SERIALIZE_ID_NULL
         params Null { }
     }
 
     {
         enum DeformableSolid
-        fn deformable_solid
+        fn deformable_solid, is_deformable_solid
         #[derive(Debug, Eq, PartialEq)]
-        struct DeformableSolid
+        struct DeformableSolid<'a>
         const ffi::SERIALIZE_ID_DEFORMABLE_SOLID
         params DeformableSolid { }
     }
 
     {
         enum MassSpringDamperSystem
-        fn mass_spring_damper_system
+        fn mass_spring_damper_system, is_mass_spring_damper_system
         #[derive(Debug, Eq, PartialEq)]
-        struct MassSpringDamperSystem
+        struct MassSpringDamperSystem<'a>
         // TODO is the constant the correct one?
         const ffi::SERIALIZE_ID_CLOTH_PATCH
         params MassSpringDamperSystem { }
@@ -382,21 +384,95 @@ impl<'a> Capsule<'a> {
     }
 }
 
+// m_normalDiagonals = 0,
+// m_invertedDiagonals,
+// m_alternateOddRowsDiagonals,
+// m_alternateEvenRowsDiagonals,
+// m_alternateOddColumsDiagonals,
+// m_alternateEvenColumsDiagonals,
+// m_starDiagonals,
+// m_starInvertexDiagonals,
+/// HeightField grid construction pattern.
+#[repr(i32)]
+#[derive(Clone, Copy, Eq, PartialEq, Hash)]
+pub enum HeightFieldGrid {
+    NormalDiagonals = 0,
+    InvertedDiagonals = 1,
+    AlternateOddRowsDiagonals = 2,
+    AlternateEvenRowsDiagonals = 3,
+    AlternateOddColumsDiagonals = 4,
+    AlternateEvenColumsDiagonals = 5,
+    StarDiagonals = 6,
+    StarInvertexDiagonals = 7,
+}
+
+impl<'a, T: Elevation> HeightField<'a, T> {
+    /// A more convenient way to build a HeightField collision with default values.
+    pub fn builder() -> ! {
+        unimplemented!()
+    }
+
+    pub fn create(newton: &'a Newton,
+                  width: usize,
+                  height: usize,
+                  grid: HeightFieldGrid,
+                  elevation: &[T],
+                  attrs: &[i8],
+                  vert_scale: f32,
+                  hor_x_scale: f32,
+                  hor_z_scale: f32)
+                  -> Self {
+        let data_type = T::newton_enum();
+        unsafe {
+            let raw = ffi::NewtonCreateHeightFieldCollision(newton.as_raw(),
+                                                            width as _,
+                                                            height as _,
+                                                            mem::transmute(grid),
+                                                            data_type,
+                                                            elevation.as_ptr() as _,
+                                                            attrs.as_ptr(),
+                                                            vert_scale,
+                                                            hor_x_scale,
+                                                            hor_z_scale,
+                                                            0);
+            Self::from_raw(raw, true)
+        }
+    }
+
+    pub fn set_horizontal_displacement(&self, map: &[u16], scale: f32) {
+        unsafe { ffi::NewtonHeightFieldSetHorizontalDisplacement(self.raw, map.as_ptr(), scale) }
+    }
+}
+
 trait IntoCollision<'a> {
     fn into_collision(self) -> Collision<'a>;
 }
 
-/// A marker trait for static collisions (tree and heightfield).
+/// A marker trait for static collisions (Tree, Scene & HeightField).
+///
+/// If a body has a static collision assigned, the body becomes static.
 pub trait StaticShape: NewtonCollision {}
 
 /// A marker trait for collision shapes with convex geometry.
 pub trait ConvexShape: NewtonCollision {}
 
 /// HeightField collision elevation data types
-pub trait HeightFieldType {}
+pub trait Elevation {
+    fn newton_enum() -> i32;
+}
 
-impl HeightFieldType for f32 {}
-impl HeightFieldType for i16 {}
+impl Elevation for f32 {
+    fn newton_enum() -> i32 {
+        // https://github.com/MADEAPPS/newton-dynamics/blob/69d773bd41f6aa8b6a955b7fa21515e22040e05a/sdk/dgPhysics/dgCollisionHeightField.h#L35
+        0
+    }
+}
+impl Elevation for u16 {
+    fn newton_enum() -> i32 {
+        // https://github.com/MADEAPPS/newton-dynamics/blob/69d773bd41f6aa8b6a955b7fa21515e22040e05a/sdk/dgPhysics/dgCollisionHeightField.h#L36
+        1
+    }
+}
 
 /*
 /// Marker traits for collisions with geometry that can be iterated.
@@ -418,8 +494,10 @@ macro_rules! convex {
 //}
 
 statik! {
-    HeightField, Tree, Scene
+    /*HeightField,*/ Tree, Scene
 }
+
+impl<'a, T: Elevation> StaticShape for HeightField<'a, T> {}
 
 convex! {
     Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Null, ChamferCylinder
@@ -567,9 +645,12 @@ pub trait NewtonCollision {
         self.as_raw()
     }
 
+    /*
+    Leave it to static typing
     fn collision_type(&self) -> Type {
         unsafe { mem::transmute(ffi::NewtonCollisionGetType(self.as_raw())) }
     }
+    */
 
     fn matrix(&self) -> Mat4 {
         let mut mat: Mat4 = Default::default();

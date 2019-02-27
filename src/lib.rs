@@ -3,6 +3,14 @@
 //! - **Newton version: 3.13a**
 //!
 //! [newton]: https://github.com/MADEAPPS/newton-dynamics
+//!
+//! ## Thread safety
+//!
+//! Newton has built-in support to perform the simulation step on multiple threads, where bodies, collisions, and joints, are updated through application-implemented callbacks.
+//!
+//! `Collision`, `Body`, and `Joint` types are **NOT** thread safe. You'll have to convert them to `Handle`s first.
+//!
+//! [handle]: #
 pub use ffi;
 
 pub use body::{Body, DynamicBody, KinematicBody};

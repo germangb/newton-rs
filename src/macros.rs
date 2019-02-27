@@ -66,6 +66,20 @@ macro_rules! bodies {
                     _ => None,
                 }
             }
+
+            pub fn is_dynamic(&self) -> bool {
+                match self {
+                    Body::Dynamic(_) => true,
+                    _ => false,
+                }
+            }
+
+            pub fn is_kinematic(&self) -> bool {
+                match self {
+                    Body::Kinematic(_) => true,
+                    _ => false,
+                }
+            }
         }
 
         $(
@@ -171,9 +185,9 @@ macro_rules! collision {
     ($(
         {
             enum $enum_var:ident
-            fn $option:ident
+            fn $option:ident, $is:ident
             $( #[ $($meta:meta)+ ] )*
-            struct $collision:ident
+            struct $collision:ident<'a>
             const ffi::$id:ident
             params $param_name:ident $params:tt
         }
@@ -181,28 +195,31 @@ macro_rules! collision {
     )*) => {
 
     /// Enum grouping all collision types.
-    #[derive(Debug, Eq, PartialEq)]
+    #[derive(Debug)]
     pub enum Collision<'a> {
-        $($enum_var($collision<'a>)),*
+        $($enum_var($collision<'a>) ,)*
+        HeightFieldF32(HeightField<'a, f32>),
+        HeightFieldU16(HeightField<'a, u16>),
     }
 
     /// Collision types.
     #[repr(i32)]
     #[derive(Clone, Copy, Hash, Debug, Eq, PartialEq, PartialOrd, Ord)]
-    pub enum Type {
-        $($enum_var = ffi::$id as i32),*
+    enum Type {
+        $($enum_var = ffi::$id as i32 ,)*
+        HeightField = ffi::SERIALIZE_ID_HEIGHTFIELD as i32,
     }
 
     /// Collision params
     #[derive(Clone, Copy, Debug)]
     pub enum Params<'a> {
-        $( $param_name  $params),*
-        ,
-        HeightFieldI16 (HeightFieldParams<'a, i16>)
+        $( $param_name  $params ,)*
+        HeightFieldF32(HeightFieldParams<'a, f32>),
+        HeightFieldU16(HeightFieldParams<'a, u16>),
     }
 
     #[derive(Clone, Copy, Debug)]
-    pub struct HeightFieldParams<'a, T> {
+    pub struct HeightFieldParams<'a, T: Elevation> {
         pub width: usize,
         pub height: usize,
         pub vertical_elevation: &'a [T],
@@ -217,7 +234,9 @@ macro_rules! collision {
 
     fn check_owned(coll: &Collision) {
         match coll {
-            $(Collision::$enum_var(ref col) => if !col.owned { panic!() }),*
+            $(Collision::$enum_var(ref col) => if !col.owned { panic!() }, )*
+            Collision::HeightFieldF32(ref col) => if !col.owned { panic!() },
+            Collision::HeightFieldU16(ref col) => if !col.owned { panic!() },
         }
     }
 
@@ -234,7 +253,9 @@ macro_rules! collision {
     impl<'a> AsHandle for Collision<'a> {
         fn as_handle(&self, newton: &Newton) -> Handle {
             match self {
-                $(Collision::$enum_var(ref col) => col.as_handle(newton)),*
+                $(Collision::$enum_var(ref col) => col.as_handle(newton) ,)*
+                Collision::HeightFieldF32(ref col) => col.as_handle(newton),
+                Collision::HeightFieldU16(ref col) => col.as_handle(newton),
             }
         }
     }
@@ -242,17 +263,20 @@ macro_rules! collision {
     impl<'a> Collision<'a> {
         pub unsafe fn from_raw(raw: *const $crate::ffi::NewtonCollision, owned: bool) -> Self {
             let col_type = $crate::ffi::NewtonCollisionGetType(raw);
-            match col_type as _ {
+            match mem::transmute::<_, Type>(col_type) {
                 $(
-                    $crate::ffi::$id => Collision::$enum_var($collision::from_raw(raw, owned)),
+                    Type::$enum_var => Collision::$enum_var($collision::from_raw(raw, owned)),
                 )*
-                _ => unimplemented!("Collision type ({}) not implemented", col_type),
+                Type::HeightField => unimplemented!(),
+                //_ => unimplemented!("Collision type ({}) not implemented", col_type),
             }
         }
 
         pub fn create_instance(col: &Self) -> Self {
             match col {
-                $( Collision::$enum_var(ref col) => Collision::$enum_var($collision::create_instance(&col)) ),*
+                $( Collision::$enum_var(ref col) => Collision::$enum_var($collision::create_instance(&col)), )*
+                Collision::HeightFieldF32(ref col) => Collision::HeightFieldF32(HeightField::create_instance(&col)),
+                Collision::HeightFieldU16(ref col) => Collision::HeightFieldU16(HeightField::create_instance(&col)),
             }
         }
 
@@ -264,13 +288,154 @@ macro_rules! collision {
                 }
             }
         )*
+
+        $(
+            pub fn $is(&self) -> bool {
+                match self {
+                    Collision::$enum_var(_) => true,
+                    _ => false,
+                }
+            }
+        )*
+
+        pub fn height_field_f32(self) -> Option<HeightField<'a, f32>> {
+                match self {
+                    Collision::HeightFieldF32(col) => Some(col),
+                    _ => None,
+                }
+        }
+
+        pub fn height_field_u16(self) -> Option<HeightField<'a, u16>> {
+                match self {
+                    Collision::HeightFieldU16(col) => Some(col),
+                    _ => None,
+                }
+        }
+
+        pub fn is_height_field_f32(&self) -> bool {
+            match self {
+                Collision::HeightFieldF32(_) => true,
+                _ => false,
+            }
+        }
+
+        pub fn is_height_field_u16(&self) -> bool {
+            match self {
+                Collision::HeightFieldU16(_) => true,
+                _ => false,
+            }
+        }
     }
 
     impl<'a> NewtonCollision for Collision<'a> {
         fn as_raw(&self) -> *const $crate::ffi::NewtonCollision {
             match self {
-                $(Collision::$enum_var(col) => col.raw ),*
+                $(Collision::$enum_var(col) => col.raw ,)*
+                Collision::HeightFieldF32(col) => col.raw ,
+                Collision::HeightFieldU16(col) => col.raw ,
             }
+        }
+    }
+    #[derive(Debug)]
+    pub struct HeightField<'a, T: Elevation> {
+        raw: *const $crate::ffi::NewtonCollision,
+        owned: bool,
+        _phantom: PhantomData<&'a T>,
+    }
+
+    impl<'a> From<HeightField<'a, f32>> for Collision<'a> {
+        fn from(col: HeightField<'a, f32>) -> Self {
+            Collision::HeightFieldF32 ( col )
+        }
+    }
+
+    impl<'a> From<HeightField<'a, u16>> for Collision<'a> {
+        fn from(col: HeightField<'a, u16>) -> Self {
+            Collision::HeightFieldU16 ( col )
+        }
+    }
+
+    impl<'a, T: Elevation> Drop for HeightField<'a, T> {
+        fn drop(&mut self) {
+            // if collision owns itself, then free the memory
+            if self.owned {
+                unsafe {
+                    $crate::ffi::NewtonDestroyCollision(self.raw);
+                }
+            }
+        }
+    }
+
+    impl<'a, T: Elevation> HeightField<'a, T> {
+        pub unsafe fn from_raw(raw: *const $crate::ffi::NewtonCollision, owned: bool) -> Self {
+            Self { raw, owned, _phantom: PhantomData }
+        }
+
+        pub fn create_instance(col: &Self) -> Self {
+            unsafe {
+                let instance = $crate::ffi::NewtonCollisionCreateInstance(col.raw);
+                Self::from_raw(instance, true)
+            }
+        }
+    }
+
+    impl<'a> IntoHandle for HeightField<'a, u16> {
+        fn into_handle(mut self, newton: &Newton) -> Handle {
+            if !self.owned { panic!() }
+            self.owned = false;
+            newton.storage().move_collision(self.into_collision())
+        }
+    }
+
+    impl<'a> IntoHandle for HeightField<'a, f32> {
+        fn into_handle(mut self, newton: &Newton) -> Handle {
+            if !self.owned { panic!() }
+            self.owned = false;
+            newton.storage().move_collision(self.into_collision())
+        }
+    }
+
+    impl<'a> FromHandle<'a> for HeightField<'a, f32> {
+        fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
+            newton.storage().collision(handle).and_then(|h| h.height_field_f32())
+        }
+
+        fn from_handle_owned(newton: &'a mut Newton, handle: Handle) -> Option<Self> {
+            newton.storage_mut().take_collision(handle).and_then(|h| h.height_field_f32())
+        }
+    }
+
+    impl<'a> FromHandle<'a> for HeightField<'a, u16> {
+        fn from_handle(newton: &'a Newton, handle: Handle) -> Option<Self> {
+            newton.storage().collision(handle).and_then(|h| h.height_field_u16())
+        }
+
+        fn from_handle_owned(newton: &'a mut Newton, handle: Handle) -> Option<Self> {
+            newton.storage_mut().take_collision(handle).and_then(|h| h.height_field_u16())
+        }
+    }
+
+    impl<'a, T: Elevation> AsHandle for HeightField<'a, T> {
+        fn as_handle(&self, _: &Newton) -> Handle {
+            Handle::from_ptr(self.raw as _)
+        }
+    }
+
+    impl<'a> IntoCollision<'a> for HeightField<'a, f32> {
+        fn into_collision(self) -> Collision<'a> {
+            Collision::HeightFieldF32(self)
+        }
+    }
+
+    impl<'a> IntoCollision<'a> for HeightField<'a, u16> {
+        fn into_collision(self) -> Collision<'a> {
+            Collision::HeightFieldU16(self)
+        }
+    }
+
+    impl<'a, T: Elevation> NewtonCollision for HeightField<'a, T> {
+        fn as_raw(&self) -> *const $crate::ffi::NewtonCollision {
+            self.raw
         }
     }
 
@@ -305,7 +470,7 @@ macro_rules! collision {
 
         impl<'a> $collision<'a> {
             pub unsafe fn from_raw(raw: *const $crate::ffi::NewtonCollision, owned: bool) -> Self {
-                $collision { raw, owned, _phantom: PhantomData }
+                Self { raw, owned, _phantom: PhantomData }
             }
 
             pub fn create_instance(col: &Self) -> Self {

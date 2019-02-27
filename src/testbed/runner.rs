@@ -20,7 +20,7 @@ use super::renderer::{compute_ray, compute_view_proj, vert, RenderParams, Testbe
 use super::Testbed;
 
 use crate::body::SleepState;
-use crate::collision::Type;
+//use crate::collision::Type;
 use crate::prelude::*;
 use crate::{handle::Handle, Body, Collision, Mat4, Newton, Vec3, Vec4};
 
@@ -74,9 +74,8 @@ pub struct SelectedBody {
     //body: Option<(Handle,)>,
     #[imgui(display(display = "{:?}", 0))]
     name: (Option<&'static str>,),
-    #[imgui(display(display = "{:?}", 0))]
-    collision: (Type,),
-
+    //#[imgui(display(display = "{:?}", 0))]
+    //collision: (Type,),
     #[imgui(new_line, checkbox)]
     awake: bool,
     #[imgui(drag(speed = 0.1))]
@@ -101,7 +100,7 @@ impl Default for SelectedBody {
         Self { body: (Handle::null(),),
                name: (None,),
                awake: true,
-               collision: (Type::Null,),
+               //collision: (Type::Null,),
                position: Default::default(),
                velocity: Default::default(),
                mass: Default::default(),
@@ -565,7 +564,7 @@ impl<T: Testbed> Runner<T> {
                 sel.position = body.position();
                 sel.velocity = body.velocity();
                 sel.name = (body.name(),);
-                sel.collision = (body.collision().collision_type(),);
+                //sel.collision = (body.collision().collision_type(),);
 
                 match &body {
                     Body::Dynamic(ref body) => {
