@@ -12,8 +12,8 @@ use std::time::Duration;
 use crate::body::{Body, NewtonBody};
 use crate::ffi;
 use crate::handle::{AsHandle, Handle, IntoHandle};
+use crate::math::Vec3;
 use crate::newton::Newton;
-use crate::Vec3;
 
 pub mod iter;
 

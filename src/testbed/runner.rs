@@ -21,8 +21,9 @@ use super::Testbed;
 
 use crate::body::SleepState;
 //use crate::collision::Type;
+use crate::math::*;
 use crate::prelude::*;
-use crate::{handle::Handle, Body, Collision, Mat4, Newton, Vec3, Vec4};
+use crate::{body::Body, collision::Collision, handle::Handle, newton::Newton};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Sidebar {

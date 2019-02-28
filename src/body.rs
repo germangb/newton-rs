@@ -7,8 +7,8 @@ use crate::collision::{Collision, NewtonCollision};
 use crate::ffi;
 use crate::handle::{AsHandle, FromHandle, Handle, IntoHandle};
 use crate::joint::iter::Joints;
+use crate::math::{Mat4, Vec3};
 use crate::newton::Newton;
-use crate::{Mat4, Vec3};
 
 /// Body iterators.
 pub mod iter;

@@ -2,8 +2,8 @@ use std::marker::PhantomData;
 
 use crate::collision::NewtonCollision;
 use crate::ffi;
+use crate::math::Mat4;
 use crate::newton::Newton;
-use crate::Mat4;
 
 /// Newton mesh wrapper.
 ///

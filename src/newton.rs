@@ -11,7 +11,7 @@ use crate::body::{iter::Bodies, Body, NewtonBody};
 use crate::collision::{Collision, ConvexShape, NewtonCollision};
 use crate::ffi;
 use crate::handle::{Handle, HandleInner};
-use crate::Vec3;
+use crate::math::Vec3;
 
 /// Data structured for bodies & collisions.
 pub mod storage;

@@ -1,3 +1,5 @@
+//!
+//! * **This module is included iif the *testbed* feature is enabled.**
 use std::sync::Arc;
 
 use crate::newton::Newton;

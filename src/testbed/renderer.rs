@@ -8,7 +8,7 @@ use gl::types::*;
 use imgui_ext::ImGuiExt;
 use serde::{Deserialize, Serialize};
 
-use crate::Vec3;
+use crate::math::Vec3;
 
 #[derive(ImGuiExt, Serialize, Deserialize, Clone)]
 pub struct Camera {

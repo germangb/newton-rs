@@ -3,9 +3,10 @@ use std::mem;
 use std::os::raw;
 
 use crate::body::Body;
+use crate::ffi;
 use crate::handle::{AsHandle, FromHandle, Handle, HandleInner, IntoHandle};
+use crate::math::{Mat4, Vec3};
 use crate::newton::Newton;
-use crate::{ffi, Mat4, Vec3};
 
 use builder::{CompoundBuilder, SceneBuilder, TreeBuilder};
 use iter::{Collisions, Handles};

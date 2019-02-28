@@ -1,4 +1,13 @@
-use crate::{ffi, Mat4, Vec3};
+use crate::ffi;
+
+/// 3D vector
+pub type Vec3 = [f32; 3];
+/// 4D vector
+pub type Vec4 = [f32; 4];
+/// Quaternion
+pub type Quat = [f32; 4];
+/// 4x4 matrix, arranged in columns
+pub type Mat4 = [Vec4; 4];
 
 /// Converts from Euler angles to a 4x4 rotation matrix.
 pub fn set_euler_angle(euler: Vec3) -> Mat4 {
