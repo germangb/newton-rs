@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::marker::PhantomData;
 use std::mem;
 use std::os::raw::{c_longlong, c_void};
@@ -8,10 +7,10 @@ use std::time::Duration;
 use storage::{BTreeStorage, NewtonStorage};
 
 use crate::body::{iter::Bodies, Body, NewtonBody};
-use crate::collision::{Collision, ConvexShape, NewtonCollision};
+use crate::collision::{Collision, NewtonCollision};
 use crate::ffi;
-use crate::handle::{Handle, HandleInner};
-use crate::math::Vec3;
+use crate::handle::HandleInner;
+use crate::math::{Mat4, Vec3, Vec4};
 
 /// Data structured for bodies & collisions.
 pub mod storage;
@@ -29,6 +28,41 @@ impl<'a> Drop for AsyncUpdate<'a> {
     fn drop(&mut self) {
         let world = self.0.as_raw();
         unsafe { ffi::NewtonWaitForUpdateToFinish(world) }
+    }
+}
+
+pub struct ConvexCastInfo<'a> {
+    pub body: Body<'a>,
+    pub point: Vec4,
+    pub normal: Vec4,
+    pub contact_id: c_longlong,
+    pub penetration: f32,
+}
+
+#[derive(Debug)]
+pub struct ConvexCastResult<'a> {
+    newton: &'a Newton,
+    info: Vec<ffi::NewtonWorldConvexCastReturnInfo>,
+    hit_param: f32,
+}
+
+impl<'a> ConvexCastResult<'a> {
+    pub fn hit_param(&self) -> f32 {
+        self.hit_param
+    }
+
+    pub fn len(&self, index: usize) -> usize {
+        self.info.len()
+    }
+
+    pub fn get(&self, index: usize) -> Option<ConvexCastInfo> {
+        self.info.get(index).map(|info| ConvexCastInfo { body: unsafe {
+                                                             Body::from_raw(info.m_hitBody, false)
+                                                         },
+                                                         point: info.m_point,
+                                                         normal: info.m_normal,
+                                                         contact_id: info.m_contactID,
+                                                         penetration: info.m_penetration })
     }
 }
 
@@ -177,6 +211,58 @@ impl Newton {
         let seconds = step.as_secs() * 1_000_000_000 + step.subsec_nanos() as u64;
         unsafe { ffi::NewtonUpdateAsync(self.as_raw(), seconds as f32 / 1_000_000_000.0) }
         AsyncUpdate(self)
+    }
+
+    /// Projects a convex collision shape in the world, and returns all the contacts that it generates.
+    /// It is the equivalent of `ray_cast`, but for solid rays of convex geometry.
+    /// This function can be used to implement a character controller, for example.
+    pub fn convex_cast<C, P>(&self,
+                             matrix: Mat4,
+                             target: Vec3,
+                             shape: &C,
+                             mut prefilter: P,
+                             max_contacts: usize,
+                             thread_idx: usize)
+                             -> ConvexCastResult
+        where C: NewtonCollision,
+              P: FnMut(Body, Collision) -> bool + Send
+    {
+        let mut info = Vec::with_capacity(max_contacts);
+        let mut hit_param = 0.0;
+        let contacts = unsafe {
+            ffi::NewtonWorldConvexCast(self.as_raw(),
+                                       matrix[0].as_ptr(),
+                                       target.as_ptr(),
+                                       shape.as_raw(),
+                                       &mut hit_param,
+                                       mem::transmute(&mut prefilter),
+                                       Some(prefilter_callback::<P>),
+                                       info.as_mut_ptr(),
+                                       max_contacts as _,
+                                       thread_idx as _)
+        };
+
+        unsafe {
+            info.set_len(contacts as usize);
+        }
+
+        return ConvexCastResult { newton: self, info, hit_param };
+
+        unsafe extern "C" fn prefilter_callback<P>(body: *const ffi::NewtonBody,
+                                                   col: *const ffi::NewtonCollision,
+                                                   udata: *const c_void)
+                                                   -> u32
+            where P: FnMut(Body, Collision) -> bool + Send
+        {
+            let b = Body::from_raw(body, false);
+            let c = Collision::from_raw(col, false);
+
+            if mem::transmute::<_, &mut P>(udata)(b, c) {
+                1
+            } else {
+                0
+            }
+        }
     }
 
     /// Samples world with a ray, and runs the given filter closure for every

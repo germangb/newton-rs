@@ -1,9 +1,8 @@
 use std::error::Error;
 use std::time::{Duration, Instant};
-use std::{mem, ptr, str};
+use std::{mem, str};
 
-use cgmath::prelude::*;
-use cgmath::{Deg, Matrix3, Matrix4, Point3, Vector3, Vector4};
+use cgmath::{Matrix4, Point3, Vector3, Vector4};
 
 use imgui::{im_str, ImGuiCond, ImGuiInputTextFlags, StyleVar};
 use imgui_ext::prelude::*;
@@ -12,18 +11,16 @@ use imgui_sdl2::ImguiSdl2;
 
 use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
-use sdl2::mouse::MouseButton;
 use sdl2::video::{GLContext, GLProfile, Window};
-use sdl2::{EventPump, Sdl, VideoSubsystem};
+use sdl2::{Sdl, VideoSubsystem};
 
-use super::renderer::{compute_ray, compute_view_proj, vert, RenderParams, TestbedRenderer, Vert};
+use super::renderer::{compute_ray, compute_view_proj, vert, RenderParams, TestbedRenderer};
 use super::Testbed;
 
 use crate::body::SleepState;
-//use crate::collision::Type;
 use crate::math::*;
 use crate::prelude::*;
-use crate::{body::Body, collision::Collision, handle::Handle, newton::Newton};
+use crate::{body::Body, handle::Handle, newton::Newton};
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Sidebar {
@@ -44,14 +41,17 @@ impl Sidebar {
 #[doc(hidden)]
 #[derive(ImGuiExt, Default)]
 pub struct Stats {
-    #[imgui(checkbox,
+    #[imgui(text(lit = "Press [T] to open/show this sidebar."),
+            new_line,
+            separator,
+            new_line,
+            checkbox,
             button(label = "Invalidate", catch = "invalidate"),
             button(label = "Reset##Stats", catch = "reset"))]
     running: bool,
+
     #[imgui(display(display = "{:.1?}", 0))]
     elapsed: (Duration,),
-    #[imgui(slider(min = 0.01, max = 8.0))]
-    time_scale: f32,
     #[imgui(checkbox)]
     fixed_step: bool,
     #[imgui(separator, display)]
@@ -64,7 +64,7 @@ pub struct Stats {
 
 impl Stats {
     fn new() -> Self {
-        Self { time_scale: 1.0, fixed_step: true, ..Default::default() }
+        Self { fixed_step: true, ..Default::default() }
     }
 }
 
@@ -72,11 +72,8 @@ impl Stats {
 pub struct SelectedBody {
     #[imgui(display(display = "{:?}", 0))]
     body: (Handle,),
-    //body: Option<(Handle,)>,
     #[imgui(display(display = "{:?}", 0))]
     name: (Option<&'static str>,),
-    //#[imgui(display(display = "{:?}", 0))]
-    //collision: (Type,),
     #[imgui(new_line, checkbox)]
     awake: bool,
     #[imgui(drag(speed = 0.1))]
@@ -101,7 +98,6 @@ impl Default for SelectedBody {
         Self { body: (Handle::null(),),
                name: (None,),
                awake: true,
-               //collision: (Type::Null,),
                position: Default::default(),
                velocity: Default::default(),
                mass: Default::default(),
@@ -117,7 +113,6 @@ pub struct Runner<T> {
     sdl: Sdl,
     sdl_video: VideoSubsystem,
     sdl_window: Window,
-    sdl_gl: GLContext,
     //sdl_events: EventPump,
     selected: Option<SelectedBody>,
 
@@ -133,14 +128,12 @@ pub struct Runner<T> {
 impl<T: Testbed> Runner<T> {
     pub fn run(title: Option<&str>) -> Result<(), Box<dyn Error>> {
         let sdl = sdl2::init()?;
-        //let sdl_events = sdl.event_pump()?;
         let sdl_video = sdl.video()?;
         let sdl_window = sdl_video.window(title.unwrap_or("Window"), 1024, 600)
                                   .opengl()
                                   .position_centered()
                                   .resizable()
                                   .allow_highdpi()
-                                  .hidden()
                                   .build()?;
 
         let attr = sdl_video.gl_attr();
@@ -161,18 +154,13 @@ impl<T: Testbed> Runner<T> {
                demo,
                newton,
                sdl,
-               //sdl_events,
                sdl_video,
                sdl_window,
-               sdl_gl,
                controls,
-               renderer }.main_loop()?;
-        Ok(())
+               renderer }.main_loop()
     }
 
     fn main_loop(mut self) -> Result<(), Box<dyn Error>> {
-        self.sdl_window.show();
-
         let mut imgui = imgui::ImGui::init();
         let mut imgui_sdl = ImguiSdl2::new(&mut imgui);
         let mut imgui_renderer =
@@ -527,10 +515,12 @@ impl<T: Testbed> Runner<T> {
                         .size((width, h as f32), ImGuiCond::Always)
                         .resizable(false)
                         .build(|| {
+                            /*
                             ui.text(im_str!("Press [T] to open/show this sidebar."));
                             ui.new_line();
                             ui.separator();
                             ui.new_line();
+                            */
                             let events = ui.imgui_ext(&mut self);
                             if events.controls().invalidate() {
                                 self.newton.invalidate();
