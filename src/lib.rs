@@ -19,6 +19,7 @@ pub use collision::{
     ChamferCylinder, Collision, Compound, Cone, Cuboid, Cylinder, DeformableSolid,
     FracturedCompound, MassSpringDamperSystem, Null, Scene, Sphere, Tree, UserMesh,
 };
+pub use handle::Handle;
 pub use joint::{Ball, Corkscrew, Hinge, Joint, Slider, Universal, UpVector, UserJoint};
 pub use mesh::Mesh;
 

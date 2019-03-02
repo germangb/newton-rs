@@ -1,4 +1,5 @@
 use std::error::Error;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use std::{mem, str};
 
@@ -20,7 +21,11 @@ use super::Testbed;
 use crate::body::SleepState;
 use crate::math::*;
 use crate::prelude::*;
-use crate::{body::Body, handle::Handle, newton::Newton};
+
+use crate::body::Body;
+use crate::handle::Handle;
+use crate::newton::ray_cast::ClosestHit;
+use crate::Newton;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Sidebar {
@@ -125,7 +130,7 @@ pub struct Runner<T> {
     renderer: TestbedRenderer,
 }
 
-impl<T: Testbed> Runner<T> {
+impl<T: Testbed + Send + Sync> Runner<T> {
     pub fn run(title: Option<&str>) -> Result<(), Box<dyn Error>> {
         let sdl = sdl2::init()?;
         let sdl_video = sdl.video()?;
@@ -207,24 +212,14 @@ impl<T: Testbed> Runner<T> {
                             let camera = &self.renderer.params().camera;
                             let (start, end) = compute_ray(&camera, x, h as i32 - y, viewport);
 
-                            let mut min = 42.0; // some value > 1.0
-                            let mut selected = None;
+                            self.selected =
+                                self.newton.ray_cast::<ClosestHit>(start, end).map(|h| {
+                                                                                  SelectedBody {
+                                    body: (h.body.into_handle(&self.newton),),
+                                    ..Default::default()
+                                }
+                                                                              });
 
-                            self.newton.ray_cast(start,
-                                                 end,
-                                                 |body, _, _, _, hit| {
-                                                     if hit < min {
-                                                         selected =
-                                                             Some(body.as_handle(&self.newton));
-                                                         min = hit;
-                                                     }
-                                                     hit
-                                                 },
-                                                 // no prefilter
-                                                 |_b, _c| true,
-                                                 0);
-                            self.selected = selected.map(|sel| SelectedBody { body: (sel,),
-                                                                      ..Default::default() });
                             body_popup = mouse_btn == Right && self.selected.is_some();
                         }
                         (true, Event::MouseMotion { xrel, yrel, .. }) => {

@@ -17,7 +17,7 @@ pub trait Testbed {
     fn reset(newton: &Newton) -> Self;
 }
 
-pub fn run<T: Testbed>(title: Option<&str>) {
+pub fn run<T: Testbed + Send + Sync>(title: Option<&str>) {
     #[cfg(not(feature = "ci"))]
     match self::runner::Runner::<T>::run(title) {
         Ok(_) => {}

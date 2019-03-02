@@ -1,17 +1,18 @@
 use std::marker::PhantomData;
 use std::mem;
 use std::os::raw::{c_longlong, c_void};
-use std::ptr;
 use std::time::Duration;
 
+use ray_cast::RayCastAlgorithm;
 use storage::{BTreeStorage, NewtonStorage};
 
 use crate::body::{iter::Bodies, Body, NewtonBody};
-use crate::collision::{Collision, NewtonCollision};
+use crate::collision::{Collision, ConvexShape, NewtonCollision};
 use crate::ffi;
-use crate::handle::HandleInner;
 use crate::math::{Mat4, Vec3, Vec4};
 
+/// Implementation of useful ray_cast algorithms.
+pub mod ray_cast;
 /// Data structured for bodies & collisions.
 pub mod storage;
 
@@ -72,6 +73,9 @@ pub struct Newton {
     raw: *const ffi::NewtonWorld,
     owned: bool,
 }
+
+unsafe impl Send for Newton {}
+unsafe impl Sync for Newton {}
 
 // Trait objects are "fat pointers" (their size is not the same as usize).
 // I need to wrap the trait object in a struct and introduce an extra layer of indirection (pointer to a pointer)...
@@ -214,7 +218,7 @@ impl Newton {
     }
 
     /// Projects a convex collision shape in the world, and returns all the contacts that it generates.
-    /// It is the equivalent of `ray_cast`, but for solid rays of convex geometry.
+    /// It is the equivalent of `ray_cast`, but for solid rays with convex geometry.
     /// This function can be used to implement a character controller, for example.
     pub fn convex_cast<C, P>(&self,
                              matrix: Mat4,
@@ -224,8 +228,8 @@ impl Newton {
                              max_contacts: usize,
                              thread_idx: usize)
                              -> ConvexCastResult
-        where C: NewtonCollision,
-              P: FnMut(Body, Collision) -> bool + Send
+        where C: ConvexShape,
+              P: FnMut(Body, Collision) -> bool + Send + Sync
     {
         let mut info = Vec::with_capacity(max_contacts);
         let mut hit_param = 0.0;
@@ -265,69 +269,19 @@ impl Newton {
         }
     }
 
-    /// Samples world with a ray, and runs the given filter closure for every
-    /// body that intersects.
-    ///
-    /// The filter closure can be used to implement various flavors of ray casting.
-    /// Refer to the [official wiki][wiki] for further info.
-    ///
-    /// [wiki]: http://newtondynamics.com/wiki/index.php5?title=NewtonWorldRayCast
-    pub fn ray_cast<F, P>(&self, p0: Vec3, p1: Vec3, mut filter: F, mut prefilter: P, thread: usize)
-        where F: FnMut(Body, Collision, Vec3, Vec3, f32) -> f32,
-              P: FnMut(Body, Collision) -> bool
-    {
-        type Userdata<'a, F, P> = (&'a mut F, &'a mut P);
-        let mut user_data = (&mut filter, &mut prefilter);
-        unsafe {
-            ffi::NewtonWorldRayCast(self.as_raw(),
-                                    p0.as_ptr(),
-                                    p1.as_ptr(),
-                                    Some(cfilter::<F, P>),
-                                    mem::transmute(&mut user_data),
-                                    Some(cprefilter::<F, P>),
-                                    thread as _);
-        }
+    pub fn ray_cast_with_params<'a, A: RayCastAlgorithm<'a>>(&'a self,
+                                                             p0: Vec3,
+                                                             p1: Vec3,
+                                                             params: A::Params)
+                                                             -> Option<A::Result> {
+        A::ray_cast(self, p0, p1, params)
+    }
 
-        unsafe extern "C" fn cprefilter<F, P>(body: *const ffi::NewtonBody,
-                                              collision: *const ffi::NewtonCollision,
-                                              user_data: *const c_void)
-                                              -> u32
-            where F: FnMut(Body, Collision, Vec3, Vec3, f32) -> f32,
-                  P: FnMut(Body, Collision) -> bool
-        {
-            let mut filter: &mut Userdata<F, P> = mem::transmute(user_data);
-            let body = Body::from_raw(body, false);
-            let collision = Collision::from_raw(collision, false);
-
-            if (filter.1)(body, collision) {
-                1
-            } else {
-                0
-            }
-        }
-
-        unsafe extern "C" fn cfilter<F, P>(body: *const ffi::NewtonBody,
-                                           collision: *const ffi::NewtonCollision,
-                                           contact: *const f32,
-                                           normal: *const f32,
-                                           collision_id: c_longlong,
-                                           user_data: *const c_void,
-                                           intersect_param: f32)
-                                           -> f32
-            where F: FnMut(Body, Collision, Vec3, Vec3, f32) -> f32,
-                  P: FnMut(Body, Collision) -> bool
-        {
-            let mut filter: &mut Userdata<F, P> = mem::transmute(user_data);
-
-            let body = Body::from_raw(body, false);
-            let collision = Collision::from_raw(collision, false);
-
-            // We can safely cast from *const f32 to &Vector because the later has the
-            // same representation.
-            let contact = mem::transmute::<_, &Vec3>(contact).clone();
-            let normal = mem::transmute::<_, &Vec3>(normal).clone();
-            filter.0(body, collision, contact, normal, intersect_param)
-        }
+    pub fn ray_cast<'a, A: RayCastAlgorithm<'a>>(&'a self,
+                                                 p0: Vec3,
+                                                 p1: Vec3)
+                                                 -> Option<A::Result> {
+        self.ray_cast_with_params::<A>(p0, p1, Default::default())
     }
 }
 
