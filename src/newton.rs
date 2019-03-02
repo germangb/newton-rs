@@ -273,14 +273,34 @@ impl Newton {
                                                              p0: Vec3,
                                                              p1: Vec3,
                                                              params: A::Params)
-                                                             -> Option<A::Result> {
+                                                             -> A::Result {
         A::ray_cast(self, p0, p1, params)
     }
 
-    pub fn ray_cast<'a, A: RayCastAlgorithm<'a>>(&'a self,
-                                                 p0: Vec3,
-                                                 p1: Vec3)
-                                                 -> Option<A::Result> {
+    /// Samples world.
+    ///
+    /// # Example
+    ///
+    /// The `ray_cast` module provides implementation for some common ray-casting implementations.
+    ///
+    /// ```
+    /// use newton::Newton;
+    /// use newton::newton::ray_cast::{ClosestHit, NClosestHits, RayHit};
+    ///
+    /// let newton = Newton::create();
+    ///
+    /// let (p0, p1) = get_ray();
+    ///
+    /// // get the closest hit
+    /// let first: Option<RayHit> = newton.ray_cast::<ClosestHit>(p0, p1);
+    ///
+    /// // three closest hits
+    /// let first_three: Vec<RayHit> = newton.ray_cast_with_params::<NClosestHits>(p0, p1, 3);
+    ///
+    /// # use newton::math::Vec3;
+    /// # fn get_ray() -> (Vec3, Vec3) { ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]) }
+    /// ```
+    pub fn ray_cast<'a, A: RayCastAlgorithm<'a>>(&'a self, p0: Vec3, p1: Vec3) -> A::Result {
         self.ray_cast_with_params::<A>(p0, p1, Default::default())
     }
 }

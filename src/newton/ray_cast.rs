@@ -25,11 +25,7 @@ pub trait RayCastAlgorithm<'a> {
     type Params: Default;
     /// RayCast hit(s).
     type Result;
-    fn ray_cast(newton: &'a Newton,
-                p0: Vec3,
-                p1: Vec3,
-                params: Self::Params)
-                -> Option<Self::Result>;
+    fn ray_cast(newton: &'a Newton, p0: Vec3, p1: Vec3, params: Self::Params) -> Self::Result;
 }
 
 /// Return the closest hit
@@ -38,21 +34,14 @@ pub enum ClosestHit {}
 pub enum AllHits {}
 /// Return the N closest hits.
 pub enum NClosestHits {}
-
-/// Parameters for the user-defined RayCasting algorithm
-pub struct CustomParams<F, P> {
-    pub filter: F,
-    pub prefilter: P,
-}
-
 /// User-defined algorithm.
 pub enum Custom {}
 
 impl<'a> RayCastAlgorithm<'a> for ClosestHit {
     type Params = ();
-    type Result = RayHit<'a>;
+    type Result = Option<RayHit<'a>>;
 
-    fn ray_cast(newton: &'a Newton, p0: Vec3, p1: Vec3, _: Self::Params) -> Option<Self::Result> {
+    fn ray_cast(newton: &'a Newton, p0: Vec3, p1: Vec3, _: Self::Params) -> Self::Result {
         #[derive(Default, Clone, Copy)]
         struct Udata {
             param: Option<f32>,
@@ -122,11 +111,7 @@ impl<'a> RayCastAlgorithm<'a> for NClosestHits {
     type Params = usize;
     type Result = Vec<RayHit<'a>>;
 
-    fn ray_cast(newton: &'a Newton,
-                p0: Vec3,
-                p1: Vec3,
-                params: Self::Params)
-                -> Option<Self::Result> {
+    fn ray_cast(newton: &'a Newton, p0: Vec3, p1: Vec3, params: Self::Params) -> Self::Result {
         struct Node {
             intersect: f32,
             body: *const ffi::NewtonBody,
@@ -175,17 +160,15 @@ impl<'a> RayCastAlgorithm<'a> for NClosestHits {
                                     0 as _);
         }
 
-        return Some(udata.heap
-                         .iter()
-                         .map(|n| RayHit { body: unsafe { Body::from_raw(n.body, false) },
-                                           collision: unsafe {
-                                               Collision::from_raw(n.collision, false)
-                                           },
-                                           position: n.contact,
-                                           normal: n.normal,
-                                           collision_id: n.collision_id,
-                                           intersect_param: n.intersect })
-                         .collect());
+        return udata.heap
+                    .iter()
+                    .map(|n| RayHit { body: unsafe { Body::from_raw(n.body, false) },
+                                      collision: unsafe { Collision::from_raw(n.collision, false) },
+                                      position: n.contact,
+                                      normal: n.normal,
+                                      collision_id: n.collision_id,
+                                      intersect_param: n.intersect })
+                    .collect();
 
         unsafe extern "C" fn cfilter(body: *const ffi::NewtonBody,
                                      collision: *const ffi::NewtonCollision,
