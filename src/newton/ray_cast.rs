@@ -1,6 +1,7 @@
+use std::cmp::{Eq, Ord, Ordering, PartialEq, PartialOrd};
+use std::collections::BinaryHeap;
 use std::mem;
 use std::os::raw::{c_longlong, c_void};
-use std::ptr;
 
 use crate::body::Body;
 use crate::collision::Collision;
@@ -126,6 +127,88 @@ impl<'a> RayCastAlgorithm<'a> for NClosestHits {
                 p1: Vec3,
                 params: Self::Params)
                 -> Option<Self::Result> {
-        unimplemented!()
+        struct Node {
+            intersect: f32,
+            body: *const ffi::NewtonBody,
+            collision: *const ffi::NewtonCollision,
+            collision_id: c_longlong,
+            contact: Vec3,
+            normal: Vec3,
+        }
+
+        impl Eq for Node {}
+        impl PartialEq for Node {
+            fn eq(&self, other: &Self) -> bool {
+                self.intersect.eq(&other.intersect)
+            }
+        }
+
+        impl PartialOrd for Node {
+            fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+                self.intersect.partial_cmp(&other.intersect)
+            }
+        }
+
+        impl Ord for Node {
+            fn cmp(&self, other: &Self) -> Ordering {
+                const K: f32 = 100000000.0;
+                let left = (self.intersect * K) as u32;
+                let right = (other.intersect * K) as u32;
+                left.cmp(&right)
+            }
+        }
+
+        struct Udata {
+            heap: BinaryHeap<Node>,
+            n: usize,
+        }
+
+        let mut udata = Udata { heap: BinaryHeap::with_capacity(params), n: params };
+
+        unsafe {
+            ffi::NewtonWorldRayCast(newton.as_raw(),
+                                    p0.as_ptr(),
+                                    p1.as_ptr(),
+                                    Some(cfilter),
+                                    mem::transmute(&mut udata),
+                                    None,
+                                    0 as _);
+        }
+
+        return Some(udata.heap
+                         .iter()
+                         .map(|n| RayHit { body: unsafe { Body::from_raw(n.body, false) },
+                                           collision: unsafe {
+                                               Collision::from_raw(n.collision, false)
+                                           },
+                                           position: n.contact,
+                                           normal: n.normal,
+                                           collision_id: n.collision_id,
+                                           intersect_param: n.intersect })
+                         .collect());
+
+        unsafe extern "C" fn cfilter(body: *const ffi::NewtonBody,
+                                     collision: *const ffi::NewtonCollision,
+                                     contact: *const f32,
+                                     normal: *const f32,
+                                     collision_id: c_longlong,
+                                     user_data: *const c_void,
+                                     intersect: f32)
+                                     -> f32 {
+            let mut udata = mem::transmute::<_, &mut Udata>(user_data);
+
+            udata.heap.push(Node { intersect,
+                                   body,
+                                   collision,
+                                   collision_id,
+                                   contact: *unsafe { mem::transmute::<_, &Vec3>(contact) },
+                                   normal: *unsafe { mem::transmute::<_, &Vec3>(normal) } });
+
+            while udata.heap.len() > udata.n {
+                udata.heap.pop();
+            }
+
+            udata.heap.peek().map(|h| h.intersect).unwrap_or(1.0)
+        }
     }
 }
