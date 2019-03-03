@@ -22,8 +22,8 @@ pub fn set_euler_angle(euler: Vec3) -> Mat4 {
 ///
 /// http://newtondynamics.com/wiki/index.php5?title=NewtonGetEulerAngle
 pub fn get_euler_angles(matrix: Mat4) -> (Vec3, Vec3) {
-    let mut sel0: Vec3 = Default::default();
-    let mut sel1: Vec3 = Default::default();
+    let mut sel0 = [0.0, 0.0, 0.0];
+    let mut sel1 = [0.0, 0.0, 0.0];
     unsafe {
         ffi::NewtonGetEulerAngle(matrix[0].as_ptr(), sel0.as_mut_ptr(), sel1.as_mut_ptr());
     }

@@ -215,9 +215,9 @@ impl<T: Testbed + Send + Sync> Runner<T> {
                             self.selected =
                                 self.newton.ray_cast::<ClosestHit>(start, end).map(|h| {
                                                                                   SelectedBody {
-                                    body: (h.body.into_handle(&self.newton),),
-                                    ..Default::default()
-                                }
+                                        body: (h.body.into_handle(&self.newton),),
+                                        ..Default::default()
+                                    }
                                                                               });
 
                             body_popup = mouse_btn == Right && self.selected.is_some();
