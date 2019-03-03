@@ -34,8 +34,11 @@ pub enum ClosestHit {}
 pub enum AllHits {}
 /// Return the N closest hits.
 pub enum NClosestHits {}
-/// User-defined algorithm.
-pub enum Custom {}
+/// Returns the first body found by the Newton API.
+///
+/// CUsing this algorithm may not always return the same result. It can be used as a binary check
+/// to test whether a ray intersects something or not.
+pub enum AnyHit {}
 
 impl<'a> RayCastAlgorithm<'a> for ClosestHit {
     type Params = ();

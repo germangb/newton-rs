@@ -88,13 +88,13 @@ struct UserData {
 
 /// Newton World builder.
 #[derive(Default)]
-pub struct Config {
+pub struct NewtonConfig {
     threads: Option<usize>,
     linear_steps: Option<usize>,
     storage: Option<Box<dyn NewtonStorage>>,
 }
 
-impl Config {
+impl NewtonConfig {
     /// Use all CPU cores.
     pub fn max_threads(mut self) -> Self {
         self.threads = Some(num_cpus::get());
@@ -134,7 +134,7 @@ impl Newton {
         self.raw
     }
 
-    fn from_config(conf: Config) -> Self {
+    fn from_config(conf: NewtonConfig) -> Self {
         unsafe {
             let raw = ffi::NewtonCreate();
 
@@ -155,11 +155,11 @@ impl Newton {
     }
 
     pub fn create() -> Self {
-        Self::from_config(Config::default())
+        Self::from_config(NewtonConfig::default())
     }
 
-    pub fn config() -> Config {
-        Config::default()
+    pub fn config() -> NewtonConfig {
+        NewtonConfig::default()
     }
 
     pub fn storage(&self) -> &Box<dyn NewtonStorage> {
@@ -218,7 +218,9 @@ impl Newton {
     }
 
     /// Projects a convex collision shape in the world, and returns all the contacts that it generates.
+    ///
     /// It is the equivalent of `ray_cast`, but for solid rays with convex geometry.
+    ///
     /// This function can be used to implement a character controller, for example.
     pub fn convex_cast<C, P>(&self,
                              matrix: Mat4,
@@ -269,19 +271,14 @@ impl Newton {
         }
     }
 
-    pub fn ray_cast_with_params<'a, A: RayCastAlgorithm<'a>>(&'a self,
-                                                             p0: Vec3,
-                                                             p1: Vec3,
-                                                             params: A::Params)
-                                                             -> A::Result {
-        A::ray_cast(self, p0, p1, params)
-    }
-
-    /// Samples world.
+    /// Samples world with a ray.
+    ///
+    /// A ray is defined by a starting position `p0`, and an ending `p1`. Both are specified
+    /// in world-space coordinates.
     ///
     /// # Example
     ///
-    /// The `ray_cast` module provides implementation for some common ray-casting implementations.
+    /// The `ray_cast` module provides implementations for common ray-casting implementations.
     ///
     /// ```
     /// use newton::Newton;
@@ -292,16 +289,20 @@ impl Newton {
     /// let (p0, p1) = get_ray();
     ///
     /// // get the closest hit
-    /// let first: Option<RayHit> = newton.ray_cast::<ClosestHit>(p0, p1);
+    /// let first: Option<RayHit> = newton.ray_cast::<ClosestHit>(p0, p1, ());
     ///
     /// // three closest hits
-    /// let first_three: Vec<RayHit> = newton.ray_cast_with_params::<NClosestHits>(p0, p1, 3);
+    /// let first_three: Vec<RayHit> = newton.ray_cast::<NClosestHits>(p0, p1, 3);
     ///
     /// # use newton::math::Vec3;
     /// # fn get_ray() -> (Vec3, Vec3) { ([0.0, 0.0, 0.0], [1.0, 1.0, 1.0]) }
     /// ```
-    pub fn ray_cast<'a, A: RayCastAlgorithm<'a>>(&'a self, p0: Vec3, p1: Vec3) -> A::Result {
-        self.ray_cast_with_params::<A>(p0, p1, Default::default())
+    pub fn ray_cast<'a, A: RayCastAlgorithm<'a>>(&'a self,
+                                                 p0: Vec3,
+                                                 p1: Vec3,
+                                                 params: A::Params)
+                                                 -> A::Result {
+        A::ray_cast(self, p0, p1, params)
     }
 }
 

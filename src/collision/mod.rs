@@ -458,29 +458,22 @@ pub trait StaticShape: NewtonCollision {}
 pub trait ConvexShape: NewtonCollision {}
 
 /// HeightField collision elevation data types
+// https://github.com/MADEAPPS/newton-dynamics/blob/69d773bd41f6aa8b6a955b7fa21515e22040e05a/sdk/dgPhysics/dgCollisionHeightField.h#L36
+// https://github.com/MADEAPPS/newton-dynamics/blob/69d773bd41f6aa8b6a955b7fa21515e22040e05a/sdk/dgPhysics/dgCollisionHeightField.h#L35
 pub trait Elevation {
     fn newton_enum() -> i32;
 }
 
 impl Elevation for f32 {
     fn newton_enum() -> i32 {
-        // https://github.com/MADEAPPS/newton-dynamics/blob/69d773bd41f6aa8b6a955b7fa21515e22040e05a/sdk/dgPhysics/dgCollisionHeightField.h#L35
         0
     }
 }
 impl Elevation for u16 {
     fn newton_enum() -> i32 {
-        // https://github.com/MADEAPPS/newton-dynamics/blob/69d773bd41f6aa8b6a955b7fa21515e22040e05a/sdk/dgPhysics/dgCollisionHeightField.h#L36
         1
     }
 }
-
-/*
-/// Marker traits for collisions with geometry that can be iterated.
-///
-/// Applies to all collision shapes, except for user defined meshes.
-pub trait RenderableShape: NewtonCollision {}
-*/
 
 macro_rules! statik {
     ( $( $collision:ident ),* ) => {$(impl<'a> StaticShape for $collision<'a> {})*}
@@ -490,12 +483,8 @@ macro_rules! convex {
     ( $( $collision:ident ),* ) => {$(impl<'a> ConvexShape for $collision<'a> {})*}
 }
 
-//macro_rules! polygon {
-//    ( $( $collision:ident ),* ) => {$(impl<'a> RenderableShape for $collision<'a> {})*}
-//}
-
 statik! {
-    /*HeightField,*/ Tree, Scene
+    Tree, Scene
 }
 
 impl<'a, T: Elevation> StaticShape for HeightField<'a, T> {}
@@ -503,10 +492,6 @@ impl<'a, T: Elevation> StaticShape for HeightField<'a, T> {}
 convex! {
     Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Null, ChamferCylinder
 }
-
-//polygon! {
-//    Cuboid, Sphere, Cylinder, Capsule, Cone, ConvexHull, Scene, Compound, Tree, HeightField, Null
-//}
 
 /// Calculates acceleration that satisfies a given damper system.
 ///
@@ -608,7 +593,9 @@ pub trait NewtonCollision {
         unimplemented!()
     }
 
-    fn for_each_polygon<F: FnMut(&[f32], raw::c_int)>(&self, matrix: Mat4, mut callback: F) {
+    fn for_each_polygon<F>(&self, matrix: Mat4, mut callback: F)
+        where F: FnMut(&[f32], raw::c_int)
+    {
         unsafe {
             let udata = mem::transmute(&mut callback);
             let matrix = matrix[0].as_ptr();
@@ -645,13 +632,6 @@ pub trait NewtonCollision {
     {
         self.as_raw()
     }
-
-    /*
-    Leave it to static typing
-    fn collision_type(&self) -> Type {
-        unsafe { mem::transmute(ffi::NewtonCollisionGetType(self.as_raw())) }
-    }
-    */
 
     fn matrix(&self) -> Mat4 {
         let mut mat: Mat4 = Default::default();

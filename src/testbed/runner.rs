@@ -98,6 +98,12 @@ const fn disabled_text() -> ImGuiInputTextFlags {
     ImGuiInputTextFlags::ReadOnly
 }
 
+impl SelectedBody {
+    fn from_handle(handle: Handle) -> Self {
+        Self { body: (handle,), ..Default::default() }
+    }
+}
+
 impl Default for SelectedBody {
     fn default() -> Self {
         Self { body: (Handle::null(),),
@@ -212,13 +218,12 @@ impl<T: Testbed + Send + Sync> Runner<T> {
                             let camera = &self.renderer.params().camera;
                             let (start, end) = compute_ray(&camera, x, h as i32 - y, viewport);
 
-                            self.selected =
-                                self.newton.ray_cast::<ClosestHit>(start, end).map(|h| {
-                                                                                  SelectedBody {
-                                        body: (h.body.into_handle(&self.newton),),
-                                        ..Default::default()
-                                    }
-                                                                              });
+                            let ray_test = self.newton.ray_cast::<ClosestHit>(start, end, ());
+                            self.selected = ray_test.map(|h| {
+                                                        let handle =
+                                                            h.body.into_handle(&self.newton);
+                                                        SelectedBody::from_handle(handle)
+                                                    });
 
                             body_popup = mouse_btn == Right && self.selected.is_some();
                         }

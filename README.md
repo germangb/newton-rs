@@ -17,15 +17,15 @@
 
 1. Install build dependencies
 
-* `rust` (recommended method is [rustup](https://rustup.rs))
+* `rust` (install using [rustup](https://www.rust-lang.org/tools/install))
 * `cmake`
 * `libclang-dev`
 * `libsdl2-dev` optional (testbed feature)
 
 ```bash
-sudo apt install cmake
-sudo apt install libclang-dev
-sudo apt install libsdl2-dev # optional
+apt install cmake
+apt install libclang-dev
+apt install libsdl2-dev # optional
 ```
 
 2. Add dependency to your `Cargo.toml`
@@ -60,10 +60,13 @@ The newton testbed is a framework to run and inspect physics simulation.
 Right now it is available under a feature flag, but eventually it will be moved into its own crate.
 
 ```bash
-# clone repository with submodules.
+# Clone repository with submodules.
 git clone --recursive https://github.com/germangb/newton-rs.git
 
-# run one of the examples under the "examples/<name>.rs" directory.
-# the "testbed" feature has to be enabled.
+# Change into the directory.
+cd newton-rs
+
+# Run one of the examples under the "examples/<name>.rs" directory.
+# (the "testbed" feature has to be enabled).
 cargo run --features testbed --example "<name>"
 ```
