@@ -11,7 +11,7 @@ impl Testbed for TreeDemo {
         {
             let build = tree.begin_build();
             let face = &[[0.0, -1.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0]];
-            build.add(face.iter().cloned(), 0);
+            build.add(face, 0);
             build.optimize();
         }
 

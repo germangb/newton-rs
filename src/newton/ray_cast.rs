@@ -34,11 +34,21 @@ pub enum ClosestHit {}
 pub enum AllHits {}
 /// Return the N closest hits.
 pub enum NClosestHits {}
-/// Returns the first body found by the Newton API.
-///
-/// CUsing this algorithm may not always return the same result. It can be used as a binary check
-/// to test whether a ray intersects something or not.
+/// Returns true or false if the ray intersects something or not.
 pub enum AnyHit {}
+
+impl<'a> RayCastAlgorithm<'a> for AnyHit {
+    type Params = ();
+    type Result = bool;
+
+    fn ray_cast(newton: &'a Newton,
+                p0: [f32; 3],
+                p1: [f32; 3],
+                params: Self::Params)
+                -> Self::Result {
+        unimplemented!()
+    }
+}
 
 impl<'a> RayCastAlgorithm<'a> for ClosestHit {
     type Params = ();
@@ -97,8 +107,8 @@ impl<'a> RayCastAlgorithm<'a> for ClosestHit {
             let mut udata = mem::transmute::<_, &mut Udata>(user_data);
 
             if intersect_param < udata.param.unwrap_or(2.0) {
-                udata.contact = Some(*mem::transmute::<_, &Vec3>(contact));
-                udata.normal = Some(*mem::transmute::<_, &Vec3>(normal));
+                udata.contact = Some(mem::transmute::<_, &Vec3>(contact).clone());
+                udata.normal = Some(mem::transmute::<_, &Vec3>(normal).clone());
                 udata.param = Some(intersect_param);
                 udata.body = Some(body);
                 udata.col = Some(collision);
@@ -187,8 +197,12 @@ impl<'a> RayCastAlgorithm<'a> for NClosestHits {
                                    body,
                                    collision,
                                    collision_id,
-                                   contact: *unsafe { mem::transmute::<_, &Vec3>(contact) },
-                                   normal: *unsafe { mem::transmute::<_, &Vec3>(normal) } });
+                                   contact: unsafe {
+                                       mem::transmute::<_, &Vec3>(contact).clone()
+                                   },
+                                   normal: unsafe {
+                                       mem::transmute::<_, &Vec3>(normal).clone()
+                                   } });
 
             while udata.heap.len() > udata.n {
                 udata.heap.pop();

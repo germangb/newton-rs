@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::mem;
 
 use crate::ffi;
 use crate::handle::{Handle, HandleInner};
@@ -87,16 +87,12 @@ impl<'a, 'b> SceneBuilder<'a, 'b> {
 }
 
 impl<'a, 'b> TreeBuilder<'a, 'b> {
-    // TODO is an IntoIterator<Item=Vec3> better?
-    // Adds a single triangle to the collision tree
-    pub fn add<I: IntoIterator<Item = Vec3>>(&self, verts: I, attr: i32) {
+    pub fn add(&self, verts: &[Vec3], attr: i32) {
         unsafe {
-            let face: Vec<Vec3> = verts.into_iter().collect();
-            ffi::NewtonTreeCollisionAddFace(self.tree.raw,
-                                            face.len() as _,
-                                            face.as_ptr() as _,
-                                            12,
-                                            attr);
+            let vert_ptr = verts.as_ptr() as *const f32;
+            let vert_len = verts.len() as _;
+            let stride = mem::size_of::<Vec3>() as _;
+            ffi::NewtonTreeCollisionAddFace(self.tree.raw, vert_len, vert_ptr, stride, attr);
         }
     }
 
