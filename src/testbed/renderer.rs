@@ -243,16 +243,15 @@ pub struct TestbedRenderer {
     u_tint: GLint,
     u_offset: GLint,
 
-    #[imgui(nested)]
+    #[imgui(text(lit = "Rendering Settings"), tree(node(nested)))]
     params: RenderParams,
-    #[imgui(checkbox(label = "Persistent"))]
+    #[imgui(new_line, text("Make settings persistent"), checkbox(label = "Persistent"))]
     persist: bool,
 
     // last frame stats
     // TODO implement ImGuiExt on optionals
-    #[imgui(separator, nested)]
+    #[imgui(new_line, separator, text("Renderer frame stats"), nested)]
     stats: FrameStats,
-    //stats: Option<FrameStats>,
 }
 
 macro_rules! gl {

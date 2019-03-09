@@ -25,7 +25,7 @@ use crate::prelude::*;
 use crate::body::Body;
 use crate::handle::Handle;
 use crate::newton::ray_cast::ClosestHit;
-use crate::Newton;
+use crate::newton::Newton;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Sidebar {
