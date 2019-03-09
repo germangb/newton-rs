@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Collisions","An iterator that yields the collisions from a compound or scene collision."],["Handles","An iterator that yields collision handles from a compound or a scene."]]});

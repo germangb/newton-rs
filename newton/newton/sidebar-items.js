@@ -1,0 +1,1 @@
+initSidebarItems({"mod":[["ray_cast","Implementation of useful ray_cast algorithms."],["storage","Data structured for bodies & collisions."]],"struct":[["AsyncUpdate","Type returned by an asynchronous update."],["ConvexCastInfo",""],["ConvexCastResult",""],["Newton","Wrapper around NewtonWorld."],["NewtonConfig","Newton World builder."]]});

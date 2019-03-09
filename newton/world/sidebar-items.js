@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["AsyncUpdate","A guard for the asynchronous update"],["Newton",""]]});

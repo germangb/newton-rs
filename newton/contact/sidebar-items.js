@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Contact",""],["Contacts","Container of collisions"]]});

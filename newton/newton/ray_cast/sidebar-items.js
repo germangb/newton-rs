@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["AllHits","Return all intersecting hits."],["AnyHit","Returns true or false if the ray intersects something or not."],["ClosestHit","Return the closest hit"],["NClosestHits","Return the N closest hits."]],"struct":[["RayHit","RayCast hit."]],"trait":[["RayCastAlgorithm","Ray-cast algorithm"]]});

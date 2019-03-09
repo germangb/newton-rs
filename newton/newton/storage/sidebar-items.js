@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["BTreeStorage","Storage of bodies & collisions in a BTree."],["HashStorage","Storage of bodies & collisions in a HashSet."]],"trait":[["NewtonStorage","Data structure for Newton Bodies & Collisions."]]});

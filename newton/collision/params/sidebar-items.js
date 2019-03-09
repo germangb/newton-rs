@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["GridConstruction","Ways HeightField grid cells can be constructed"],["Params","Collision parameters"]],"struct":[["Field","2D Array"],["HeightFieldParams","Definition of a HeightField collision"]]});

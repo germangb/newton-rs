@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["Mesh","Newton mesh wrapper."]]});

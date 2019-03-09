@@ -1,0 +1,1 @@
+initSidebarItems({"fn":[["get_euler_angles","Converts a 4x4 rotation matrix to Euler angles."],["set_euler_angle","Converts from Euler angles to a 4x4 rotation matrix."]],"type":[["Mat4","4x4 matrix, arranged in columns"],["Quat","Quaternion"],["Vec3","3D vector"],["Vec4","4D vector"]]});

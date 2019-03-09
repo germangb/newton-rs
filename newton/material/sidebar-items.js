@@ -1,0 +1,1 @@
+initSidebarItems({"struct":[["GroupId","Material group ID"],["NewtonMaterial",""]],"trait":[["Materials","Trait to generate touples of `GroupId`s"]]});

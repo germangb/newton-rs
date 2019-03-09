@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Body","Enum grouping all body types."],["SleepState",""]],"mod":[["iter","Body iterators."]],"struct":[["DynamicBody","Dynamic body wrapper."],["KinematicBody","A body that is not affected by forces and is controlled by the application."]],"trait":[["NewtonBody","Implementation of most of the NewtonBody API."]]});

@@ -1,0 +1,1 @@
+initSidebarItems({"enum":[["Event","Different event types."],["Keycode",""],["MouseButton",""],["Scancode",""],["WindowEvent","An enum of window events."]],"fn":[["run",""]],"struct":[["Color",""],["Input",""],["Sandbox",""]]});

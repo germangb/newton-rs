@@ -1,0 +1,132 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `imgui_ext` crate."><meta name="keywords" content="rust, rustlang, rust-lang, imgui_ext"><title>imgui_ext - Rust</title><link rel="stylesheet" type="text/css" href="../normalize.css"><link rel="stylesheet" type="text/css" href="../rustdoc.css" id="mainThemeStyle"><link rel="stylesheet" type="text/css" href="../dark.css"><link rel="stylesheet" type="text/css" href="../light.css" id="themeStyle"><script src="../storage.js"></script><noscript><link rel="stylesheet" href="../noscript.css"></noscript><style type="text/css">#crate-search{background-image:url("../down-arrow.svg");}</style></head><body class="rustdoc mod"><!--[if lte IE 8]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="sidebar-menu">&#9776;</div><p class='location'>Crate imgui_ext</p><div class="sidebar-elems"><a id='all-types' href='all.html'><p>See all imgui_ext's items</p></a><div class="block items"><ul><li><a href="#reexports">Re-exports</a></li><li><a href="#modules">Modules</a></li><li><a href="#traits">Traits</a></li><li><a href="#functions">Functions</a></li><li><a href="#types">Type Definitions</a></li></ul></div><p class='location'></p><script>window.sidebarCurrent = {name: 'imgui_ext', ty: 'mod', relpath: '../'};</script></div></nav><div class="theme-picker"><button id="theme-picker" aria-label="Pick another theme!"><img src="../brush.svg" width="18" alt="Pick another theme!"></button><div id="theme-choices"></div></div><script src="../theme.js"></script><nav class="sub"><form class="search-form js-only"><div class="search-container"><div><select id="crate-search"><option value="All crates">All crates</option></select><input class="search-input" name="search" autocomplete="off" spellcheck="false" placeholder="Click or press ‘S’ to search, ‘?’ for more options…" type="search"></div><a id="settings-menu" href="../settings.html"><img src="../wheel.svg" width="18" alt="Change settings"></a></div></form></nav><section id="main" class="content"><h1 class='fqn'><span class='out-of-band'><span id='render-detail'><a id="toggle-all-docs" href="javascript:void(0)" title="collapse all docs">[<span class='inner'>&#x2212;</span>]</a></span><a class='srclink' href='../src/imgui_ext/lib.rs.html#1-555' title='goto source code'>[src]</a></span><span class='in-band'>Crate <a class="mod" href=''>imgui_ext</a></span></h1><div class='docblock'><p>A crate to quickly build <a href="https://crates.io/crates/imgui">imgui</a> GUIs using a <code>#[derive]</code> macro.</p>
+<h2 id="supported-annotations" class="section-header"><a href="#supported-annotations">Supported annotations</a></h2>
+<p>Annotations map to a subset of imgui types and methods:</p>
+<table><thead><tr><th> Annotation                    </th><th> Mapped Imgui Types </th></tr></thead><tbody>
+<tr><td> <a href="./slider/index.html"><code>slider(...)</code></a>       </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.SliderFloat.html"><code>SliderFloat</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.SliderFloat2.html"><code>SliderFloat2</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.SliderFloat3.html"><code>SliderFloat3</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.SliderFloat4.html"><code>SliderFloat4</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.SliderInt.html"><code>SliderInt</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.SliderInt2.html"><code>SliderInt2</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.SliderInt3.html"><code>SliderInt3</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.SliderInt4.html"><code>SliderInt4</code></a> </td></tr>
+<tr><td> <a href="./drag/index.html"><code>drag(...)</code></a>           </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.DragFloat.html"><code>DragFloat</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.DragFloat2.html"><code>DragFloat2</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.DragFloat3.html"><code>DragFloat3</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.DragFloat4.html"><code>DragFloat4</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.DragInt.html"><code>DragInt</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.DragInt2.html"><code>DragInt2</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.DragInt3.html"><code>DragInt3</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.DragInt4.html"><code>DragInt4</code></a> </td></tr>
+<tr><td> <a href="./input/index.html"><code>input(...)</code></a>         </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.InputFloat.html"><code>InputFloat</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.InputFloat2.html"><code>InputFloat2</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.InputFloat3.html"><code>InputFloat3</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.InputFloat4.html"><code>InputFloat4</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.InputInt.html"><code>InputInt</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.InputInt2.html"><code>InputInt2</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.InputInt3.html"><code>InputInt3</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.InputInt4.html"><code>InputInt4</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.InputText.html"><code>InputText</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.InputTextMultiline.html"><code>InputTextMultiline</code></a> </td></tr>
+<tr><td> <a href="./progress/index.html"><code>progress(...)</code></a>   </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.ProgressBar.html"><code>ProgressBar</code></a> </td></tr>
+<tr><td> <a href="./image/index.html"><code>image(...)</code></a>         </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.Image.html"><code>Image</code></a> </td></tr>
+<tr><td> <a href="./color/index.html"><code>color(...)</code></a>         </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.ColorButton.html"><code>ColorButton</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.ColorPicker.html"><code>ColorPicker</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.ColorEdit.html"><code>ColorEdit</code></a> </td></tr>
+<tr><td> <a href="./button/index.html"><code>button(...)</code></a>       </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.Ui.html#method.button"><code>Ui::button</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.Ui.html#method.small_button"><code>Ui::small_button</code></a> </td></tr>
+<tr><td> <a href="./checkbox/index.html"><code>checkbox(...)</code></a>   </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.Ui.html#method.checkbox"><code>Ui::checkbox</code></a> </td></tr>
+<tr><td> <a href="./separator/index.html"><code>separator(...)</code></a> </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.Ui.html#method.separator"><code>Ui::separator</code></a> </td></tr>
+<tr><td> <a href="./new_line/index.html"><code>new_line(...)</code></a>   </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.Ui.html#method.new_line"><code>Ui::new_line</code></a> </td></tr>
+<tr><td> <a href="./display/index.html"><code>display(...)</code></a>     </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.Ui.html#method.label_text"><code>Ui::label_text</code></a> </td></tr>
+<tr><td> <a href="./bullet/index.html"><code>bullet(...)</code></a>       </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.Ui.html#method.text"><code>Ui::text</code></a> </td></tr>
+<tr><td> <a href="./text/index.html"><code>text(...)</code></a>           </td><td> <a href="https://docs.rs/imgui/0.0/imgui/struct.Ui.html#method.bullet_text"><code>Ui::bullet_text</code></a>, <a href="https://docs.rs/imgui/0.0/imgui/struct.Ui.html#method.bullet"><code>Ui::bullet</code></a> </td></tr>
+<tr><td> <a href="./nested/index.html"><code>nested(...)</code></a>       </td><td> </td></tr>
+</tbody></table>
+<h2 id="basic-usage" class="section-header"><a href="#basic-usage">Basic usage</a></h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered">
+<span class="kw">use</span> <span class="ident">imgui_ext</span>::<span class="ident">ImGuiExt</span>;
+
+<span class="comment">// Make your type derive ImGuiExt and place annotations on the fields you want</span>
+<span class="comment">// to include in the ui</span>
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">ImGuiExt</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Example</span> {
+    <span class="attribute">#[<span class="ident">imgui</span>(<span class="ident">slider</span>(<span class="ident">min</span> <span class="op">=</span> <span class="number">0.0</span>, <span class="ident">max</span> <span class="op">=</span> <span class="number">4.0</span>))]</span>
+    <span class="ident">x</span>: <span class="ident">f32</span>,
+    <span class="attribute">#[<span class="ident">imgui</span>(<span class="ident">input</span>(<span class="ident">step</span> <span class="op">=</span> <span class="number">2</span>))]</span>
+    <span class="ident">y</span>: <span class="ident">i32</span>,
+    <span class="attribute">#[<span class="ident">imgui</span>(<span class="ident">drag</span>(<span class="ident">label</span> <span class="op">=</span> <span class="string">&quot;Drag 2D&quot;</span>))]</span>
+    <span class="ident">drag_2d</span>: [<span class="ident">f32</span>; <span class="number">2</span>],
+
+    <span class="attribute">#[<span class="ident">imgui</span>(
+        <span class="ident">checkbox</span>(<span class="ident">label</span> <span class="op">=</span> <span class="string">&quot;Turbo mode&quot;</span>),
+        <span class="ident">display</span>(<span class="ident">label</span> <span class="op">=</span> <span class="string">&quot;Is turbo enabled?&quot;</span>),
+    )]</span>
+    <span class="ident">turbo</span>: <span class="ident">bool</span>,
+
+    <span class="comment">// not every field has to be annotated</span>
+    <span class="ident">_not_in_ui</span>: <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">u8</span><span class="op">&gt;</span>
+}</pre></div>
+<p><img src="https://i.imgur.com/Xrl1Nt0.png" alt="" /></p>
+<h2 id="input-events" class="section-header"><a href="#input-events">Input events</a></h2>
+<p>In immediate mode UI, generally you respond to user inputs (button presses, value changes, etc...)
+at the same time that you render the UI.</p>
+<p>With <code>imgui-ext</code>, you have to first render the UI, and then check for these events:</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><div class="example-wrap"><pre class="rust rust-example-rendered ignore">
+<span class="kw">use</span> <span class="ident">imgui_ext</span>::<span class="ident">prelude</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="ident">imgui_ext</span>::<span class="ident">Events</span>;
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">ImGuiExt</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Example</span> {
+    <span class="attribute">#[<span class="ident">imgui</span>(<span class="ident">checkbox</span>(<span class="ident">label</span> <span class="op">=</span> <span class="string">&quot;Checkbox&quot;</span>))]</span>
+    <span class="ident">check</span>: <span class="ident">bool</span>,
+}
+
+<span class="comment">// init imgui (ui)...</span>
+
+<span class="comment">// All events are stored as booleans in the returned type.</span>
+<span class="kw">let</span> <span class="ident">events</span>: <span class="ident">Events</span><span class="op">&lt;</span><span class="ident">Example</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">ui</span>.<span class="ident">imgui_ext</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">example</span>);
+
+<span class="kw">if</span> <span class="ident">events</span>.<span class="ident">check</span>() {
+    <span class="comment">// Checkbox value has changes.</span>
+    <span class="comment">// Do something...</span>
+}</pre></div>
+<p>In the above example, the checkbox event is mapped to the method <code>check()</code> of the type returned by
+the call to <code>ui.imgui_ext(...)</code>. The name of the method is the same as the field. You can override
+this value by defining the <code>catch</code> parameter in the annotation:</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><div class="example-wrap"><pre class="rust rust-example-rendered ignore">
+<span class="kw">use</span> <span class="ident">imgui_ext</span>::<span class="ident">prelude</span>::<span class="kw-2">*</span>;
+<span class="kw">use</span> <span class="ident">imgui_ext</span>::<span class="ident">Events</span>;
+
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">ImGuiExt</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Example</span> {
+    <span class="attribute">#[<span class="ident">imgui</span>(<span class="ident">checkbox</span>(<span class="ident">label</span> <span class="op">=</span> <span class="string">&quot;Checkbox&quot;</span>, <span class="ident">catch</span> <span class="op">=</span> <span class="string">&quot;checkbox_event&quot;</span>))]</span>
+    <span class="ident">check</span>: <span class="ident">bool</span>,
+}
+
+<span class="comment">// init imgui (ui)...</span>
+
+<span class="kw">let</span> <span class="ident">events</span>: <span class="ident">Events</span><span class="op">&lt;</span><span class="ident">Example</span><span class="op">&gt;</span> <span class="op">=</span> <span class="ident">ui</span>.<span class="ident">imgui_ext</span>(<span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">example</span>);
+
+<span class="kw">if</span> <span class="ident">events</span>.<span class="ident">checkbox_event</span>() {
+    <span class="comment">// Do something...</span>
+}</pre></div>
+<h2 id="nice-compiler-errors" class="section-header"><a href="#nice-compiler-errors">Nice compiler errors</a></h2>
+<p>UI correctness is checked at compile time. If you mistype an annotation, the compiler will point
+you directly to the issue:</p>
+
+<div class='information'><div class='tooltip ignore'>ⓘ<span class='tooltiptext'>This example is not tested</span></div></div><div class="example-wrap"><pre class="rust rust-example-rendered ignore">
+<span class="attribute">#[<span class="ident">derive</span>(<span class="ident">ImGuiExt</span>)]</span>
+<span class="kw">struct</span> <span class="ident">Example</span> {
+    <span class="attribute">#[<span class="ident">imgui</span>(<span class="ident">slider</span>(<span class="ident">min</span> <span class="op">=</span> <span class="number">0.0</span>))]</span>
+    <span class="ident">foo</span>: <span class="ident">f32</span>,
+}</pre></div>
+<pre><code class="language-nonrust">error: Parameter `max` missing.
+  --&gt; example/src/main.rs:10:13
+   |
+10 |     #[imgui(slider(min = 0.0))]
+   |             ^^^^^^
+</code></pre>
+<h2 id="contributions" class="section-header"><a href="#contributions">Contributions</a></h2>
+<p>Feedback, suggestions, and contributions, are very much welcome!</p>
+<p>Please file an issue or open a PR to <a href="https://github.com/germangb/imgui-ext"><code>germangb/imgui-ext</code></a> if you wish to do so.</p>
+</div><h2 id='reexports' class='section-header'><a href="#reexports">Re-exports</a></h2>
+<table><tr><td><code>pub use imgui_ext_derive::<a class="derive" href="../imgui_ext_derive/derive.ImGuiExt.html" title="derive imgui_ext_derive::ImGuiExt">ImGuiExt</a>;</code></td></tr></table><h2 id='modules' class='section-header'><a href="#modules">Modules</a></h2>
+<table><tr class='module-item'><td><a class="mod" href="bullet/index.html" title='imgui_ext::bullet mod'>bullet</a></td><td class='docblock-short'><p><code>bullet(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="button/index.html" title='imgui_ext::button mod'>button</a></td><td class='docblock-short'><p><code>button(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="checkbox/index.html" title='imgui_ext::checkbox mod'>checkbox</a></td><td class='docblock-short'><p><code>checkbox(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="color/index.html" title='imgui_ext::color mod'>color</a></td><td class='docblock-short'><p><code>color(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="display/index.html" title='imgui_ext::display mod'>display</a></td><td class='docblock-short'><p><code>display(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="drag/index.html" title='imgui_ext::drag mod'>drag</a></td><td class='docblock-short'><p><code>drag(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="image/index.html" title='imgui_ext::image mod'>image</a></td><td class='docblock-short'><p><code>image(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="input/index.html" title='imgui_ext::input mod'>input</a></td><td class='docblock-short'><p><code>input(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="layout/index.html" title='imgui_ext::layout mod'>layout</a></td><td class='docblock-short'><p>Support for some (basic) layout annotations.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="nested/index.html" title='imgui_ext::nested mod'>nested</a></td><td class='docblock-short'><p><code>nested(...)</code> docs (used to build nested UIs).</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="prelude/index.html" title='imgui_ext::prelude mod'>prelude</a></td><td class='docblock-short'></td></tr><tr class='module-item'><td><a class="mod" href="progress/index.html" title='imgui_ext::progress mod'>progress</a></td><td class='docblock-short'><p><code>progress(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="slider/index.html" title='imgui_ext::slider mod'>slider</a></td><td class='docblock-short'><p><code>slider(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="text/index.html" title='imgui_ext::text mod'>text</a></td><td class='docblock-short'><p><code>text(...)</code> docs.</p>
+</td></tr><tr class='module-item'><td><a class="mod" href="tree/index.html" title='imgui_ext::tree mod'>tree</a></td><td class='docblock-short'><p><code>tree(...)</code> docs.</p>
+</td></tr></table><h2 id='traits' class='section-header'><a href="#traits">Traits</a></h2>
+<table><tr class='module-item'><td><a class="trait" href="trait.ImGuiExt.html" title='imgui_ext::ImGuiExt trait'>ImGuiExt</a></td><td class='docblock-short'><p>Trait implemented by the derive macro.</p>
+</td></tr><tr class='module-item'><td><a class="trait" href="trait.UiExt.html" title='imgui_ext::UiExt trait'>UiExt</a></td><td class='docblock-short'><p>Extension trait for imgui Ui.</p>
+</td></tr></table><h2 id='functions' class='section-header'><a href="#functions">Functions</a></h2>
+<table><tr class='module-item'><td><a class="fn" href="fn.imgui_ext.html" title='imgui_ext::imgui_ext fn'>imgui_ext</a></td><td class='docblock-short'><p>Render imgui UI and collect all the events</p>
+</td></tr></table><h2 id='types' class='section-header'><a href="#types">Type Definitions</a></h2>
+<table><tr class='module-item'><td><a class="type" href="type.Events.html" title='imgui_ext::Events type'>Events</a></td><td class='docblock-short'><p>Alias for the <code>ImGuiExt::Events</code> associated type.</p>
+</td></tr></table></section><section id="search" class="content hidden"></section><section class="footer"></section><aside id="help" class="hidden"><div><h1 class="hidden">Help</h1><div class="shortcuts"><h2>Keyboard Shortcuts</h2><dl><dt><kbd>?</kbd></dt><dd>Show this help dialog</dd><dt><kbd>S</kbd></dt><dd>Focus the search field</dd><dt><kbd>↑</kbd></dt><dd>Move up in search results</dd><dt><kbd>↓</kbd></dt><dd>Move down in search results</dd><dt><kbd>↹</kbd></dt><dd>Switch tab</dd><dt><kbd>&#9166;</kbd></dt><dd>Go to active search result</dd><dt><kbd>+</kbd></dt><dd>Expand all sections</dd><dt><kbd>-</kbd></dt><dd>Collapse all sections</dd></dl></div><div class="infos"><h2>Search Tricks</h2><p>Prefix searches with a type followed by a colon (e.g., <code>fn:</code>) to restrict the search to a given type.</p><p>Accepted types are: <code>fn</code>, <code>mod</code>, <code>struct</code>, <code>enum</code>, <code>trait</code>, <code>type</code>, <code>macro</code>, and <code>const</code>.</p><p>Search functions by type signature (e.g., <code>vec -> usize</code> or <code>* -> vec</code>)</p><p>Search multiple things at once by splitting your query with comma (e.g., <code>str,u8</code> or <code>String,struct:Vec,test</code>)</p></div></div></aside><script>window.rootPath = "../";window.currentCrate = "imgui_ext";</script><script src="../aliases.js"></script><script src="../main.js"></script><script defer src="../search-index.js"></script></body></html>
